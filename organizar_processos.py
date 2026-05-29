@@ -18,9 +18,10 @@ import os
 import queue
 import re
 import shutil
-import tempfile
 import threading
 import tkinter as tk
+import unicodedata
+from copy import deepcopy
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -28,6 +29,8 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Iterable
 
 from docx import Document
+from docx.enum.text import WD_COLOR_INDEX
+from docx.shared import Pt
 from pypdf import PdfReader
 
 
@@ -35,6 +38,14 @@ PASTA_PADRAO = r"C:\Users\Usuario\Desktop\Processos"
 PASTA_NAO_IDENTIFICADOS = "_nao_identificados"
 PASTA_PETICOES = Path(__file__).parent / "Petições"
 CACHE_DIR = ".cache_texto"
+CACHE_TEMPLATES_DOCX = Path(__file__).parent / ".cache_templates_docx"
+
+# Placeholder em template: "(texto em minúsculo até 40 chars, sem pontuação)".
+# Pega tanto os conhecidos ("(secretaria)") quanto novos ("(testemunha)"),
+# mas ignora parentéticas naturais com pontuação ou maiúsculas mistas.
+RE_PLACEHOLDER_TEMPLATE = re.compile(
+    r"\(([a-záéíóúâêôãõçñü][a-záéíóúâêôãõçñü ]{1,38}[a-záéíóúâêôãõçñü])\)"
+)
 
 # Código do tribunal no CNJ (.J.TR.) → sigla UF. Cobre justiça estadual (J=8).
 # Outras justiças (federal, trabalhista) ficam vazias — usuário preenche manual.
@@ -49,6 +60,26 @@ MAPA_UF_CNJ = {
 
 # Mapa de tribunal a partir do CNJ (J=8 → estadual; mesmo TR. da MAPA_UF_CNJ).
 MAPA_TRIBUNAL_CNJ = {uf_code: f"TJ{uf}" for uf_code, uf in MAPA_UF_CNJ.items()}
+
+# OAB do advogado do escritório (Felipe Machado) por UF — usado para
+# autopreencher os campos OAB UF / OAB Nº ao selecionar um processo.
+OAB_ESCRITORIO_POR_UF: dict[str, str] = {
+    "AM": "A 1543",
+    "BA": "49.510",
+    "CE": "37.928-A",
+    "DF": "55.703",
+    "ES": "26.487",
+    "GO": "39.882-A",
+    "MG": "104.784",
+    "MS": "22.345-A",
+    "MT": "21.457-A",
+    "PE": "45.442",
+    "PR": "70.339",
+    "RJ": "186.328",
+    "RN": "01.049-A",
+    "SC": "51.064",
+    "SP": "346.433",
+}
 
 # Padrão CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO  (ex.: 4004459-04.2026.8.26.0248)
 RE_NUMERO_CNJ = re.compile(r"\b\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}\b")
@@ -195,6 +226,61 @@ RE_EXTRATO_PARTE = re.compile(
 )
 
 
+# Heurística de seções da petição. HEADER = endereçamento; CLOSING = fórmula de
+# fechamento ("Termos em que pede deferimento"); BODY = todo o resto.
+RE_ENDERECAMENTO = re.compile(
+    r"^\s*(EXCELENT[IÍ]SSIM|MERIT[IÍ]SSIM|AO\s+JU[IÍ]ZO|JU[IÍ]Z(\(A\))?|VARA\s+|"
+    r"FORO\s+|COMARCA\s+|TRIBUNAL\s+)",
+    re.IGNORECASE,
+)
+RE_FECHAMENTO = re.compile(
+    r"(termos\s+em\s+que|nestes\s+termos|por\s+todo\s+o\s+exposto|"
+    r"pede\s+deferimento|p\.\s*deferimento|pede\s+e\s+espera\s+deferimento)",
+    re.IGNORECASE,
+)
+
+# Heurística de gênero. Overrides para nomes que quebram a regra do "termina em a".
+OVERRIDES_FEMININOS: set[str] = {
+    "isabel", "raquel", "carmen", "ester", "esther", "miriam", "ines",
+    "soledad", "beatriz", "iris", "agar",
+}
+OVERRIDES_MASCULINOS: set[str] = {
+    "joshua", "elias", "tobias", "isaias", "jeremias", "matias", "barnabas",
+    "nicolas", "lucas", "jonas", "ezequias", "josias",
+}
+
+# Vocabulário de papéis processuais flexionáveis.
+FLEXOES: dict[str, dict[str, str]] = {
+    "autor":      {"ms": "autor",      "fs": "autora",      "mp": "autores",      "fp": "autoras"},
+    "réu":        {"ms": "réu",        "fs": "ré",          "mp": "réus",         "fp": "rés"},
+    "executado":  {"ms": "executado",  "fs": "executada",   "mp": "executados",   "fp": "executadas"},
+    "requerido":  {"ms": "requerido",  "fs": "requerida",   "mp": "requeridos",   "fp": "requeridas"},
+    "devedor":    {"ms": "devedor",    "fs": "devedora",    "mp": "devedores",    "fp": "devedoras"},
+    "requerente": {"ms": "requerente", "fs": "requerente",  "mp": "requerentes",  "fp": "requerentes"},
+    "exequente":  {"ms": "exequente",  "fs": "exequente",   "mp": "exequentes",   "fp": "exequentes"},
+}
+# Família de preposições/artigos. Trocadas em conjunto com a forma flexionada
+# para manter regência ("do executado" ↔ "da executada"; "pelo autor" ↔ "pela autora").
+PREP_FAMILIAS: list[dict[str, str]] = [
+    {"ms": "o",    "fs": "a",    "mp": "os",   "fp": "as"},
+    {"ms": "do",   "fs": "da",   "mp": "dos",  "fp": "das"},
+    {"ms": "no",   "fs": "na",   "mp": "nos",  "fp": "nas"},
+    {"ms": "ao",   "fs": "à",    "mp": "aos",  "fp": "às"},
+    {"ms": "pelo", "fs": "pela", "mp": "pelos","fp": "pelas"},
+]
+TODAS_PREPS: set[str] = {p for fam in PREP_FAMILIAS for p in fam.values()}
+
+# Mapeia cada role-base para o "lado" do processo (autor/réu) usado no contexto.
+ROLE_TO_SIDE: dict[str, str] = {
+    "autor": "autor", "requerente": "autor", "exequente": "autor",
+    "réu": "reu", "requerido": "reu", "executado": "reu", "devedor": "reu",
+}
+
+# Padronização de layout do consolidado.
+SPACE_AFTER_PT = 6
+LINE_SPACING = 1.5
+
+
 @dataclass
 class Advogado:
     nome: str = ""
@@ -209,6 +295,15 @@ class Parte:
     documento: str = ""         # CNPJ/CPF (com máscara preservada)
     tipo: str = ""              # "Pessoa Jurídica" / "Pessoa Física"
     advogados: list[Advogado] = field(default_factory=list)
+
+
+@dataclass
+class Contexto:
+    """Gênero/número derivados das partes processuais, usado para flexão."""
+    genero_autor: str = "m"   # "m" | "f"
+    numero_autor: str = "s"   # "s" | "p"
+    genero_reu: str = "m"
+    numero_reu: str = "s"
 
 
 @dataclass
@@ -367,6 +462,26 @@ def _inferir_tribunal(numero_cnj: str) -> tuple[str, str]:
         return "", ""
     chave = f"{m.group(1)}.{m.group(2)}"
     return MAPA_TRIBUNAL_CNJ.get(chave, ""), MAPA_UF_CNJ.get(chave, "")
+
+
+def _municipio_de_comarca(comarca: str) -> str:
+    """Extrai o nome do município de uma string tipo 'Comarca de Carapicuíba'."""
+    if not comarca:
+        return ""
+    s = comarca.strip()
+    for prefixo in ("Comarca de ", "Foro Regional de ", "Foro de "):
+        if s.lower().startswith(prefixo.lower()):
+            return s[len(prefixo):].strip()
+    return s
+
+
+def _oab_completa(uf: str, numero: str) -> str:
+    """Formata a OAB completa no padrão 'OAB/UF NÚMERO' (ex.: 'OAB/SP 346.433')."""
+    uf = (uf or "").strip().upper()
+    numero = (numero or "").strip()
+    if uf and numero:
+        return f"OAB/{uf} {numero}"
+    return numero or (f"OAB/{uf}" if uf else "")
 
 
 def _parse_orgao_julgador(orgao: str) -> tuple[str, str]:
@@ -1394,6 +1509,235 @@ def _carregar_processos(pasta: Path) -> list[Processo]:
 
 
 # ---------------------------------------------------------------------------
+# Cache de conversão .doc → .docx + extração de placeholders
+# ---------------------------------------------------------------------------
+
+def _obter_docx_cacheado(template_path: Path) -> Path:
+    """Devolve um .docx pronto pra leitura via python-docx.
+    Converte .doc → .docx via win32com e cacheia por mtime+size."""
+    if template_path.suffix.lower() == ".docx":
+        return template_path
+    CACHE_TEMPLATES_DOCX.mkdir(parents=True, exist_ok=True)
+    st = template_path.stat()
+    raw = f"{template_path.name}|{st.st_size}|{int(st.st_mtime)}"
+    h = hashlib.md5(raw.encode()).hexdigest()
+    cached = CACHE_TEMPLATES_DOCX / f"{h}.docx"
+    if cached.exists():
+        return cached
+
+    import win32com.client
+    word = win32com.client.Dispatch("Word.Application")
+    word.Visible = False
+    doc = None
+    try:
+        doc = word.Documents.Open(str(template_path.resolve()))
+        doc.SaveAs(str(cached), FileFormat=16)
+        doc.Close()
+        doc = None
+    finally:
+        if doc is not None:
+            try:
+                doc.Close(SaveChanges=False)
+            except Exception:
+                pass
+        try:
+            word.Quit()
+        except Exception:
+            pass
+    return cached
+
+
+_PALAVRAS_IMOBILIARIO = ("imobiliári", "imovel", "imóvel", "matricula", "matrícula")
+
+
+def _template_eh_imobiliario(nome_arquivo: str) -> bool:
+    """Heurística: o template trata de imóvel(eis)? Olha o nome do arquivo."""
+    n = _strip_accents(nome_arquivo).lower()
+    alvos = [_strip_accents(p).lower() for p in _PALAVRAS_IMOBILIARIO]
+    return any(p in n for p in alvos)
+
+
+def _extrair_placeholders_template(template_path: Path) -> set[str]:
+    """Lê o template e devolve os placeholders crus (em minúsculo, sem parênteses)."""
+    docx_path = _obter_docx_cacheado(template_path)
+    doc = Document(str(docx_path))
+    encontrados: set[str] = set()
+
+    def _scan(texto: str) -> None:
+        for m in RE_PLACEHOLDER_TEMPLATE.finditer(texto):
+            encontrados.add(m.group(1).strip().lower())
+
+    for p in doc.paragraphs:
+        _scan(p.text)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    _scan(p.text)
+    return encontrados
+
+
+# ---------------------------------------------------------------------------
+# Heurísticas de gênero/número e classificação de seções
+# ---------------------------------------------------------------------------
+
+def _strip_accents(s: str) -> str:
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)
+    )
+
+
+def _detectar_genero(nome: str, tipo: str) -> str:
+    """Heurística: PJ → m; PF feminino se primeiro nome termina em 'a' (com overrides)."""
+    tipo_low = tipo.lower()
+    if "jurídica" in tipo_low or "juridica" in tipo_low:
+        return "m"
+    nome_strip = nome.strip()
+    if not nome_strip:
+        return "m"
+    primeiro = nome_strip.split()[0]
+    primeiro_norm = _strip_accents(primeiro).lower()
+    if primeiro_norm in OVERRIDES_FEMININOS:
+        return "f"
+    if primeiro_norm in OVERRIDES_MASCULINOS:
+        return "m"
+    return "f" if primeiro_norm.endswith("a") else "m"
+
+
+def _construir_contexto(proc: Processo) -> Contexto:
+    """Deriva Contexto (gênero/número de autor e réu) a partir das partes do processo."""
+    ativo = {p.upper() for p in PAPEIS_ATIVO}
+    passivo = {p.upper() for p in PAPEIS_PASSIVO}
+    autores = [p for p in proc.partes if p.papel.upper() in ativo]
+    reus = [p for p in proc.partes if p.papel.upper() in passivo]
+
+    def _resolver(lista: list[Parte]) -> tuple[str, str]:
+        if not lista:
+            return ("m", "s")
+        generos = [_detectar_genero(p.nome, p.tipo) for p in lista]
+        numero = "p" if len(lista) > 1 else "s"
+        # Plural masculino vence em gênero misto (norma do português).
+        if numero == "p" and "m" in generos:
+            return ("m", "p")
+        return (generos[0], numero)
+
+    g_autor, n_autor = _resolver(autores)
+    g_reu, n_reu = _resolver(reus)
+    return Contexto(
+        genero_autor=g_autor, numero_autor=n_autor,
+        genero_reu=g_reu, numero_reu=n_reu,
+    )
+
+
+def _norm_paragrafo(texto: str) -> str:
+    """Chave de dedup: whitespace colapsado, lowercase, pontuação final removida."""
+    return re.sub(r"\s+", " ", texto).strip().lower().rstrip(".,;:")
+
+
+def _classificar_paragrafos(doc: Document) -> list[str]:
+    """Marca cada parágrafo do doc como HEADER, BODY ou CLOSING (máquina de estados)."""
+    zonas: list[str] = []
+    estado = "HEADER"
+    viu_endereco = False
+    for p in doc.paragraphs:
+        texto = p.text.strip()
+        if not texto:
+            zonas.append(estado)
+            continue
+        if estado == "HEADER":
+            if RE_ENDERECAMENTO.match(texto):
+                viu_endereco = True
+                zonas.append("HEADER")
+                continue
+            # Primeiro parágrafo não-vazio sem padrão de endereçamento: vira BODY.
+            estado = "BODY"
+        if estado == "BODY" and RE_FECHAMENTO.search(texto):
+            estado = "CLOSING"
+        zonas.append(estado)
+    _ = viu_endereco  # informativo; usar futuramente p/ injetar fechamento default.
+    return zonas
+
+
+# ---------------------------------------------------------------------------
+# Flexão de gênero/número
+# ---------------------------------------------------------------------------
+
+_TODAS_FORMAS: set[str] = {f for variantes in FLEXOES.values() for f in variantes.values()}
+_FORMA_PARA_BASE: dict[str, str] = {
+    f.lower(): base
+    for base, variantes in FLEXOES.items()
+    for f in variantes.values()
+}
+_PREPS_RE = "|".join(re.escape(p) for p in sorted(TODAS_PREPS, key=len, reverse=True))
+_FORMAS_RE = "|".join(re.escape(f) for f in sorted(_TODAS_FORMAS, key=len, reverse=True))
+_RE_PREP_ROLE = re.compile(rf"\b({_PREPS_RE})\s+({_FORMAS_RE})\b", re.IGNORECASE)
+_RE_BARE_ROLE = re.compile(rf"\b({_FORMAS_RE})\b", re.IGNORECASE)
+# Marcadores de citação legal — pulamos o parágrafo inteiro para preservar voz original.
+_RE_CITACAO = re.compile(
+    r"(\bart\.|\bArt\.|§|\bincis[oa]\b|\bpar[áa]grafo\b|[\"“”])",
+    re.IGNORECASE,
+)
+
+
+def _preservar_caso(original: str, novo: str) -> str:
+    if not original:
+        return novo
+    if original.isupper():
+        return novo.upper()
+    if original[0].isupper():
+        return novo[:1].upper() + novo[1:]
+    return novo
+
+
+def _ajustar_prep(prep: str, key: str) -> str:
+    prep_low = prep.lower()
+    for fam in PREP_FAMILIAS:
+        if prep_low in fam.values():
+            return fam[key]
+    return prep
+
+
+def _inflexionar_texto(texto: str, ctx: Contexto | None) -> str:
+    """Aplica flexão sobre vocabulário controlado, preservando capitalização."""
+    if not ctx or not texto:
+        return texto
+    if _RE_CITACAO.search(texto):
+        return texto
+
+    def _replace_prep(m: re.Match) -> str:
+        prep_orig, forma_orig = m.group(1), m.group(2)
+        base = _FORMA_PARA_BASE.get(forma_orig.lower())
+        if not base:
+            return m.group(0)
+        side = ROLE_TO_SIDE.get(base)
+        if not side:
+            return m.group(0)
+        g = ctx.genero_autor if side == "autor" else ctx.genero_reu
+        n = ctx.numero_autor if side == "autor" else ctx.numero_reu
+        key = g + n
+        forma_nova = FLEXOES[base][key]
+        prep_nova = _ajustar_prep(prep_orig, key)
+        return f"{_preservar_caso(prep_orig, prep_nova)} {_preservar_caso(forma_orig, forma_nova)}"
+
+    texto = _RE_PREP_ROLE.sub(_replace_prep, texto)
+
+    def _replace_bare(m: re.Match) -> str:
+        forma_orig = m.group(1)
+        base = _FORMA_PARA_BASE.get(forma_orig.lower())
+        if not base:
+            return m.group(0)
+        side = ROLE_TO_SIDE.get(base)
+        if not side:
+            return m.group(0)
+        g = ctx.genero_autor if side == "autor" else ctx.genero_reu
+        n = ctx.numero_autor if side == "autor" else ctx.numero_reu
+        forma_nova = FLEXOES[base][g + n]
+        return _preservar_caso(forma_orig, forma_nova)
+
+    return _RE_BARE_ROLE.sub(_replace_bare, texto)
+
+
+# ---------------------------------------------------------------------------
 # GUI
 # ---------------------------------------------------------------------------
 
@@ -1427,6 +1771,7 @@ class App(tk.Tk):
         self.var_municipio = tk.StringVar(value="")
         self.var_estado = tk.StringVar(value="")
         self.var_oab_uf = tk.StringVar(value="")
+        self.var_oab_numero = tk.StringVar(value="")
         self.var_endereco_reu = tk.StringVar(value="")
         self.var_valor_causa = tk.StringVar(value="")
         self.var_comarca = tk.StringVar(value="")
@@ -1439,8 +1784,29 @@ class App(tk.Tk):
         self._processos_carregados: list[Processo] = []
         self._proc_selecionado: Processo | None = None
         self._templates_vars: dict[Path, tk.BooleanVar] = {}
+        self.var_documento_unico = tk.BooleanVar(value=True)
+        self.var_multiplos_imoveis = tk.BooleanVar(value=False)
         self._pesquisa_log_queue: queue.Queue[str] = queue.Queue()
         self._gen_worker: threading.Thread | None = None
+
+        # Form inteligente: estado para destaque baseado nos templates marcados.
+        self._templates_placeholders: dict[Path, set[str]] = {}
+        self._campos_obrigatorios: set[str] = set()
+        self._campos_desconhecidos: set[str] = set()
+        self._labels_edit: dict[str, ttk.Label] = {}
+        self._entries_edit: dict[str, ttk.Entry] = {}
+        self._rotulos_edit: dict[str, str] = {}
+        self._dinamicos: dict[str, tuple[ttk.Label, ttk.Entry, tk.StringVar]] = {}
+        self._frame_dinamicos: ttk.LabelFrame | None = None
+        self._frame_imoveis: ttk.Frame | None = None
+        self._chk_imoveis: ttk.Checkbutton | None = None
+        self._scan_tpls_thread: threading.Thread | None = None
+
+        # Espelha Secretaria ↔ Vara: alterar um campo replica no outro.
+        # Flag de guarda evita loop infinito quando o trace dispara reciprocamente.
+        self._espelhando_sec_vara = False
+        self.var_secretaria.trace_add("write", self._espelhar_secretaria_para_vara)
+        self.var_vara.trace_add("write", self._espelhar_vara_para_secretaria)
 
         self._build_widgets()
         self.after(100, self._drain_ui_queues)
@@ -1590,6 +1956,7 @@ class App(tk.Tk):
             ("municipio", "Município:"),
             ("estado", "Estado:"),
             ("oab_uf", "OAB UF:"),
+            ("oab_numero", "OAB Nº:"),
             ("endereco_reu", "Endereço do réu:"),
             ("valor_causa", "Valor da causa:"),
             ("comarca", "Comarca:"),
@@ -1601,14 +1968,33 @@ class App(tk.Tk):
         ]
         for i, (atr, rotulo) in enumerate(campos_edit):
             var = getattr(self, f"var_{atr}")
-            ttk.Label(f_edicao, text=rotulo, anchor="e", width=18).grid(
-                row=i, column=0, sticky="e", padx=(4, 2), pady=1
-            )
+            lbl = ttk.Label(f_edicao, text=rotulo, anchor="e", width=18)
+            lbl.grid(row=i, column=0, sticky="e", padx=(4, 2), pady=1)
+            self._labels_edit[atr] = lbl
+            self._rotulos_edit[atr] = rotulo
             entry = ttk.Entry(f_edicao, textvariable=var, width=28)
             entry.grid(row=i, column=1, sticky="w", padx=(0, 4), pady=1)
-            if atr in ("valor_causa", "comarca", "vara", "tribunal", "endereco_foro", "juiz", "assunto"):
+            self._entries_edit[atr] = entry
+            if atr in ("valor_causa", "comarca", "vara", "tribunal", "endereco_foro",
+                       "juiz", "assunto", "municipio", "estado", "oab_uf", "oab_numero"):
                 self._entries_auto[str(var)] = entry
                 entry.configure(foreground="gray")
+
+        # Linha extra dentro de f_edicao para o checkbox "Múltiplos imóveis"
+        # (aparece somente quando o template é imobiliário).
+        self._frame_imoveis = ttk.Frame(f_edicao)
+        self._chk_imoveis = ttk.Checkbutton(
+            self._frame_imoveis,
+            text="Múltiplos imóveis",
+            variable=self.var_multiplos_imoveis,
+        )
+        self._chk_imoveis.pack(side="left")
+        # Não usa .grid agora — será posicionado dinamicamente em _atualizar_campos_imoveis.
+
+        self._frame_dinamicos = ttk.LabelFrame(
+            f_detalhes, text="Campos adicionais (placeholders novos)"
+        )
+        # Não chamamos .pack() agora — o frame aparece só quando há campos dinâmicos.
 
         f_templates = ttk.LabelFrame(f_detalhes, text="Modelos de petição")
         f_templates.pack(fill="x", padx=4, pady=2)
@@ -1639,6 +2025,10 @@ class App(tk.Tk):
         f_btn_t.pack(fill="x", padx=4, pady=2)
         ttk.Button(f_btn_t, text="Marcar todos", command=self._marcar_todos_templates).pack(side="left")
         ttk.Button(f_btn_t, text="Desmarcar todos", command=self._desmarcar_todos_templates).pack(side="left", padx=4)
+        ttk.Checkbutton(
+            f_btn_t, text="Gerar documento único",
+            variable=self.var_documento_unico,
+        ).pack(side="left", padx=12)
 
         f_gerar = ttk.Frame(f_detalhes)
         f_gerar.pack(fill="x", padx=4, pady=2)
@@ -1675,6 +2065,24 @@ class App(tk.Tk):
         self.txt.configure(state="normal")
         self.txt.delete("1.0", "end")
         self.txt.configure(state="disabled")
+
+    def _espelhar_secretaria_para_vara(self, *_args) -> None:
+        if self._espelhando_sec_vara:
+            return
+        self._espelhando_sec_vara = True
+        try:
+            self.var_vara.set(self.var_secretaria.get())
+        finally:
+            self._espelhando_sec_vara = False
+
+    def _espelhar_vara_para_secretaria(self, *_args) -> None:
+        if self._espelhando_sec_vara:
+            return
+        self._espelhando_sec_vara = True
+        try:
+            self.var_secretaria.set(self.var_vara.get())
+        finally:
+            self._espelhando_sec_vara = False
 
     def _log(self, msg: str) -> None:
         self._log_queue.put(msg)
@@ -1862,6 +2270,10 @@ class App(tk.Tk):
             "endereco_foro": proc.foro_endereco,
             "juiz": proc.juiz,
             "assunto": proc.assunto,
+            "municipio": _municipio_de_comarca(proc.comarca),
+            "estado": proc.uf,
+            "oab_uf": proc.uf,
+            "oab_numero": OAB_ESCRITORIO_POR_UF.get((proc.uf or "").upper(), ""),
         }
         for atr, val in auto_map.items():
             var = getattr(self, f"var_{atr}", None)
@@ -1883,16 +2295,147 @@ class App(tk.Tk):
                 if f.suffix.lower() in (".doc", ".docx"):
                     var = tk.BooleanVar(value=False)
                     self._templates_vars[f] = var
-                    cb = ttk.Checkbutton(self._templates_inner, text=f.stem, variable=var)
+                    cb = ttk.Checkbutton(
+                        self._templates_inner, text=f.stem, variable=var,
+                        command=self._on_template_toggle,
+                    )
                     cb.pack(anchor="w")
+        self._scan_templates_em_background()
+        self._on_template_toggle()
 
     def _marcar_todos_templates(self) -> None:
         for var in self._templates_vars.values():
             var.set(True)
+        self._on_template_toggle()
 
     def _desmarcar_todos_templates(self) -> None:
         for var in self._templates_vars.values():
             var.set(False)
+        self._on_template_toggle()
+
+    def _scan_templates_em_background(self) -> None:
+        if self._scan_tpls_thread and self._scan_tpls_thread.is_alive():
+            return
+        pendentes = [
+            p for p in self._templates_vars
+            if p not in self._templates_placeholders
+        ]
+        if not pendentes:
+            return
+
+        self._pesquisa_log_queue.put(
+            f"Escaneando placeholders de {len(pendentes)} template(s)...\n"
+        )
+
+        def run() -> None:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+            for p in pendentes:
+                try:
+                    phs = _extrair_placeholders_template(p)
+                except Exception as exc:
+                    self._pesquisa_log_queue.put(f"! Erro escaneando {p.name}: {exc}\n")
+                    phs = set()
+                self._templates_placeholders[p] = phs
+                # Atualiza destaques na main thread sempre que um template é processado.
+                self.after(0, self._on_template_toggle)
+            self._pesquisa_log_queue.put("Escaneamento de templates concluído.\n")
+
+        self._scan_tpls_thread = threading.Thread(target=run, daemon=True)
+        self._scan_tpls_thread.start()
+
+    def _on_template_toggle(self) -> None:
+        obrigatorias: set[str] = set()
+        desconhecidos: set[str] = set()
+        algum_imobiliario = False
+        for tmpl, var in self._templates_vars.items():
+            if not var.get():
+                continue
+            if _template_eh_imobiliario(tmpl.name):
+                algum_imobiliario = True
+            for ph in self._templates_placeholders.get(tmpl, set()):
+                if ph in PLACEHOLDERS_PETICAO:
+                    obrigatorias.add(PLACEHOLDERS_PETICAO[ph])
+                elif ph in PLACEHOLDERS_AUTO:
+                    # Resolvido automaticamente — não pede ao usuário.
+                    continue
+                else:
+                    desconhecidos.add(ph)
+        # Secretaria e Vara são espelhadas: se uma é exigida, mostramos as duas.
+        if "secretaria" in obrigatorias or "vara" in obrigatorias:
+            obrigatorias.add("secretaria")
+            obrigatorias.add("vara")
+        self._campos_obrigatorios = obrigatorias
+        self._campos_desconhecidos = desconhecidos
+        self._templates_tem_imovel = algum_imobiliario
+        self._atualizar_destaques_campos()
+        self._atualizar_campos_dinamicos()
+        self._atualizar_campo_imoveis()
+
+    def _atualizar_destaques_campos(self) -> None:
+        for atr, lbl in self._labels_edit.items():
+            rotulo = self._rotulos_edit.get(atr, "")
+            entry = self._entries_edit.get(atr)
+            if atr in self._campos_obrigatorios:
+                lbl.configure(text=f"* {rotulo}", foreground="#cc0000")
+                lbl.grid()
+                if entry is not None:
+                    entry.grid()
+            else:
+                lbl.grid_remove()
+                if entry is not None:
+                    entry.grid_remove()
+
+    def _atualizar_campo_imoveis(self) -> None:
+        if self._frame_imoveis is None:
+            return
+        # Posiciona o checkbox em uma nova linha do f_edicao (logo abaixo dos campos).
+        if getattr(self, "_templates_tem_imovel", False):
+            n_linhas = len(self._labels_edit)
+            self._frame_imoveis.grid(
+                row=n_linhas, column=0, columnspan=2,
+                sticky="w", padx=(4, 4), pady=(4, 1),
+            )
+        else:
+            self._frame_imoveis.grid_remove()
+
+    def _atualizar_campos_dinamicos(self) -> None:
+        if self._frame_dinamicos is None:
+            return
+        # Cria entries para placeholders ainda não vistos.
+        for ph in self._campos_desconhecidos:
+            if ph in self._dinamicos:
+                continue
+            var = tk.StringVar()
+            rotulo = ph.capitalize() + ":"
+            lbl = ttk.Label(
+                self._frame_dinamicos, text=f"* {rotulo}",
+                anchor="e", width=18, foreground="#cc0000",
+            )
+            entry = ttk.Entry(self._frame_dinamicos, textvariable=var, width=28)
+            self._dinamicos[ph] = (lbl, entry, var)
+
+        # Reposiciona/esconde conforme estado atual.
+        row = 0
+        qualquer_visivel = False
+        for ph, (lbl, entry, _) in self._dinamicos.items():
+            if ph in self._campos_desconhecidos:
+                lbl.grid(row=row, column=0, sticky="e", padx=(4, 2), pady=1)
+                entry.grid(row=row, column=1, sticky="w", padx=(0, 4), pady=1)
+                qualquer_visivel = True
+                row += 1
+            else:
+                lbl.grid_remove()
+                entry.grid_remove()
+
+        empacotado = self._frame_dinamicos.winfo_manager() == "pack"
+        if qualquer_visivel and not empacotado:
+            self._frame_dinamicos.pack(fill="x", padx=4, pady=2)
+        elif not qualquer_visivel and empacotado:
+            self._frame_dinamicos.pack_forget()
 
     def _escolher_pesquisa_destino(self) -> None:
         path = filedialog.askdirectory(initialdir=self.var_pesquisa_destino.get() or ".")
@@ -1919,29 +2462,44 @@ class App(tk.Tk):
             f"Gerando {len(templates_sel)} petição(ões) para {proc.numero} ...\n"
         )
 
+        # Secretaria e Vara são espelhadas — o mesmo valor alimenta ambos placeholders.
+        vara_val = self.var_vara.get() or proc.vara
         dados = {
             "numero": proc.numero,
             "classe": proc.classe,
             "assunto": proc.assunto,
-            "tribunal": proc.tribunal,
+            "tribunal": self.var_tribunal.get() or proc.tribunal,
             "uf": proc.uf,
-            "comarca": proc.comarca,
-            "vara": proc.vara,
-            "juiz": proc.juiz,
+            "comarca": self.var_comarca.get() or proc.comarca,
+            "vara": vara_val,
+            "juiz": self.var_juiz.get() or proc.juiz,
             "autor": _autor(proc) or self.var_secretaria.get(),
             "reu": _reus_joined(proc),
             "valor_causa": self.var_valor_causa.get() or proc.valor_causa,
-            "secretaria": self.var_secretaria.get(),
-            "municipio": self.var_municipio.get() or proc.comarca,
+            "secretaria": vara_val,
+            "municipio": self.var_municipio.get() or _municipio_de_comarca(proc.comarca),
             "estado": self.var_estado.get() or proc.uf,
-            "oab_uf": self.var_oab_uf.get(),
+            "oab_uf": self.var_oab_uf.get() or proc.uf,
+            "oab_numero": self.var_oab_numero.get() or OAB_ESCRITORIO_POR_UF.get((proc.uf or "").upper(), ""),
+            "oab_completa": _oab_completa(
+                self.var_oab_uf.get() or proc.uf,
+                self.var_oab_numero.get() or OAB_ESCRITORIO_POR_UF.get((proc.uf or "").upper(), ""),
+            ),
             "endereco_reu": self.var_endereco_reu.get(),
-            "vara_edit": self.var_vara.get() or proc.vara,
+            "vara_edit": vara_val,
             "tribunal_edit": self.var_tribunal.get() or proc.tribunal,
             "endereco_foro": self.var_endereco_foro.get() or proc.foro_endereco,
             "juiz_edit": self.var_juiz.get() or proc.juiz,
             "assunto_edit": self.var_assunto.get() or proc.assunto,
         }
+        for ph, (_, _, var) in self._dinamicos.items():
+            val = var.get().strip()
+            if val:
+                dados[ph] = val
+
+        documento_unico = self.var_documento_unico.get()
+        ctx = _construir_contexto(proc)
+        multiplos_imoveis = bool(self.var_multiplos_imoveis.get())
 
         def run() -> None:
             gerar_peticoes(
@@ -1950,6 +2508,9 @@ class App(tk.Tk):
                 destino,
                 dados,
                 log=lambda msg: self._pesquisa_log_queue.put(msg + "\n"),
+                documento_unico=documento_unico,
+                ctx=ctx,
+                multiplos_imoveis=multiplos_imoveis,
             )
             self._pesquisa_log_queue.put("\nConcluído.\n")
 
@@ -1979,12 +2540,29 @@ def gerar_peticoes(
     destino: Path,
     dados: dict,
     log: Callable[[str], None] = print,
+    documento_unico: bool = False,
+    ctx: Contexto | None = None,
+    multiplos_imoveis: bool = False,
 ) -> None:
     destino.mkdir(parents=True, exist_ok=True)
 
+    if documento_unico and len(templates) > 1:
+        try:
+            saida = _gerar_peticao_consolidada(
+                templates, destino, dados, ctx,
+                multiplos_imoveis=multiplos_imoveis,
+            )
+            log(f"  OK: documento consolidado -> {saida.name}")
+        except Exception as exc:
+            log(f"  ERRO ao consolidar: {exc}")
+        return
+
     for tmpl in templates:
         try:
-            _gerar_peticao_unica(tmpl, destino, dados)
+            _gerar_peticao_unica(
+                tmpl, destino, dados, ctx,
+                multiplos_imoveis=multiplos_imoveis,
+            )
             log(f"  OK: {tmpl.stem}")
         except Exception as exc:
             log(f"  ERRO em {tmpl.name}: {exc}")
@@ -1994,6 +2572,8 @@ def _gerar_peticao_unica(
     template_path: Path,
     destino: Path,
     dados: dict,
+    ctx: Contexto | None = None,
+    multiplos_imoveis: bool = False,
 ) -> None:
     sufixo = template_path.suffix.lower()
     nome_base = template_path.stem
@@ -2001,12 +2581,119 @@ def _gerar_peticao_unica(
 
     if sufixo == ".docx":
         doc = Document(str(template_path))
-        _preencher_campos_docx(doc, dados)
+        zonas = _classificar_paragrafos(doc)
+        _preencher_campos_docx(
+            doc, dados, ctx=ctx, zonas_paragrafos=zonas,
+            multiplos_imoveis=multiplos_imoveis,
+        )
         doc.save(str(destino_path) + ".docx")
     elif sufixo == ".doc":
-        _converter_doc_para_docx(template_path, destino_path, dados)
+        _converter_doc_para_docx(
+            template_path, destino_path, dados, ctx=ctx,
+            multiplos_imoveis=multiplos_imoveis,
+        )
     else:
         raise ValueError(f"Formato de template não suportado: {sufixo}")
+
+
+def _gerar_peticao_consolidada(
+    templates: list[Path],
+    destino: Path,
+    dados: dict,
+    ctx: Contexto | None,
+    multiplos_imoveis: bool = False,
+) -> Path:
+    """Combina N templates em um único .docx, deduplicando parágrafos do BODY.
+
+    Ordem final: HEADER (1x, do 1º template) → BODYs (únicos, por ordem de seleção)
+    → CLOSING (1x, do 1º template que tiver fechamento).
+    """
+    if not templates:
+        raise ValueError("Nenhum template selecionado.")
+
+    # Carrega todos os templates (convertendo .doc se necessário) e classifica zonas.
+    docs: list[tuple[Path, Document, list[str]]] = []
+    for tmpl in templates:
+        docx_path = _obter_docx_cacheado(tmpl) if tmpl.suffix.lower() == ".doc" else tmpl
+        d = Document(str(docx_path))
+        zonas = _classificar_paragrafos(d)
+        docs.append((tmpl, d, zonas))
+
+    # Documento destino herda estilos do 1º template.
+    primeiro_path, primeiro_doc, primeiro_zonas = docs[0]
+    primeiro_docx = _obter_docx_cacheado(primeiro_path) if primeiro_path.suffix.lower() == ".doc" else primeiro_path
+    destino_doc = Document(str(primeiro_docx))
+    body = destino_doc.element.body
+
+    # Limpa o destino — vamos remontar do zero clonando parágrafos das fontes.
+    for child in list(body):
+        # Mantém sectPr no final (necessário p/ a configuração de página do Word).
+        if child.tag.endswith("}sectPr"):
+            continue
+        body.remove(child)
+
+    # Localiza o sectPr (se existir) para reinserir conteúdo antes dele.
+    sectPr = None
+    for child in list(body):
+        if child.tag.endswith("}sectPr"):
+            sectPr = child
+            break
+
+    def _append(elemento) -> None:
+        clone = deepcopy(elemento)
+        if sectPr is not None:
+            sectPr.addprevious(clone)
+        else:
+            body.append(clone)
+
+    # 1) HEADER do 1º template.
+    novas_zonas: list[str] = []
+    for p, zona in zip(primeiro_doc.paragraphs, primeiro_zonas):
+        if zona == "HEADER":
+            _append(p._element)
+            novas_zonas.append("HEADER")
+
+    # 2) BODYs com dedup. Parágrafos curtos (<25 chars normalizados) sempre passam.
+    vistos: set[str] = set()
+    for _, d, zonas in docs:
+        for p, zona in zip(d.paragraphs, zonas):
+            if zona != "BODY":
+                continue
+            chave = _norm_paragrafo(p.text)
+            if chave and len(chave) >= 25:
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+            _append(p._element)
+            novas_zonas.append("BODY")
+
+    # 3) CLOSING do 1º template que tenha (ou injeta fechamento default).
+    closing_emitido = False
+    for _, d, zonas in docs:
+        if closing_emitido:
+            break
+        for p, zona in zip(d.paragraphs, zonas):
+            if zona == "CLOSING":
+                _append(p._element)
+                novas_zonas.append("CLOSING")
+                closing_emitido = True
+    if not closing_emitido:
+        para = destino_doc.add_paragraph("Termos em que pede deferimento.")
+        # add_paragraph adiciona ao fim — após sectPr. Se sectPr existir, move antes.
+        if sectPr is not None:
+            body.remove(para._element)
+            sectPr.addprevious(para._element)
+        novas_zonas.append("CLOSING")
+
+    _preencher_campos_docx(
+        destino_doc, dados, ctx=ctx, zonas_paragrafos=novas_zonas,
+        multiplos_imoveis=multiplos_imoveis,
+    )
+
+    nome = f"Petição Consolidada - {dados.get('numero', 'sem_numero')}.docx"
+    saida = destino / nome
+    destino_doc.save(str(saida))
+    return saida
 
 
 # Placeholders reais usados nos modelos .doc da pasta "Petições".
@@ -2014,6 +2701,7 @@ def _gerar_peticao_unica(
 # a chave correspondente no dict `dados` montado em _gerar_peticoes.
 PLACEHOLDERS_PETICAO = {
     "secretaria": "secretaria",
+    "vara": "vara",
     "município ou regional": "municipio",
     "municipio ou regional": "municipio",
     "abreviação do estado": "estado",
@@ -2027,24 +2715,112 @@ PLACEHOLDERS_PETICAO = {
     "executado ou executados": "reu",
     "devedor ou devedores": "reu",
     "empresa ou empresas": "reu",
+    "oab uf": "oab_uf",
+    "uf da oab": "oab_uf",
+    "oab numero": "oab_numero",
+    "oab número": "oab_numero",
+    "numero da oab": "oab_numero",
+    "número da oab": "oab_numero",
+    # OAB completa do estado de tramitação (ex.: "OAB/SP 346.433").
+    # Match é case-insensitive; mantemos com e sem acento.
+    "oab do estado de tramitação do processo": "oab_completa",
+    "oab do estado de tramitacao do processo": "oab_completa",
 }
 
 
-def _aplicar_substituicoes(texto: str, dados: dict) -> str:
+# Placeholders "X ou Y" resolvidos por contexto (sem precisar de input manual).
+# Formato: ph_lowercase -> (fonte, forma_singular, forma_plural)
+# fonte: "imovel" usa flag multiplos_imoveis; "reu"/"autor" usam Contexto.
+PLACEHOLDERS_AUTO: dict[str, tuple[str, str, str]] = {
+    # Imóvel (controlado pelo checkbox "Múltiplos imóveis")
+    "imóvel ou imóveis": ("imovel", "imóvel", "imóveis"),
+    "imovel ou imoveis": ("imovel", "imóvel", "imóveis"),
+    "do ou dos":         ("imovel", "do", "dos"),
+    "da ou das":         ("imovel", "da", "das"),
+    "o ou os":           ("imovel", "o", "os"),
+    "a ou as":           ("imovel", "a", "as"),
+    "são":               ("imovel", "é", "são"),
+
+    # Réu — singular/plural por Contexto
+    "réu ou ré":         ("reu_gen", "réu", "ré"),
+    "reu ou re":         ("reu_gen", "réu", "ré"),
+    "réus ou rés":       ("reu_gen", "réus", "rés"),
+    "reus ou res":       ("reu_gen", "réus", "rés"),
+
+    # Autor — singular/plural por Contexto
+    "autor ou autora":      ("autor_gen", "autor", "autora"),
+    "autores ou autoras":   ("autor_gen", "autores", "autoras"),
+}
+
+
+def _resolver_auto(
+    ph: str,
+    ctx: "Contexto | None",
+    multiplos_imoveis: bool,
+) -> str | None:
+    spec = PLACEHOLDERS_AUTO.get(ph)
+    if not spec:
+        return None
+    fonte, sing, plur = spec
+    if fonte == "imovel":
+        return plur if multiplos_imoveis else sing
+    if ctx is None:
+        return sing
+    if fonte == "reu_gen":
+        # sing/plur já têm a forma masc/fem; escolhemos por gênero do réu
+        return plur if ctx.genero_reu == "f" else sing
+    if fonte == "autor_gen":
+        return plur if ctx.genero_autor == "f" else sing
+    return None
+
+
+def _aplicar_substituicoes(
+    texto: str,
+    dados: dict,
+    ctx: "Contexto | None" = None,
+    multiplos_imoveis: bool = False,
+) -> str:
     resultado = texto
     for placeholder, chave in PLACEHOLDERS_PETICAO.items():
         valor = (dados.get(chave) or "").strip()
         if not valor:
             continue
-        resultado = resultado.replace(f"({placeholder})", valor)
-    return resultado
+        # Match case-insensitive: cobre "(REU)", "(Reu)", "(reu)" — templates
+        # com small-caps em Word guardam o texto em caixa mista no .docx.
+        padrao = re.compile(r"\(" + re.escape(placeholder) + r"\)", re.IGNORECASE)
+        resultado = padrao.sub(lambda _m, v=valor: v, resultado)
+
+    def _repl(m: re.Match) -> str:
+        nome = m.group(1).strip().lower()
+        auto = _resolver_auto(nome, ctx, multiplos_imoveis)
+        if auto is not None:
+            return auto
+        v = dados.get(nome)
+        if not v:
+            return m.group(0)
+        return str(v).strip() or m.group(0)
+
+    return RE_PLACEHOLDER_TEMPLATE.sub(_repl, resultado)
 
 
-def _substituir_paragrafo(paragrafo, dados: dict) -> None:
+def _substituir_paragrafo(
+    paragrafo,
+    dados: dict,
+    ctx: Contexto | None = None,
+    zona: str = "BODY",
+    multiplos_imoveis: bool = False,
+) -> None:
     if not paragrafo.runs:
         return
     texto_original = paragrafo.text
-    texto_novo = _aplicar_substituicoes(texto_original, dados)
+    texto_novo = _aplicar_substituicoes(
+        texto_original, dados, ctx=ctx, multiplos_imoveis=multiplos_imoveis,
+    )
+    # Flexão só em BODY e CLOSING (HEADER vai virar UPPERCASE).
+    if ctx is not None and zona in ("BODY", "CLOSING"):
+        texto_novo = _inflexionar_texto(texto_novo, ctx)
+    if zona == "HEADER":
+        texto_novo = texto_novo.upper()
     if texto_novo == texto_original:
         return
     paragrafo.runs[0].text = texto_novo
@@ -2052,46 +2828,108 @@ def _substituir_paragrafo(paragrafo, dados: dict) -> None:
         run.text = ""
 
 
-def _preencher_campos_docx(doc: Document, dados: dict) -> None:
-    for paragrafo in doc.paragraphs:
-        _substituir_paragrafo(paragrafo, dados)
+def _remover_highlight_amarelo(paragrafo) -> None:
+    for run in paragrafo.runs:
+        if run.font.highlight_color == WD_COLOR_INDEX.YELLOW:
+            run.font.highlight_color = None
+
+
+def _padronizar_espacamento(paragrafo) -> None:
+    pf = paragrafo.paragraph_format
+    if not paragrafo.text.strip():
+        # Parágrafo vazio: zera espaçamento e altura para não criar "buracos".
+        pf.space_before = Pt(0)
+        pf.space_after = Pt(0)
+        pf.line_spacing = 1.0
+        return
+    pf.space_before = Pt(0)
+    pf.space_after = Pt(SPACE_AFTER_PT)
+    pf.line_spacing = LINE_SPACING
+
+
+def _colapsar_paragrafos_vazios(doc: Document) -> None:
+    """Remove parágrafos vazios consecutivos do corpo do documento.
+
+    Mantém no máximo um parágrafo vazio entre blocos de texto. Também remove
+    parágrafos vazios no início e no fim do documento.
+    """
+    paragrafos = list(doc.paragraphs)
+    if not paragrafos:
+        return
+    a_remover: list = []
+    anterior_vazio = True  # trata início como "vazio" -> remove vazios iniciais
+    for p in paragrafos:
+        eh_vazio = not p.text.strip()
+        if eh_vazio and anterior_vazio:
+            a_remover.append(p)
+        else:
+            anterior_vazio = eh_vazio
+    # Remove vazios no fim (varre de trás).
+    for p in reversed(paragrafos):
+        if not p.text.strip() and p not in a_remover:
+            a_remover.append(p)
+        else:
+            break
+    for p in a_remover:
+        elem = p._element
+        parent = elem.getparent()
+        if parent is not None:
+            parent.remove(elem)
+
+
+def _preencher_campos_docx(
+    doc: Document,
+    dados: dict,
+    ctx: Contexto | None = None,
+    zonas_paragrafos: list[str] | None = None,
+    multiplos_imoveis: bool = False,
+) -> None:
+    paragrafos_top = list(doc.paragraphs)
+    # Se nenhuma zona foi fornecida, classifica agora (caminho single-template).
+    if zonas_paragrafos is None:
+        zonas_paragrafos = _classificar_paragrafos(doc)
+    # Alinha tamanhos defensivamente: se a lista de zonas estiver fora de sync
+    # (por ex. parágrafos adicionados após classificação), trata excedentes como BODY.
+    if len(zonas_paragrafos) < len(paragrafos_top):
+        zonas_paragrafos = list(zonas_paragrafos) + ["BODY"] * (len(paragrafos_top) - len(zonas_paragrafos))
+
+    for paragrafo, zona in zip(paragrafos_top, zonas_paragrafos):
+        _substituir_paragrafo(
+            paragrafo, dados, ctx=ctx, zona=zona,
+            multiplos_imoveis=multiplos_imoveis,
+        )
+        _remover_highlight_amarelo(paragrafo)
+        _padronizar_espacamento(paragrafo)
+
     for tabela in doc.tables:
         for linha in tabela.rows:
             for celula in linha.cells:
                 for paragrafo in celula.paragraphs:
-                    _substituir_paragrafo(paragrafo, dados)
+                    _substituir_paragrafo(
+                        paragrafo, dados, ctx=ctx, zona="BODY",
+                        multiplos_imoveis=multiplos_imoveis,
+                    )
+                    _remover_highlight_amarelo(paragrafo)
+                    _padronizar_espacamento(paragrafo)
+
+    _colapsar_paragrafos_vazios(doc)
 
 
-def _converter_doc_para_docx(src: Path, destino_path: Path, dados: dict) -> None:
-    import win32com.client
-
-    word = win32com.client.Dispatch("Word.Application")
-    word.Visible = False
-    doc = None
-    temp_docx = Path(tempfile.mktemp(suffix=".docx"))
-    try:
-        doc = word.Documents.Open(str(src.resolve()))
-        doc.SaveAs(str(temp_docx), FileFormat=16)
-        doc.Close()
-        doc = None
-    finally:
-        if doc is not None:
-            try:
-                doc.Close(SaveChanges=False)
-            except Exception:
-                pass
-        try:
-            word.Quit()
-        except Exception:
-            pass
-
-    document = Document(str(temp_docx))
-    _preencher_campos_docx(document, dados)
+def _converter_doc_para_docx(
+    src: Path,
+    destino_path: Path,
+    dados: dict,
+    ctx: Contexto | None = None,
+    multiplos_imoveis: bool = False,
+) -> None:
+    cached_docx = _obter_docx_cacheado(src)
+    document = Document(str(cached_docx))
+    zonas = _classificar_paragrafos(document)
+    _preencher_campos_docx(
+        document, dados, ctx=ctx, zonas_paragrafos=zonas,
+        multiplos_imoveis=multiplos_imoveis,
+    )
     document.save(str(destino_path) + ".docx")
-    try:
-        temp_docx.unlink(missing_ok=True)
-    except OSError:
-        pass
 
 
 # ---------------------------------------------------------------------------
