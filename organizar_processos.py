@@ -9,6 +9,7 @@ cria subpastas por processo, move os documentos e extrai metadados
 from __future__ import annotations
 
 import concurrent.futures
+import contextlib
 import csv
 import hashlib
 import io
@@ -18,6 +19,7 @@ import os
 import queue
 import re
 import shutil
+import sys
 import threading
 import tkinter as tk
 import unicodedata
@@ -39,6 +41,22 @@ PASTA_NAO_IDENTIFICADOS = "_nao_identificados"
 PASTA_PETICOES = Path(__file__).parent / "Petições"
 CACHE_DIR = ".cache_texto"
 CACHE_TEMPLATES_DOCX = Path(__file__).parent / ".cache_templates_docx"
+
+# Projeto TJSP-Scraper (busca online de processos). Importado de forma tardia
+# em buscar_processo_online() — a falta das libs do scraper não derruba o app.
+TJSP_SCRAPER_DIR = Path(r"C:\Users\Usuario\Desktop\Workspace\TJSP-Scraper")
+
+# Rótulo do seletor de TJ/Sistema -> (site, estado, url). e-SAJ e PJe têm a URL
+# de login fixa dentro da própria classe do scraper (ignoram a url passada); só
+# o eproc usa a url. Apenas o eproc tem extrator estruturado (auto-preenche a
+# petição); e-SAJ/PJe entram com Processo mínimo + palavras-chave de penhora.
+TJ_SISTEMAS = {
+    "TJSP — eproc": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/"),
+    "TJSP — e-SAJ": ("esaj",  "SAO PAULO",    "https://esaj.tjsp.jus.br/cpopg/open.do"),
+    "TJMG — eproc": ("eproc", "MINAS GERAIS", "https://eproc1g.tjmg.jus.br/eproc/"),
+    "TJMG — PJe":   ("pje",   "MINAS GERAIS", "https://pje.tjmg.jus.br/pje/"),
+}
+_ESTADO_TJ_UF = {"SAO PAULO": ("TJSP", "SP"), "MINAS GERAIS": ("TJMG", "MG")}
 
 # Placeholder em template: "(texto em minúsculo até 40 chars, sem pontuação)".
 # Pega tanto os conhecidos ("(secretaria)") quanto novos ("(testemunha)"),
@@ -1480,6 +1498,40 @@ def _reus_joined(proc: Processo) -> str:
     return "; ".join(reus)
 
 
+def _dict_para_processo(dados: dict) -> Processo:
+    """Converte um dict (metadados.json OU saída de extrair_processo() do
+    TJSP-Scraper) numa instância de Processo.
+
+    O filtro `{k: ... if k in}` ignora chaves que não são campos da dataclass
+    (ex.: dicas linguísticas `genero_autor`/`numero_autor` do scraper). Trata a
+    única divergência de formato: o scraper devolve `ultima_movimentacao` como
+    dict {"data","descricao"}, enquanto Processo espera uma str.
+    """
+    d = dict(dados)
+    um = d.get("ultima_movimentacao")
+    if isinstance(um, dict):
+        data, desc = um.get("data", ""), um.get("descricao", "")
+        d["ultima_movimentacao"] = f"{data} — {desc}".strip(" —")
+
+    proc = Processo(**{k: d[k] for k in Processo.__dataclass_fields__ if k in d})
+    if "partes" in d:
+        proc.partes = []
+        for p in d["partes"]:
+            parte = Parte(**{k: p[k] for k in Parte.__dataclass_fields__ if k in p})
+            parte.advogados = [
+                Advogado(**{k: a[k] for k in Advogado.__dataclass_fields__ if k in a})
+                for a in (p.get("advogados") or [])
+            ]
+            proc.partes.append(parte)
+    if "eventos" in d:
+        proc.eventos = [Evento(**{k: e[k] for k in Evento.__dataclass_fields__ if k in e}) for e in d["eventos"]]
+    if "prazos_abertos" in d:
+        proc.prazos_abertos = [Prazo(**{k: p[k] for k in Prazo.__dataclass_fields__ if k in p}) for p in d["prazos_abertos"]]
+    if "atos" in d:
+        proc.atos = [AtoDocumento(**{k: a[k] for k in AtoDocumento.__dataclass_fields__ if k in a}) for a in d["atos"]]
+    return proc
+
+
 def _carregar_processos(pasta: Path) -> list[Processo]:
     """Varre subpastas de `pasta` por metadados.json e devolve lista de Processo."""
     resultados: list[Processo] = []
@@ -1493,19 +1545,114 @@ def _carregar_processos(pasta: Path) -> list[Processo]:
             continue
         try:
             dados = json.loads(meta.read_text(encoding="utf-8"))
-            proc = Processo(**{k: dados[k] for k in Processo.__dataclass_fields__ if k in dados})
-            if "partes" in dados:
-                proc.partes = [Parte(**p) for p in dados["partes"]]
-            if "eventos" in dados:
-                proc.eventos = [Evento(**e) for e in dados["eventos"]]
-            if "prazos_abertos" in dados:
-                proc.prazos_abertos = [Prazo(**p) for p in dados["prazos_abertos"]]
-            if "atos" in dados:
-                proc.atos = [AtoDocumento(**a) for a in dados["atos"]]
-            resultados.append(proc)
+            resultados.append(_dict_para_processo(dados))
         except Exception:
             continue
     return resultados
+
+
+# ---------------------------------------------------------------------------
+# Busca online via TJSP-Scraper (eproc). Todo o acoplamento com o projeto
+# externo fica isolado aqui; os imports são tardios para não exigir as libs
+# do scraper (selenium etc.) quando a busca online não é usada.
+# ---------------------------------------------------------------------------
+
+class _LogWriter(io.TextIOBase):
+    """Redireciona os print() do scraper para uma callback (o log da aba).
+    Essencial sob pythonw, onde sys.stdout é None e print() quebraria."""
+
+    def __init__(self, put: Callable[[str], None]) -> None:
+        self._put = put
+
+    def write(self, s: str) -> int:
+        if s:
+            self._put(s)
+        return len(s)
+
+
+def buscar_processo_online(
+    numero: str, tj_label: str, headless: bool, log: Callable[[str], None],
+    modo_docs: str = "nenhum",
+) -> Processo:
+    """Loga no TJ/sistema escolhido via TJSP-Scraper, consulta o processo e
+    devolve um Processo.
+
+    `tj_label` é uma das chaves de TJ_SISTEMAS (ex.: "TJSP — eproc"). Só o eproc
+    tem extrator estruturado (auto-preenche os campos); para e-SAJ/PJe devolve um
+    Processo mínimo (número + tribunal/UF) e anexa as palavras-chave de
+    penhora/bloqueio encontradas.
+
+    `modo_docs` (só eproc): "nenhum" (default — não abre documentos, bem mais
+    rápido; a petição não usa o teor dos atos), "atos" ou "todos".
+
+    Levanta ValueError (número/TJ inválidos), ImportError (libs do scraper
+    ausentes) ou RuntimeError (login/consulta sem resultado).
+    """
+    m = RE_NUMERO_CNJ.search(numero or "")
+    if not m:
+        raise ValueError(f"Número fora do padrão CNJ: {numero!r}")
+    numero = m.group(0)
+    if tj_label not in TJ_SISTEMAS:
+        raise ValueError(f"TJ/sistema inválido: {tj_label!r}")
+    site, estado, url = TJ_SISTEMAS[tj_label]
+    tribunal, uf = _ESTADO_TJ_UF[estado]
+
+    # Aviso (não bloqueia): número parece ser de outra UF que não a do TJ escolhido.
+    tr = RE_CNJ_TR.search(numero)
+    uf_num = MAPA_UF_CNJ.get(f"{tr.group(1)}.{tr.group(2)}", "") if tr else ""
+    if uf_num and uf_num != uf:
+        log(f"Aviso: o número parece ser de {uf_num}, mas você selecionou {tribunal} ({uf}).\n")
+
+    if str(TJSP_SCRAPER_DIR) not in sys.path:
+        sys.path.insert(0, str(TJSP_SCRAPER_DIR))
+    from dotenv import load_dotenv
+    load_dotenv(TJSP_SCRAPER_DIR / ".env")
+    from src.scrapers import criar_scraper
+    from src.parser import _extrair_blocos_com_origem, extrair_penhora_bloqueio_tribunais
+
+    log(f"Abrindo {tj_label} e logando...\n")
+    scraper = criar_scraper(site=site, estado=estado, url=url, headless=headless)
+    try:
+        scraper.login()
+        log(f"Consultando processo {numero}"
+            + (f" (docs={modo_docs})" if site == "eproc" else "") + "...\n")
+        if site == "eproc":
+            html = scraper.consultar_processo(numero, modo_docs=modo_docs)
+        else:
+            html = scraper.consultar_processo(numero)  # esaj/pje não aceitam modo_docs
+        if not html:
+            raise RuntimeError("Scraper não retornou dados para esse número.")
+
+        if site == "eproc":
+            from src.parser_processo import extrair_processo
+            proc = _dict_para_processo(
+                extrair_processo(html, _extrair_blocos_com_origem(html), numero_cnj=numero)
+            )
+            log("Dados extraídos com sucesso.\n")
+        else:
+            proc = Processo(numero=numero, tribunal=tribunal, uf=uf)
+            log("Auto-preenchimento estruturado indisponível para e-SAJ/PJe — "
+                "preencha os campos manualmente.\n")
+
+        if not proc.numero:
+            proc.numero = numero
+
+        # Palavras-chave de penhora/bloqueio (extrator genérico, todos os sites).
+        keywords = list(dict.fromkeys(
+            k["descricao"] for k in extrair_penhora_bloqueio_tribunais(html) if k.get("descricao")
+        ))
+        if keywords:
+            log("Palavras-chave de penhora/bloqueio: " + ", ".join(keywords) + "\n")
+            if site != "eproc":  # no eproc não polui as tags estruturadas
+                for kw in keywords:
+                    if kw not in proc.tags:
+                        proc.tags.append(kw)
+        return proc
+    finally:
+        try:
+            scraper.fechar()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1767,6 +1914,10 @@ class App(tk.Tk):
         self.var_pesquisa_base = tk.StringVar(value=PASTA_PADRAO)
         self.var_pesquisa_destino = tk.StringVar(value="")
         self.var_filtro = tk.StringVar(value="")
+        self.var_busca_numero = tk.StringVar(value="")
+        self.var_busca_tj = tk.StringVar(value="TJSP — eproc")
+        self.var_busca_headless = tk.BooleanVar(value=False)
+        self.var_busca_docs = tk.BooleanVar(value=False)  # False → modo_docs "nenhum"; True → "atos"
         self.var_secretaria = tk.StringVar(value="")
         self.var_municipio = tk.StringVar(value="")
         self.var_estado = tk.StringVar(value="")
@@ -1788,6 +1939,8 @@ class App(tk.Tk):
         self.var_multiplos_imoveis = tk.BooleanVar(value=False)
         self._pesquisa_log_queue: queue.Queue[str] = queue.Queue()
         self._gen_worker: threading.Thread | None = None
+        self._busca_worker: threading.Thread | None = None
+        self._busca_result_queue: queue.Queue = queue.Queue()
 
         # Form inteligente: estado para destaque baseado nos templates marcados.
         self._templates_placeholders: dict[Path, set[str]] = {}
@@ -1811,6 +1964,7 @@ class App(tk.Tk):
         self._build_widgets()
         self.after(100, self._drain_ui_queues)
         self.after(100, self._drain_pesquisa_log_queue)
+        self.after(150, self._drain_busca_result)
 
     def _build_widgets(self) -> None:
         nb = ttk.Notebook(self)
@@ -1874,6 +2028,26 @@ class App(tk.Tk):
         ttk.Entry(f0, textvariable=self.var_pesquisa_base).pack(side="left", fill="x", expand=True, padx=4)
         ttk.Button(f0, text="Escolher...", command=self._escolher_pesquisa_base).pack(side="left")
         ttk.Button(f0, text="Recarregar lista", command=self._recarregar_pesquisa).pack(side="left", padx=4)
+
+        f_busca = ttk.Frame(parent)
+        f_busca.pack(fill="x", **pad)
+        ttk.Label(f_busca, text="Nº do processo (online):").pack(side="left")
+        ttk.Entry(f_busca, textvariable=self.var_busca_numero).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Label(f_busca, text="TJ/Sistema:").pack(side="left", padx=(8, 0))
+        ttk.Combobox(
+            f_busca, textvariable=self.var_busca_tj, values=list(TJ_SISTEMAS),
+            state="readonly", width=14,
+        ).pack(side="left", padx=4)
+        ttk.Checkbutton(
+            f_busca, text="Baixar documentos", variable=self.var_busca_docs
+        ).pack(side="left", padx=4)
+        ttk.Checkbutton(
+            f_busca, text="Navegador invisível", variable=self.var_busca_headless
+        ).pack(side="left", padx=4)
+        self._btn_buscar = ttk.Button(
+            f_busca, text="Buscar online", command=self._buscar_online
+        )
+        self._btn_buscar.pack(side="left", padx=4)
 
         f_filtro = ttk.Frame(parent)
         f_filtro.pack(fill="x", **pad)
@@ -2206,6 +2380,69 @@ class App(tk.Tk):
             return
         self._processos_carregados = _carregar_processos(pasta)
         self._preencher_tree(self._processos_carregados)
+
+    def _buscar_online(self) -> None:
+        """Dispara a busca do processo no TJ/sistema escolhido numa thread."""
+        numero = self.var_busca_numero.get().strip()
+        if not numero:
+            messagebox.showwarning("Busca online", "Informe o número do processo (CNJ).")
+            return
+        if self._busca_worker and self._busca_worker.is_alive():
+            return
+        self._btn_buscar.configure(state="disabled")
+        tj_label = self.var_busca_tj.get()
+        headless = self.var_busca_headless.get()
+        modo_docs = "atos" if self.var_busca_docs.get() else "nenhum"
+        self._pesquisa_log_queue.put(f"Buscando {numero} em {tj_label}...\n")
+
+        def run() -> None:
+            # COM precisa ser inicializado por thread (selenium/win32 podem usar).
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+            writer = _LogWriter(self._pesquisa_log_queue.put)
+            try:
+                # Sob pythonw, sys.stdout é None; redireciona os print() do
+                # scraper para o log da aba (e evita que print() quebre).
+                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                    proc = buscar_processo_online(
+                        numero, tj_label, headless,
+                        log=self._pesquisa_log_queue.put, modo_docs=modo_docs,
+                    )
+                self._busca_result_queue.put(("ok", proc))
+            except Exception as exc:
+                self._busca_result_queue.put(("erro", str(exc)))
+
+        self._busca_worker = threading.Thread(target=run, daemon=True)
+        self._busca_worker.start()
+
+    def _drain_busca_result(self) -> None:
+        """Drena resultados da busca online na main thread (Tkinter não é
+        thread-safe). Mescla o Processo na lista e seleciona a linha."""
+        try:
+            while True:
+                tipo, payload = self._busca_result_queue.get_nowait()
+                if tipo == "ok":
+                    proc = payload
+                    self._processos_carregados = [
+                        p for p in self._processos_carregados if p.numero != proc.numero
+                    ]
+                    self._processos_carregados.append(proc)
+                    self._preencher_tree(self._processos_carregados)
+                    if proc.numero and self.tree.exists(proc.numero):
+                        self.tree.selection_set(proc.numero)
+                        self.tree.see(proc.numero)
+                    self._pesquisa_log_queue.put(f"Processo {proc.numero} carregado.\n")
+                else:
+                    self._pesquisa_log_queue.put(f"! Erro na busca online: {payload}\n")
+                    messagebox.showerror("Busca online", str(payload))
+                self._btn_buscar.configure(state="normal")
+        except queue.Empty:
+            pass
+        finally:
+            self.after(150, self._drain_busca_result)
 
     def _preencher_tree(self, processos: list[Processo]) -> None:
         for item in self.tree.get_children():
