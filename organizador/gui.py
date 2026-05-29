@@ -9,7 +9,10 @@ import queue
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
+
+import ttkbootstrap as ttk
+from ttkbootstrap.constants import *
 
 from .config import OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, TJ_SISTEMAS
 from .flexao import _construir_contexto
@@ -33,13 +36,21 @@ _GRUPOS_TEMPLATE: dict[str, list[str]] = {
     ],
 }
 
+# Fontes e constantes visuais
+_FONT_BASE = ("Segoe UI", 10)
+_FONT_BOLD = ("Segoe UI", 10, "bold")
+_FONT_MONO = ("Consolas", 9)
+_FONT_TITLE = ("Segoe UI", 11, "bold")
+_PAD_X = 12
+_PAD_Y = 6
 
-class App(tk.Tk):
+
+class App(ttk.Window):
     def __init__(self) -> None:
-        super().__init__()
-        self.title("Organizador de Processos — eproc")
-        self.geometry("980x720")
-        self.minsize(820, 600)
+        super().__init__(title="Organizador de Processos — eproc", themename="litera")
+        self.geometry("1100x780")
+        self.minsize(860, 620)
+        self.configure(background="#f0f2f5")
 
         # Estado compartilhado / aba Organizador
         self.var_origem = tk.StringVar(value=PASTA_PADRAO)
@@ -98,7 +109,7 @@ class App(tk.Tk):
         self._entries_edit: dict[str, ttk.Entry] = {}
         self._rotulos_edit: dict[str, str] = {}
         self._dinamicos: dict[str, tuple[ttk.Label, ttk.Entry, tk.StringVar]] = {}
-        self._frame_dinamicos: ttk.LabelFrame | None = None
+        self._frame_dinamicos: ttk.Labelframe | None = None
         self._frame_imoveis: ttk.Frame | None = None
         self._chk_imoveis: ttk.Checkbutton | None = None
         self._scan_tpls_thread: threading.Thread | None = None
@@ -117,123 +128,218 @@ class App(tk.Tk):
         self.after(150, self._drain_busca_result)
 
     def _build_widgets(self) -> None:
-        nb = ttk.Notebook(self)
-        nb.pack(fill="both", expand=True, padx=8, pady=(8, 0))
+        nb = ttk.Notebook(self, bootstyle="primary")
+        nb.pack(fill="both", expand=True, padx=_PAD_X, pady=(_PAD_X, 0))
 
-        frm_org = ttk.Frame(nb)
-        frm_pesq = ttk.Frame(nb)
-        nb.add(frm_org, text="Organizador")
-        nb.add(frm_pesq, text="Pesquisa de Processo")
+        frm_org = ttk.Frame(nb, padding=8)
+        frm_pesq = ttk.Frame(nb, padding=8)
+        nb.add(frm_org, text="  Organizador  ")
+        nb.add(frm_pesq, text="  Pesquisa de Processo  ")
 
         self._build_aba_organizador(frm_org)
         self._build_aba_pesquisa(frm_pesq)
 
-        bar = ttk.Frame(self)
+        # Barra de status moderna
+        bar = ttk.Frame(self, bootstyle="secondary")
         bar.pack(fill="x", side="bottom")
-        ttk.Label(bar, textvariable=self.var_status, anchor="w").pack(fill="x", padx=8, pady=4)
+        ttk.Label(
+            bar, textvariable=self.var_status, anchor="w",
+            font=_FONT_BASE, bootstyle="inverse-secondary",
+        ).pack(fill="x", padx=_PAD_X, pady=5)
 
     def _build_aba_organizador(self, parent: ttk.Frame) -> None:
-        pad = {"padx": 8, "pady": 4}
+        # ── Seção: Pastas ──────────────────────────────────────────────
+        section_folders = ttk.Labelframe(
+            parent, text="  Pastas  ", bootstyle="default",
+            padding=(12, 8),
+        )
+        section_folders.pack(fill="x", pady=(0, 8))
 
-        frm = ttk.Frame(parent)
-        frm.pack(fill="x", **pad)
-
-        ttk.Label(frm, text="Pasta de origem:").grid(row=0, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=self.var_origem).grid(row=0, column=1, sticky="ew", padx=4)
-        ttk.Button(frm, text="Escolher...", command=self._escolher_origem).grid(row=0, column=2)
-
-        ttk.Label(frm, text="Pasta de destino:").grid(row=1, column=0, sticky="w")
-        ttk.Entry(frm, textvariable=self.var_destino).grid(row=1, column=1, sticky="ew", padx=4)
-        ttk.Button(frm, text="Escolher...", command=self._escolher_destino).grid(row=1, column=2)
-
+        frm = ttk.Frame(section_folders)
+        frm.pack(fill="x")
         frm.columnconfigure(1, weight=1)
 
-        botoes = ttk.Frame(parent)
-        botoes.pack(fill="x", **pad)
-        self.btn_run = ttk.Button(botoes, text="Organizar", command=self._on_run)
-        self.btn_run.pack(side="left")
-        self.btn_cancel = ttk.Button(botoes, text="Cancelar", command=self._on_cancel, state="disabled")
-        self.btn_cancel.pack(side="left", padx=6)
-        ttk.Button(botoes, text="Abrir pasta de destino", command=self._abrir_destino).pack(
-            side="left", padx=6
+        ttk.Label(frm, text="Origem:", font=_FONT_BASE, width=12, anchor="e").grid(
+            row=0, column=0, sticky="e", padx=(0, 6), pady=4,
         )
-        ttk.Button(botoes, text="Limpar log", command=self._limpar_log).pack(side="left")
+        ttk.Entry(
+            frm, textvariable=self.var_origem, font=_FONT_BASE,
+            bootstyle="default",
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=4)
+        ttk.Button(
+            frm, text="Escolher...", command=self._escolher_origem,
+            bootstyle="outline", width=12,
+        ).grid(row=0, column=2, pady=4)
+
+        ttk.Label(frm, text="Destino:", font=_FONT_BASE, width=12, anchor="e").grid(
+            row=1, column=0, sticky="e", padx=(0, 6), pady=4,
+        )
+        ttk.Entry(
+            frm, textvariable=self.var_destino, font=_FONT_BASE,
+            bootstyle="default",
+        ).grid(row=1, column=1, sticky="ew", padx=(0, 6), pady=4)
+        ttk.Button(
+            frm, text="Escolher...", command=self._escolher_destino,
+            bootstyle="outline", width=12,
+        ).grid(row=1, column=2, pady=4)
+
+        # ── Seção: Ações ───────────────────────────────────────────────
+        section_actions = ttk.Labelframe(
+            parent, text="  Ações  ", bootstyle="default",
+            padding=(12, 8),
+        )
+        section_actions.pack(fill="x", pady=(0, 8))
+
+        botoes = ttk.Frame(section_actions)
+        botoes.pack(fill="x")
+        self.btn_run = ttk.Button(
+            botoes, text="▶  Organizar", command=self._on_run,
+            bootstyle="success", width=16,
+        )
+        self.btn_run.pack(side="left")
+        self.btn_cancel = ttk.Button(
+            botoes, text="Cancelar", command=self._on_cancel,
+            bootstyle="danger-outline", state="disabled", width=12,
+        )
+        self.btn_cancel.pack(side="left", padx=(8, 0))
+        ttk.Button(
+            botoes, text="Abrir pasta de destino", command=self._abrir_destino,
+            bootstyle="outline", width=20,
+        ).pack(side="left", padx=(12, 0))
+        ttk.Button(
+            botoes, text="Limpar log", command=self._limpar_log,
+            bootstyle="outline-secondary", width=12,
+        ).pack(side="left", padx=(8, 0))
 
         self.progress = ttk.Progressbar(
-            parent, orient="horizontal",
+            section_actions, orient="horizontal",
             variable=self._progress_var, maximum=100,
-            mode="determinate",
+            mode="determinate", bootstyle="success-striped",
         )
-        self.progress.pack(fill="x", padx=8, pady=(0, 4))
+        self.progress.pack(fill="x", pady=(8, 0))
 
-        ttk.Label(parent, text="Log:").pack(anchor="w", padx=8)
-        self.txt = tk.Text(parent, height=18, wrap="word", state="disabled")
-        self.txt.pack(fill="both", expand=True, padx=8, pady=4)
+        # ── Seção: Log ─────────────────────────────────────────────────
+        section_log = ttk.Labelframe(
+            parent, text="  Log  ", bootstyle="default",
+            padding=(12, 8),
+        )
+        section_log.pack(fill="both", expand=True)
+
+        self.txt = tk.Text(
+            section_log, height=14, wrap="word", state="disabled",
+            font=_FONT_MONO, bg="#fafbfc", relief="flat",
+            borderwidth=1, highlightthickness=1,
+            highlightcolor="#d0d5dd", highlightbackground="#d0d5dd",
+        )
+        self.txt.pack(fill="both", expand=True)
 
     def _build_aba_pesquisa(self, parent: ttk.Frame) -> None:
-        pad = {"padx": 8, "pady": 4}
-        f0 = ttk.Frame(parent)
-        f0.pack(fill="x", **pad)
-        ttk.Label(f0, text="Pasta base:").pack(side="left")
-        ttk.Entry(f0, textvariable=self.var_pesquisa_base).pack(side="left", fill="x", expand=True, padx=4)
-        ttk.Button(f0, text="Escolher...", command=self._escolher_pesquisa_base).pack(side="left")
-        ttk.Button(f0, text="Recarregar lista", command=self._recarregar_pesquisa).pack(side="left", padx=4)
+        # ── Seção: Pasta base ──────────────────────────────────────────
+        section_base = ttk.Labelframe(
+            parent, text="  Base de dados  ", bootstyle="default",
+            padding=(12, 8),
+        )
+        section_base.pack(fill="x", pady=(0, 6))
 
-        f_busca = ttk.Frame(parent)
-        f_busca.pack(fill="x", **pad)
-        ttk.Label(f_busca, text="Nº do processo (online):").pack(side="left")
-        ttk.Entry(f_busca, textvariable=self.var_busca_numero).pack(side="left", fill="x", expand=True, padx=4)
-        ttk.Label(f_busca, text="TJ/Sistema:").pack(side="left", padx=(8, 0))
+        f0 = ttk.Frame(section_base)
+        f0.pack(fill="x")
+        ttk.Label(f0, text="Pasta base:", font=_FONT_BASE).pack(side="left")
+        ttk.Entry(
+            f0, textvariable=self.var_pesquisa_base, font=_FONT_BASE,
+        ).pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Button(
+            f0, text="Escolher...", command=self._escolher_pesquisa_base,
+            bootstyle="outline", width=12,
+        ).pack(side="left")
+        ttk.Button(
+            f0, text="Recarregar lista", command=self._recarregar_pesquisa,
+            bootstyle="outline-info", width=16,
+        ).pack(side="left", padx=(8, 0))
+
+        # ── Seção: Busca online ────────────────────────────────────────
+        section_busca = ttk.Labelframe(
+            parent, text="  Busca online  ", bootstyle="default",
+            padding=(12, 8),
+        )
+        section_busca.pack(fill="x", pady=(0, 6))
+
+        f_busca = ttk.Frame(section_busca)
+        f_busca.pack(fill="x")
+        ttk.Label(f_busca, text="Nº do processo:", font=_FONT_BASE).pack(side="left")
+        ttk.Entry(
+            f_busca, textvariable=self.var_busca_numero, font=_FONT_BASE,
+        ).pack(side="left", fill="x", expand=True, padx=6)
+        ttk.Label(f_busca, text="TJ/Sistema:", font=_FONT_BASE).pack(side="left", padx=(8, 0))
         ttk.Combobox(
             f_busca, textvariable=self.var_busca_tj, values=list(TJ_SISTEMAS),
-            state="readonly", width=14,
-        ).pack(side="left", padx=4)
+            state="readonly", width=18, font=_FONT_BASE,
+        ).pack(side="left", padx=6)
         ttk.Checkbutton(
-            f_busca, text="Baixar documentos", variable=self.var_busca_docs
-        ).pack(side="left", padx=4)
+            f_busca, text="Baixar documentos", variable=self.var_busca_docs,
+            bootstyle="info",
+        ).pack(side="left", padx=6)
         ttk.Checkbutton(
-            f_busca, text="Navegador invisível", variable=self.var_busca_headless
-        ).pack(side="left", padx=4)
+            f_busca, text="Navegador invisível", variable=self.var_busca_headless,
+            bootstyle="info",
+        ).pack(side="left", padx=6)
         self._btn_buscar = ttk.Button(
-            f_busca, text="Buscar online", command=self._buscar_online
+            f_busca, text="🔍  Buscar online", command=self._buscar_online,
+            bootstyle="info", width=16,
         )
-        self._btn_buscar.pack(side="left", padx=4)
+        self._btn_buscar.pack(side="left", padx=(8, 0))
 
+        # ── Seção: Filtro ──────────────────────────────────────────────
         f_filtro = ttk.Frame(parent)
-        f_filtro.pack(fill="x", **pad)
-        ttk.Label(f_filtro, text="Filtro:").pack(side="left")
-        ttk.Entry(f_filtro, textvariable=self.var_filtro).pack(side="left", fill="x", expand=True, padx=4)
+        f_filtro.pack(fill="x", pady=(0, 6))
+        ttk.Label(f_filtro, text="Filtro:", font=_FONT_BASE).pack(side="left")
+        ttk.Entry(
+            f_filtro, textvariable=self.var_filtro, font=_FONT_BASE,
+        ).pack(side="left", fill="x", expand=True, padx=6)
         self.var_filtro.trace_add("write", lambda *_: self._filtrar_pesquisa())
 
-        f_main = ttk.PanedWindow(parent, orient="horizontal")
-        f_main.pack(fill="both", expand=True, **pad)
+        # ── Área principal: Treeview + Detalhes ────────────────────────
+        f_main = ttk.Panedwindow(parent, orient="horizontal")
+        f_main.pack(fill="both", expand=True, pady=(0, 6))
 
+        # ── Painel esquerdo: Treeview ──────────────────────────────────
         f_lista = ttk.Frame(f_main)
         colunas = ("numero", "classe", "autor", "reu", "valor", "ultima_mov", "prazos")
-        self.tree = ttk.Treeview(f_lista, columns=colunas, show="headings", height=15)
+        self.tree = ttk.Treeview(
+            f_lista, columns=colunas, show="headings", height=12,
+            bootstyle="info",
+        )
         for c in colunas:
             cab = {"numero": "Nº processo", "classe": "Classe", "autor": "Autor",
                    "reu": "Réu(s)", "valor": "Valor", "ultima_mov": "Última mov.",
                    "prazos": "Prazos"}[c]
-            self.tree.heading(c, text=cab)
+            self.tree.heading(c, text=cab, anchor="w")
             larg = {"numero": 180, "classe": 130, "autor": 120, "reu": 120,
                     "valor": 80, "ultima_mov": 140, "prazos": 70}[c]
-            self.tree.column(c, width=larg, minwidth=60)
+            self.tree.column(c, width=larg, minwidth=60, anchor="w")
+        self.tree.tag_configure("oddrow", background="#f8f9fa")
+        self.tree.tag_configure("evenrow", background="#ffffff")
         self.tree.bind("<<TreeviewSelect>>", self._on_select_processo)
         self.tree.pack(side="left", fill="both", expand=True)
-        scroll_tree = ttk.Scrollbar(f_lista, orient="vertical", command=self.tree.yview)
+        scroll_tree = ttk.Scrollbar(
+            f_lista, orient="vertical", command=self.tree.yview,
+            bootstyle="info-round",
+        )
         scroll_tree.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scroll_tree.set)
         f_main.add(f_lista, weight=2)
 
+        # ── Painel direito: Detalhes (scrollável) ─────────────────────
         f_det_container = ttk.Frame(f_main)
-        det_canvas = tk.Canvas(f_det_container, highlightthickness=0)
-        det_scroll = ttk.Scrollbar(f_det_container, orient="vertical", command=det_canvas.yview)
+        det_canvas = tk.Canvas(f_det_container, highlightthickness=0, bg="#f0f2f5")
+        det_scroll = ttk.Scrollbar(
+            f_det_container, orient="vertical", command=det_canvas.yview,
+            bootstyle="round",
+        )
         det_canvas.configure(yscrollcommand=det_scroll.set)
         det_canvas.pack(side="left", fill="both", expand=True)
         det_scroll.pack(side="right", fill="y")
 
-        f_detalhes = ttk.Frame(det_canvas)
+        f_detalhes = ttk.Frame(det_canvas, padding=4)
         det_window = det_canvas.create_window((0, 0), window=f_detalhes, anchor="nw")
         f_detalhes.bind(
             "<Configure>",
@@ -250,8 +356,12 @@ class App(tk.Tk):
         det_canvas.bind("<Enter>", lambda e: det_canvas.bind_all("<MouseWheel>", _on_det_mousewheel))
         det_canvas.bind("<Leave>", lambda e: det_canvas.unbind_all("<MouseWheel>"))
 
-        self._detalhes_frame = ttk.LabelFrame(f_detalhes, text="Dados do processo / petição")
-        self._detalhes_frame.pack(fill="both", expand=False, padx=4, pady=2)
+        # ── Dados do processo ──────────────────────────────────────────
+        self._detalhes_frame = ttk.Labelframe(
+            f_detalhes, text="  Dados do processo / petição  ",
+            bootstyle="default", padding=(12, 8),
+        )
+        self._detalhes_frame.pack(fill="both", expand=False, pady=(0, 6))
         campos = [
             ("numero", "Nº do processo:"),
             ("tribunal", "Tribunal:"),
@@ -266,15 +376,23 @@ class App(tk.Tk):
             ("proximo_prazo", "Próximo prazo:"),
         ]
         for i, (atr, rotulo) in enumerate(campos):
-            ttk.Label(self._detalhes_frame, text=rotulo, anchor="e", width=18).grid(
-                row=i, column=0, sticky="e", padx=(4, 2), pady=1
+            ttk.Label(
+                self._detalhes_frame, text=rotulo, anchor="e", width=18,
+                font=_FONT_BASE,
+            ).grid(row=i, column=0, sticky="e", padx=(4, 6), pady=2)
+            lbl = ttk.Label(
+                self._detalhes_frame, text="", anchor="w", wraplength=200,
+                font=_FONT_BASE, bootstyle="info",
             )
-            lbl = ttk.Label(self._detalhes_frame, text="", anchor="w", wraplength=200)
-            lbl.grid(row=i, column=1, sticky="w", padx=(0, 4), pady=1)
+            lbl.grid(row=i, column=1, sticky="w", padx=(0, 4), pady=2)
             setattr(self, f"_lbl_{atr}", lbl)
 
-        f_edicao = ttk.LabelFrame(f_detalhes, text="Campos editáveis")
-        f_edicao.pack(fill="x", padx=4, pady=2)
+        # ── Campos editáveis ───────────────────────────────────────────
+        f_edicao = ttk.Labelframe(
+            f_detalhes, text="  Campos editáveis  ",
+            bootstyle="default", padding=(12, 8),
+        )
+        f_edicao.pack(fill="x", pady=(0, 6))
         campos_edit = [
             ("secretaria", "Secretaria:"),
             ("municipio", "Município:"),
@@ -294,39 +412,48 @@ class App(tk.Tk):
         ]
         for i, (atr, rotulo) in enumerate(campos_edit):
             var = getattr(self, f"var_{atr}")
-            lbl = ttk.Label(f_edicao, text=rotulo, anchor="e", width=18)
-            lbl.grid(row=i, column=0, sticky="e", padx=(4, 2), pady=1)
+            lbl = ttk.Label(f_edicao, text=rotulo, anchor="e", width=18, font=_FONT_BASE)
+            lbl.grid(row=i, column=0, sticky="e", padx=(4, 6), pady=2)
             self._labels_edit[atr] = lbl
             self._rotulos_edit[atr] = rotulo
-            entry = ttk.Entry(f_edicao, textvariable=var, width=28)
-            entry.grid(row=i, column=1, sticky="w", padx=(0, 4), pady=1)
+            entry = ttk.Entry(f_edicao, textvariable=var, width=28, font=_FONT_BASE)
+            entry.grid(row=i, column=1, sticky="w", padx=(0, 4), pady=2)
             self._entries_edit[atr] = entry
             if atr in ("valor_causa", "comarca", "vara", "tribunal", "endereco_foro",
                        "juiz", "assunto", "municipio", "estado", "oab_uf", "oab_numero"):
                 self._entries_auto[str(var)] = entry
-                entry.configure(foreground="gray")
+                entry.configure(foreground="#868e96")
 
         # Linha extra dentro de f_edicao para o checkbox "Múltiplos imóveis"
-        # (aparece somente quando o template é imobiliário).
         self._frame_imoveis = ttk.Frame(f_edicao)
         self._chk_imoveis = ttk.Checkbutton(
             self._frame_imoveis,
             text="Múltiplos imóveis",
             variable=self.var_multiplos_imoveis,
+            bootstyle="info",
         )
         self._chk_imoveis.pack(side="left")
-        # Não usa .grid agora — será posicionado dinamicamente em _atualizar_campos_imoveis.
 
-        self._frame_dinamicos = ttk.LabelFrame(
-            f_detalhes, text="Campos adicionais (placeholders novos)"
+        # ── Campos dinâmicos (placeholders novos) ──────────────────────
+        self._frame_dinamicos = ttk.Labelframe(
+            f_detalhes, text="  Campos adicionais (placeholders novos)  ",
+            bootstyle="warning", padding=(12, 8),
         )
-        # Não chamamos .pack() agora — o frame aparece só quando há campos dinâmicos.
 
-        f_templates = ttk.LabelFrame(f_detalhes, text="Modelos de petição")
-        f_templates.pack(fill="x", padx=4, pady=2)
-        self._templates_canvas = tk.Canvas(f_templates, highlightthickness=0, height=160)
-        scroll_t = ttk.Scrollbar(f_templates, orient="vertical", command=self._templates_canvas.yview)
-        self._templates_inner = ttk.Frame(self._templates_canvas)
+        # ── Modelos de petição ─────────────────────────────────────────
+        f_templates = ttk.Labelframe(
+            f_detalhes, text="  Modelos de petição  ",
+            bootstyle="default", padding=(12, 8),
+        )
+        f_templates.pack(fill="x", pady=(0, 6))
+        self._templates_canvas = tk.Canvas(
+            f_templates, highlightthickness=0, height=140, bg="#fafbfc",
+        )
+        scroll_t = ttk.Scrollbar(
+            f_templates, orient="vertical", command=self._templates_canvas.yview,
+            bootstyle="round",
+        )
+        self._templates_inner = ttk.Frame(self._templates_canvas, padding=4)
         self._templates_inner.bind("<Configure>",
             lambda e: self._templates_canvas.configure(scrollregion=self._templates_canvas.bbox("all")))
         self._templates_canvas.create_window((0, 0), window=self._templates_inner, anchor="nw")
@@ -347,27 +474,63 @@ class App(tk.Tk):
             lambda e: det_canvas.bind_all("<MouseWheel>", _on_det_mousewheel),
         )
 
+        # Botões de templates
         f_btn_t = ttk.Frame(f_detalhes)
-        f_btn_t.pack(fill="x", padx=4, pady=2)
-        ttk.Button(f_btn_t, text="Marcar todos", command=self._marcar_todos_templates).pack(side="left")
-        ttk.Button(f_btn_t, text="Desmarcar todos", command=self._desmarcar_todos_templates).pack(side="left", padx=4)
+        f_btn_t.pack(fill="x", pady=(0, 6))
+        ttk.Button(
+            f_btn_t, text="Marcar todos", command=self._marcar_todos_templates,
+            bootstyle="outline", width=14,
+        ).pack(side="left")
+        ttk.Button(
+            f_btn_t, text="Desmarcar todos", command=self._desmarcar_todos_templates,
+            bootstyle="outline-secondary", width=16,
+        ).pack(side="left", padx=(8, 0))
         ttk.Checkbutton(
             f_btn_t, text="Gerar documento único",
             variable=self.var_documento_unico,
-        ).pack(side="left", padx=12)
+            bootstyle="info",
+        ).pack(side="left", padx=(16, 0))
 
-        f_gerar = ttk.Frame(f_detalhes)
-        f_gerar.pack(fill="x", padx=4, pady=2)
-        ttk.Label(f_gerar, text="Pasta de destino:").pack(side="left")
-        ttk.Entry(f_gerar, textvariable=self.var_pesquisa_destino).pack(side="left", fill="x", expand=True, padx=4)
-        ttk.Button(f_gerar, text="Escolher...", command=self._escolher_pesquisa_destino).pack(side="left")
-        ttk.Button(f_gerar, text="Gerar petições selecionadas", command=self._gerar_peticoes).pack(side="left", padx=4)
+        # ── Geração de petições ────────────────────────────────────────
+        section_gen = ttk.Labelframe(
+            f_detalhes, text="  Gerar petições  ",
+            bootstyle="default", padding=(12, 8),
+        )
+        section_gen.pack(fill="x")
+        f_gerar = ttk.Frame(section_gen)
+        f_gerar.pack(fill="x")
+        f_gerar.columnconfigure(1, weight=1)
+        ttk.Label(f_gerar, text="Destino:", font=_FONT_BASE).grid(
+            row=0, column=0, sticky="e", padx=(0, 6), pady=4,
+        )
+        ttk.Entry(
+            f_gerar, textvariable=self.var_pesquisa_destino, font=_FONT_BASE,
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=4)
+        ttk.Button(
+            f_gerar, text="Escolher...", command=self._escolher_pesquisa_destino,
+            bootstyle="outline", width=12,
+        ).grid(row=0, column=2, pady=4)
+        ttk.Button(
+            f_gerar, text="📄  Gerar petições selecionadas",
+            command=self._gerar_peticoes,
+            bootstyle="success", width=28,
+        ).grid(row=1, column=0, columnspan=3, pady=(8, 0))
 
         f_main.add(f_det_container, weight=1)
 
-        ttk.Label(parent, text="Log:").pack(anchor="w", padx=8)
-        self.txt_pesquisa = tk.Text(parent, height=5, wrap="word", state="disabled")
-        self.txt_pesquisa.pack(fill="x", padx=8, pady=4)
+        # ── Log da pesquisa ────────────────────────────────────────────
+        section_log = ttk.Labelframe(
+            parent, text="  Log  ", bootstyle="default",
+            padding=(12, 8),
+        )
+        section_log.pack(fill="x")
+        self.txt_pesquisa = tk.Text(
+            section_log, height=4, wrap="word", state="disabled",
+            font=_FONT_MONO, bg="#fafbfc", relief="flat",
+            borderwidth=1, highlightthickness=1,
+            highlightcolor="#d0d5dd", highlightbackground="#d0d5dd",
+        )
+        self.txt_pesquisa.pack(fill="x")
 
     # -- ações da aba Organizador ------------------------------------------
     def _escolher_origem(self) -> None:
@@ -599,16 +762,17 @@ class App(tk.Tk):
     def _preencher_tree(self, processos: list[Processo]) -> None:
         for item in self.tree.get_children():
             self.tree.delete(item)
-        for proc in processos:
+        for idx, proc in enumerate(processos):
             autor = _autor(proc)
             reu = _reus_joined(proc)
             proxima = ""
             if proc.prazos_abertos:
                 proxima = proc.prazos_abertos[0].fim or "?"
+            tag = "oddrow" if idx % 2 else "evenrow"
             self.tree.insert("", "end", iid=proc.numero, values=(
                 proc.numero, proc.classe, autor, reu,
                 proc.valor_causa, proc.ultima_movimentacao[:30], proxima,
-            ))
+            ), tags=(tag,))
 
     def _filtrar_pesquisa(self) -> None:
         filtro = self.var_filtro.get().lower().strip()
@@ -687,9 +851,9 @@ class App(tk.Tk):
                     self._templates_vars[f] = var
                     cb = ttk.Checkbutton(
                         self._templates_inner, text=f.stem, variable=var,
-                        command=self._on_template_toggle,
+                        command=self._on_template_toggle, bootstyle="info",
                     )
-                    cb.pack(anchor="w")
+                    cb.pack(anchor="w", pady=1)
             # Subdiretórios (ex.: especiais/).
             subdirs = sorted(
                 d for d in templates_dir.iterdir()
@@ -704,16 +868,16 @@ class App(tk.Tk):
                     continue
                 ttk.Label(
                     self._templates_inner, text=f"— {subdir.name.title()} —",
-                    font=("", 9, "bold"),
-                ).pack(anchor="w", pady=(6, 0))
+                    font=_FONT_BOLD, bootstyle="info",
+                ).pack(anchor="w", pady=(8, 2))
                 for f in arquivos:
                     var = tk.BooleanVar(value=False)
                     self._templates_vars[f] = var
                     cb = ttk.Checkbutton(
                         self._templates_inner, text=f.stem, variable=var,
-                        command=self._on_template_toggle,
+                        command=self._on_template_toggle, bootstyle="info",
                     )
-                    cb.pack(anchor="w")
+                    cb.pack(anchor="w", pady=1)
         self._scan_templates_em_background()
         self._on_template_toggle()
 
@@ -728,43 +892,25 @@ class App(tk.Tk):
         self._on_template_toggle()
 
     def _propagar_grupos_templates(self) -> None:
-        """Sincroniza templates combinados com seus individuais."""
+        """Sincroniza templates combinados com seus individuais.
+        Apenas propaga indivíduos → combinado (não o inverso)."""
         for comb_stem, membros_stems in _GRUPOS_TEMPLATE.items():
-            # Encontra o Path do template combinado.
             comb_path = next(
                 (p for p in self._templates_vars if p.stem == comb_stem), None
             )
             if comb_path is None:
                 continue
-            # Encontra os Paths dos membros individuais.
             membros_paths = [
                 p for p in self._templates_vars if p.stem in membros_stems
             ]
             if len(membros_paths) != len(membros_stems):
                 continue
             comb_var = self._templates_vars[comb_path]
-            # Se o combinado está marcado → marca todos os membros.
-            if comb_var.get():
-                for mp in membros_paths:
-                    self._templates_vars[mp].set(True)
-            else:
-                # Se todos os membros estão marcados → marca o combinado.
-                todos_marcados = all(
-                    self._templates_vars[mp].get() for mp in membros_paths
-                )
-                if todos_marcados:
-                    comb_var.set(True)
-                    # Marca novamente os membros (pode ter vindo de desmarcar
-                    # um e re-marcar via grupo).
-                    for mp in membros_paths:
-                        self._templates_vars[mp].set(True)
-                else:
-                    # Se qualquer membro foi desmarcado → desmarca o combinado.
-                    algum_desmarcado = any(
-                        not self._templates_vars[mp].get() for mp in membros_paths
-                    )
-                    if algum_desmarcado:
-                        comb_var.set(False)
+            todos_marcados = all(
+                self._templates_vars[mp].get() for mp in membros_paths
+            )
+            if todos_marcados:
+                comb_var.set(True)
 
     def _scan_templates_em_background(self) -> None:
         if self._scan_tpls_thread and self._scan_tpls_thread.is_alive():
@@ -841,7 +987,7 @@ class App(tk.Tk):
             rotulo = self._rotulos_edit.get(atr, "")
             entry = self._entries_edit.get(atr)
             if atr in self._campos_obrigatorios:
-                lbl.configure(text=f"* {rotulo}", foreground="#cc0000")
+                lbl.configure(text=f"* {rotulo}", foreground="#e03131")
                 lbl.grid()
                 if entry is not None:
                     entry.grid()
@@ -853,7 +999,6 @@ class App(tk.Tk):
     def _atualizar_campo_imoveis(self) -> None:
         if self._frame_imoveis is None:
             return
-        # Posiciona o checkbox em uma nova linha do f_edicao (logo abaixo dos campos).
         if getattr(self, "_templates_tem_imovel", False):
             n_linhas = len(self._labels_edit)
             self._frame_imoveis.grid(
@@ -866,7 +1011,6 @@ class App(tk.Tk):
     def _atualizar_campos_dinamicos(self) -> None:
         if self._frame_dinamicos is None:
             return
-        # Cria entries para placeholders ainda não vistos.
         for ph in self._campos_desconhecidos:
             if ph in self._dinamicos:
                 continue
@@ -874,18 +1018,18 @@ class App(tk.Tk):
             rotulo = ph.capitalize() + ":"
             lbl = ttk.Label(
                 self._frame_dinamicos, text=f"* {rotulo}",
-                anchor="e", width=18, foreground="#cc0000",
+                anchor="e", width=18, foreground="#e03131",
+                font=_FONT_BASE,
             )
-            entry = ttk.Entry(self._frame_dinamicos, textvariable=var, width=28)
+            entry = ttk.Entry(self._frame_dinamicos, textvariable=var, width=28, font=_FONT_BASE)
             self._dinamicos[ph] = (lbl, entry, var)
 
-        # Reposiciona/esconde conforme estado atual.
         row = 0
         qualquer_visivel = False
         for ph, (lbl, entry, _) in self._dinamicos.items():
             if ph in self._campos_desconhecidos:
-                lbl.grid(row=row, column=0, sticky="e", padx=(4, 2), pady=1)
-                entry.grid(row=row, column=1, sticky="w", padx=(0, 4), pady=1)
+                lbl.grid(row=row, column=0, sticky="e", padx=(4, 6), pady=2)
+                entry.grid(row=row, column=1, sticky="w", padx=(0, 4), pady=2)
                 qualquer_visivel = True
                 row += 1
             else:
@@ -894,7 +1038,7 @@ class App(tk.Tk):
 
         empacotado = self._frame_dinamicos.winfo_manager() == "pack"
         if qualquer_visivel and not empacotado:
-            self._frame_dinamicos.pack(fill="x", padx=4, pady=2)
+            self._frame_dinamicos.pack(fill="x", pady=(0, 6))
         elif not qualquer_visivel and empacotado:
             self._frame_dinamicos.pack_forget()
 
@@ -991,7 +1135,6 @@ class App(tk.Tk):
         except queue.Empty:
             pass
         self.after(100, self._drain_pesquisa_log_queue)
-
 
 
 def main() -> None:
