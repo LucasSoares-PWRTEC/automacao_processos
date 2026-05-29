@@ -1,0 +1,23 @@
+Poder Judiciário
+Processo Eletrônico
+Extrato de Distribuição
+
+Processo nº 4004459-04.2026.8.26.0248
+
+Chave para consulta: 123456789012
+
+Valor da Causa: R$ 44.924,15
+
+Data Envio: 12/03/2026
+Hora de Envio: 09:00:00
+
+Orgão Julgador: 2ª Vara Cível da Comarca de Carapicuíba
+Magistrado: JOANA PEREIRA DE SOUZA
+
+Evento: Distribuição por sorteio
+
+EMPRESA EXEMPLO LTDA - AUTOR
+FULANO DE TAL - RÉU
+
+Nome: ADVOGADO DO AUTOR
+OAB/Sigla: SP346433

@@ -1,0 +1,8 @@
+# Dependências de runtime do Organizador de Processos.
+pypdf
+python-docx
+
+# Opcionais (somente em ambiente Windows com Word + TJSP-Scraper):
+#   pywin32          -> conversão .doc -> .docx e busca online (win32com)
+#   selenium, etc.   -> instalados junto ao projeto TJSP-Scraper
+# A ausência dessas libs NÃO derruba o app: os imports são tardios e tratados.

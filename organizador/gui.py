@@ -1,0 +1,999 @@
+# -*- coding: utf-8 -*-
+"""Interface gráfica Tkinter (Organizador + Pesquisa de Processo)."""
+
+from __future__ import annotations
+
+import contextlib
+import os
+import queue
+import threading
+import tkinter as tk
+from pathlib import Path
+from tkinter import filedialog, messagebox, ttk
+
+from .config import OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, TJ_SISTEMAS
+from .flexao import _construir_contexto
+from .models import Processo
+from .organizacao import _autor, _carregar_processos, _reus_joined, organizar_pasta
+from .parsing import _municipio_de_comarca, _oab_completa
+from .peticoes import (
+    PLACEHOLDERS_AUTO, PLACEHOLDERS_PETICAO,
+    _extrair_placeholders_template, _template_eh_imobiliario, gerar_peticoes,
+)
+from .scraper import _LogWriter, buscar_processo_online
+
+
+# Mapeamento de templates combinados: chave = stem do template combinado,
+# valores = lista de stems dos templates individuais que ele representa.
+_GRUPOS_TEMPLATE: dict[str, list[str]] = {
+    "Sisbajud, Renajud e Infojud": [
+        "Sisbajud - modalidade teimosinha",
+        "Renajud",
+        "Infojud",
+    ],
+}
+
+
+class App(tk.Tk):
+    def __init__(self) -> None:
+        super().__init__()
+        self.title("Organizador de Processos — eproc")
+        self.geometry("980x720")
+        self.minsize(820, 600)
+
+        # Estado compartilhado / aba Organizador
+        self.var_origem = tk.StringVar(value=PASTA_PADRAO)
+        self.var_destino = tk.StringVar(value=PASTA_PADRAO)
+        self.var_status = tk.StringVar(value="Pronto.")
+        self._log_queue: queue.Queue[str] = queue.Queue()
+        # Filas thread-safe para atualizações de UI a partir de threads worker.
+        # Tkinter NÃO é thread-safe; toda mutação visual passa por essas filas
+        # e é drenada em _drain_ui_queues (rodando na main thread).
+        self._progress_queue: queue.Queue[tuple[int, int]] = queue.Queue()
+        self._status_queue: queue.Queue[tuple[str, object]] = queue.Queue()
+        self._worker: threading.Thread | None = None
+        self._cancel_event = threading.Event()
+        self._progress_var = tk.IntVar(value=0)
+        self._progress_max = tk.IntVar(value=100)
+
+        # Estado da aba Pesquisa de Processo
+        self.var_pesquisa_base = tk.StringVar(value=PASTA_PADRAO)
+        self.var_pesquisa_destino = tk.StringVar(value="")
+        self.var_filtro = tk.StringVar(value="")
+        self.var_busca_numero = tk.StringVar(value="")
+        self.var_busca_tj = tk.StringVar(value="TJSP — eproc")
+        self.var_busca_headless = tk.BooleanVar(value=False)
+        self.var_busca_docs = tk.BooleanVar(value=False)  # False → modo_docs "nenhum"; True → "atos"
+        self.var_secretaria = tk.StringVar(value="")
+        self.var_municipio = tk.StringVar(value="")
+        self.var_estado = tk.StringVar(value="")
+        self.var_oab_uf = tk.StringVar(value="")
+        self.var_oab_numero = tk.StringVar(value="")
+        self.var_endereco_reu = tk.StringVar(value="")
+        self.var_valor_causa = tk.StringVar(value="")
+        self.var_comarca = tk.StringVar(value="")
+        self.var_vara = tk.StringVar(value="")
+        self.var_tribunal = tk.StringVar(value="")
+        self.var_endereco_foro = tk.StringVar(value="")
+        self.var_juiz = tk.StringVar(value="")
+        self.var_assunto = tk.StringVar(value="")
+        self.var_empregador = tk.StringVar(value="")
+        self.var_percentual = tk.StringVar(value="")
+        self._entries_auto: dict[str, tk.Entry] = {}
+        self._processos_carregados: list[Processo] = []
+        self._proc_selecionado: Processo | None = None
+        self._templates_vars: dict[Path, tk.BooleanVar] = {}
+        self.var_documento_unico = tk.BooleanVar(value=True)
+        self.var_multiplos_imoveis = tk.BooleanVar(value=False)
+        self._pesquisa_log_queue: queue.Queue[str] = queue.Queue()
+        self._gen_worker: threading.Thread | None = None
+        self._busca_worker: threading.Thread | None = None
+        self._busca_result_queue: queue.Queue = queue.Queue()
+
+        # Form inteligente: estado para destaque baseado nos templates marcados.
+        self._templates_placeholders: dict[Path, set[str]] = {}
+        self._campos_obrigatorios: set[str] = set()
+        self._campos_desconhecidos: set[str] = set()
+        self._labels_edit: dict[str, ttk.Label] = {}
+        self._entries_edit: dict[str, ttk.Entry] = {}
+        self._rotulos_edit: dict[str, str] = {}
+        self._dinamicos: dict[str, tuple[ttk.Label, ttk.Entry, tk.StringVar]] = {}
+        self._frame_dinamicos: ttk.LabelFrame | None = None
+        self._frame_imoveis: ttk.Frame | None = None
+        self._chk_imoveis: ttk.Checkbutton | None = None
+        self._scan_tpls_thread: threading.Thread | None = None
+
+        # Espelha Secretaria ↔ Vara: alterar um campo replica no outro.
+        # Flag de guarda evita loop infinito quando o trace dispara reciprocamente.
+        self._espelhando_sec_vara = False
+        # Flag de guarda para propagação de grupo de templates combinados.
+        self._atualizando_grupo = False
+        self.var_secretaria.trace_add("write", self._espelhar_secretaria_para_vara)
+        self.var_vara.trace_add("write", self._espelhar_vara_para_secretaria)
+
+        self._build_widgets()
+        self.after(100, self._drain_ui_queues)
+        self.after(100, self._drain_pesquisa_log_queue)
+        self.after(150, self._drain_busca_result)
+
+    def _build_widgets(self) -> None:
+        nb = ttk.Notebook(self)
+        nb.pack(fill="both", expand=True, padx=8, pady=(8, 0))
+
+        frm_org = ttk.Frame(nb)
+        frm_pesq = ttk.Frame(nb)
+        nb.add(frm_org, text="Organizador")
+        nb.add(frm_pesq, text="Pesquisa de Processo")
+
+        self._build_aba_organizador(frm_org)
+        self._build_aba_pesquisa(frm_pesq)
+
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", side="bottom")
+        ttk.Label(bar, textvariable=self.var_status, anchor="w").pack(fill="x", padx=8, pady=4)
+
+    def _build_aba_organizador(self, parent: ttk.Frame) -> None:
+        pad = {"padx": 8, "pady": 4}
+
+        frm = ttk.Frame(parent)
+        frm.pack(fill="x", **pad)
+
+        ttk.Label(frm, text="Pasta de origem:").grid(row=0, column=0, sticky="w")
+        ttk.Entry(frm, textvariable=self.var_origem).grid(row=0, column=1, sticky="ew", padx=4)
+        ttk.Button(frm, text="Escolher...", command=self._escolher_origem).grid(row=0, column=2)
+
+        ttk.Label(frm, text="Pasta de destino:").grid(row=1, column=0, sticky="w")
+        ttk.Entry(frm, textvariable=self.var_destino).grid(row=1, column=1, sticky="ew", padx=4)
+        ttk.Button(frm, text="Escolher...", command=self._escolher_destino).grid(row=1, column=2)
+
+        frm.columnconfigure(1, weight=1)
+
+        botoes = ttk.Frame(parent)
+        botoes.pack(fill="x", **pad)
+        self.btn_run = ttk.Button(botoes, text="Organizar", command=self._on_run)
+        self.btn_run.pack(side="left")
+        self.btn_cancel = ttk.Button(botoes, text="Cancelar", command=self._on_cancel, state="disabled")
+        self.btn_cancel.pack(side="left", padx=6)
+        ttk.Button(botoes, text="Abrir pasta de destino", command=self._abrir_destino).pack(
+            side="left", padx=6
+        )
+        ttk.Button(botoes, text="Limpar log", command=self._limpar_log).pack(side="left")
+
+        self.progress = ttk.Progressbar(
+            parent, orient="horizontal",
+            variable=self._progress_var, maximum=100,
+            mode="determinate",
+        )
+        self.progress.pack(fill="x", padx=8, pady=(0, 4))
+
+        ttk.Label(parent, text="Log:").pack(anchor="w", padx=8)
+        self.txt = tk.Text(parent, height=18, wrap="word", state="disabled")
+        self.txt.pack(fill="both", expand=True, padx=8, pady=4)
+
+    def _build_aba_pesquisa(self, parent: ttk.Frame) -> None:
+        pad = {"padx": 8, "pady": 4}
+        f0 = ttk.Frame(parent)
+        f0.pack(fill="x", **pad)
+        ttk.Label(f0, text="Pasta base:").pack(side="left")
+        ttk.Entry(f0, textvariable=self.var_pesquisa_base).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(f0, text="Escolher...", command=self._escolher_pesquisa_base).pack(side="left")
+        ttk.Button(f0, text="Recarregar lista", command=self._recarregar_pesquisa).pack(side="left", padx=4)
+
+        f_busca = ttk.Frame(parent)
+        f_busca.pack(fill="x", **pad)
+        ttk.Label(f_busca, text="Nº do processo (online):").pack(side="left")
+        ttk.Entry(f_busca, textvariable=self.var_busca_numero).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Label(f_busca, text="TJ/Sistema:").pack(side="left", padx=(8, 0))
+        ttk.Combobox(
+            f_busca, textvariable=self.var_busca_tj, values=list(TJ_SISTEMAS),
+            state="readonly", width=14,
+        ).pack(side="left", padx=4)
+        ttk.Checkbutton(
+            f_busca, text="Baixar documentos", variable=self.var_busca_docs
+        ).pack(side="left", padx=4)
+        ttk.Checkbutton(
+            f_busca, text="Navegador invisível", variable=self.var_busca_headless
+        ).pack(side="left", padx=4)
+        self._btn_buscar = ttk.Button(
+            f_busca, text="Buscar online", command=self._buscar_online
+        )
+        self._btn_buscar.pack(side="left", padx=4)
+
+        f_filtro = ttk.Frame(parent)
+        f_filtro.pack(fill="x", **pad)
+        ttk.Label(f_filtro, text="Filtro:").pack(side="left")
+        ttk.Entry(f_filtro, textvariable=self.var_filtro).pack(side="left", fill="x", expand=True, padx=4)
+        self.var_filtro.trace_add("write", lambda *_: self._filtrar_pesquisa())
+
+        f_main = ttk.PanedWindow(parent, orient="horizontal")
+        f_main.pack(fill="both", expand=True, **pad)
+
+        f_lista = ttk.Frame(f_main)
+        colunas = ("numero", "classe", "autor", "reu", "valor", "ultima_mov", "prazos")
+        self.tree = ttk.Treeview(f_lista, columns=colunas, show="headings", height=15)
+        for c in colunas:
+            cab = {"numero": "Nº processo", "classe": "Classe", "autor": "Autor",
+                   "reu": "Réu(s)", "valor": "Valor", "ultima_mov": "Última mov.",
+                   "prazos": "Prazos"}[c]
+            self.tree.heading(c, text=cab)
+            larg = {"numero": 180, "classe": 130, "autor": 120, "reu": 120,
+                    "valor": 80, "ultima_mov": 140, "prazos": 70}[c]
+            self.tree.column(c, width=larg, minwidth=60)
+        self.tree.bind("<<TreeviewSelect>>", self._on_select_processo)
+        self.tree.pack(side="left", fill="both", expand=True)
+        scroll_tree = ttk.Scrollbar(f_lista, orient="vertical", command=self.tree.yview)
+        scroll_tree.pack(side="right", fill="y")
+        self.tree.configure(yscrollcommand=scroll_tree.set)
+        f_main.add(f_lista, weight=2)
+
+        f_det_container = ttk.Frame(f_main)
+        det_canvas = tk.Canvas(f_det_container, highlightthickness=0)
+        det_scroll = ttk.Scrollbar(f_det_container, orient="vertical", command=det_canvas.yview)
+        det_canvas.configure(yscrollcommand=det_scroll.set)
+        det_canvas.pack(side="left", fill="both", expand=True)
+        det_scroll.pack(side="right", fill="y")
+
+        f_detalhes = ttk.Frame(det_canvas)
+        det_window = det_canvas.create_window((0, 0), window=f_detalhes, anchor="nw")
+        f_detalhes.bind(
+            "<Configure>",
+            lambda e: det_canvas.configure(scrollregion=det_canvas.bbox("all")),
+        )
+        det_canvas.bind(
+            "<Configure>",
+            lambda e: det_canvas.itemconfigure(det_window, width=e.width),
+        )
+
+        def _on_det_mousewheel(event: tk.Event) -> None:
+            det_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        det_canvas.bind("<Enter>", lambda e: det_canvas.bind_all("<MouseWheel>", _on_det_mousewheel))
+        det_canvas.bind("<Leave>", lambda e: det_canvas.unbind_all("<MouseWheel>"))
+
+        self._detalhes_frame = ttk.LabelFrame(f_detalhes, text="Dados do processo / petição")
+        self._detalhes_frame.pack(fill="both", expand=False, padx=4, pady=2)
+        campos = [
+            ("numero", "Nº do processo:"),
+            ("tribunal", "Tribunal:"),
+            ("classe", "Classe:"),
+            ("orgao_julgador", "Órgão Julgador:"),
+            ("juiz", "Juiz(a):"),
+            ("valor_causa", "Valor da causa:"),
+            ("tags", "Tags:"),
+            ("autor", "Autor:"),
+            ("reu", "Réu(s):"),
+            ("ultima_movimentacao", "Última movimentação:"),
+            ("proximo_prazo", "Próximo prazo:"),
+        ]
+        for i, (atr, rotulo) in enumerate(campos):
+            ttk.Label(self._detalhes_frame, text=rotulo, anchor="e", width=18).grid(
+                row=i, column=0, sticky="e", padx=(4, 2), pady=1
+            )
+            lbl = ttk.Label(self._detalhes_frame, text="", anchor="w", wraplength=200)
+            lbl.grid(row=i, column=1, sticky="w", padx=(0, 4), pady=1)
+            setattr(self, f"_lbl_{atr}", lbl)
+
+        f_edicao = ttk.LabelFrame(f_detalhes, text="Campos editáveis")
+        f_edicao.pack(fill="x", padx=4, pady=2)
+        campos_edit = [
+            ("secretaria", "Secretaria:"),
+            ("municipio", "Município:"),
+            ("estado", "Estado:"),
+            ("oab_uf", "OAB UF:"),
+            ("oab_numero", "OAB Nº:"),
+            ("endereco_reu", "Endereço do réu:"),
+            ("valor_causa", "Valor da causa:"),
+            ("comarca", "Comarca:"),
+            ("vara", "Vara:"),
+            ("tribunal", "Tribunal:"),
+            ("endereco_foro", "Endereço do foro:"),
+            ("juiz", "Juiz:"),
+            ("assunto", "Assunto:"),
+            ("empregador", "O empregador:"),
+            ("percentual", "Percentual (penhora):"),
+        ]
+        for i, (atr, rotulo) in enumerate(campos_edit):
+            var = getattr(self, f"var_{atr}")
+            lbl = ttk.Label(f_edicao, text=rotulo, anchor="e", width=18)
+            lbl.grid(row=i, column=0, sticky="e", padx=(4, 2), pady=1)
+            self._labels_edit[atr] = lbl
+            self._rotulos_edit[atr] = rotulo
+            entry = ttk.Entry(f_edicao, textvariable=var, width=28)
+            entry.grid(row=i, column=1, sticky="w", padx=(0, 4), pady=1)
+            self._entries_edit[atr] = entry
+            if atr in ("valor_causa", "comarca", "vara", "tribunal", "endereco_foro",
+                       "juiz", "assunto", "municipio", "estado", "oab_uf", "oab_numero"):
+                self._entries_auto[str(var)] = entry
+                entry.configure(foreground="gray")
+
+        # Linha extra dentro de f_edicao para o checkbox "Múltiplos imóveis"
+        # (aparece somente quando o template é imobiliário).
+        self._frame_imoveis = ttk.Frame(f_edicao)
+        self._chk_imoveis = ttk.Checkbutton(
+            self._frame_imoveis,
+            text="Múltiplos imóveis",
+            variable=self.var_multiplos_imoveis,
+        )
+        self._chk_imoveis.pack(side="left")
+        # Não usa .grid agora — será posicionado dinamicamente em _atualizar_campos_imoveis.
+
+        self._frame_dinamicos = ttk.LabelFrame(
+            f_detalhes, text="Campos adicionais (placeholders novos)"
+        )
+        # Não chamamos .pack() agora — o frame aparece só quando há campos dinâmicos.
+
+        f_templates = ttk.LabelFrame(f_detalhes, text="Modelos de petição")
+        f_templates.pack(fill="x", padx=4, pady=2)
+        self._templates_canvas = tk.Canvas(f_templates, highlightthickness=0, height=160)
+        scroll_t = ttk.Scrollbar(f_templates, orient="vertical", command=self._templates_canvas.yview)
+        self._templates_inner = ttk.Frame(self._templates_canvas)
+        self._templates_inner.bind("<Configure>",
+            lambda e: self._templates_canvas.configure(scrollregion=self._templates_canvas.bbox("all")))
+        self._templates_canvas.create_window((0, 0), window=self._templates_inner, anchor="nw")
+        self._templates_canvas.configure(yscrollcommand=scroll_t.set)
+        self._templates_canvas.pack(side="left", fill="both", expand=True)
+        scroll_t.pack(side="right", fill="y")
+
+        def _on_tpl_mousewheel(event: tk.Event) -> str:
+            self._templates_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+            return "break"
+
+        self._templates_canvas.bind(
+            "<Enter>",
+            lambda e: self._templates_canvas.bind_all("<MouseWheel>", _on_tpl_mousewheel),
+        )
+        self._templates_canvas.bind(
+            "<Leave>",
+            lambda e: det_canvas.bind_all("<MouseWheel>", _on_det_mousewheel),
+        )
+
+        f_btn_t = ttk.Frame(f_detalhes)
+        f_btn_t.pack(fill="x", padx=4, pady=2)
+        ttk.Button(f_btn_t, text="Marcar todos", command=self._marcar_todos_templates).pack(side="left")
+        ttk.Button(f_btn_t, text="Desmarcar todos", command=self._desmarcar_todos_templates).pack(side="left", padx=4)
+        ttk.Checkbutton(
+            f_btn_t, text="Gerar documento único",
+            variable=self.var_documento_unico,
+        ).pack(side="left", padx=12)
+
+        f_gerar = ttk.Frame(f_detalhes)
+        f_gerar.pack(fill="x", padx=4, pady=2)
+        ttk.Label(f_gerar, text="Pasta de destino:").pack(side="left")
+        ttk.Entry(f_gerar, textvariable=self.var_pesquisa_destino).pack(side="left", fill="x", expand=True, padx=4)
+        ttk.Button(f_gerar, text="Escolher...", command=self._escolher_pesquisa_destino).pack(side="left")
+        ttk.Button(f_gerar, text="Gerar petições selecionadas", command=self._gerar_peticoes).pack(side="left", padx=4)
+
+        f_main.add(f_det_container, weight=1)
+
+        ttk.Label(parent, text="Log:").pack(anchor="w", padx=8)
+        self.txt_pesquisa = tk.Text(parent, height=5, wrap="word", state="disabled")
+        self.txt_pesquisa.pack(fill="x", padx=8, pady=4)
+
+    # -- ações da aba Organizador ------------------------------------------
+    def _escolher_origem(self) -> None:
+        path = filedialog.askdirectory(initialdir=self.var_origem.get() or ".")
+        if path:
+            self.var_origem.set(path)
+            if not self.var_destino.get():
+                self.var_destino.set(path)
+
+    def _escolher_destino(self) -> None:
+        path = filedialog.askdirectory(initialdir=self.var_destino.get() or ".")
+        if path:
+            self.var_destino.set(path)
+
+    def _abrir_destino(self) -> None:
+        path = self.var_destino.get() or self.var_origem.get()
+        if path and Path(path).exists():
+            os.startfile(path)
+
+    def _limpar_log(self) -> None:
+        self.txt.configure(state="normal")
+        self.txt.delete("1.0", "end")
+        self.txt.configure(state="disabled")
+
+    def _espelhar_secretaria_para_vara(self, *_args) -> None:
+        if self._espelhando_sec_vara:
+            return
+        self._espelhando_sec_vara = True
+        try:
+            self.var_vara.set(self.var_secretaria.get())
+        finally:
+            self._espelhando_sec_vara = False
+
+    def _espelhar_vara_para_secretaria(self, *_args) -> None:
+        if self._espelhando_sec_vara:
+            return
+        self._espelhando_sec_vara = True
+        try:
+            self.var_secretaria.set(self.var_vara.get())
+        finally:
+            self._espelhando_sec_vara = False
+
+    def _log(self, msg: str) -> None:
+        self._log_queue.put(msg)
+
+    def _drain_ui_queues(self) -> None:
+        """Drena filas de log/progresso/status (main thread). Tkinter só é
+        seguro nesta thread, então toda atualização vinda de workers passa por
+        aqui."""
+        # Logs: insere todas as mensagens acumuladas.
+        try:
+            mensagens: list[str] = []
+            while True:
+                mensagens.append(self._log_queue.get_nowait())
+        except queue.Empty:
+            pass
+        if mensagens:
+            self.txt.configure(state="normal")
+            for msg in mensagens:
+                self.txt.insert("end", msg + "\n")
+            self.txt.see("end")
+            self.txt.configure(state="disabled")
+
+        # Progresso: só interessa o último valor — evita N redraws.
+        ultimo_progress: tuple[int, int] | None = None
+        try:
+            while True:
+                ultimo_progress = self._progress_queue.get_nowait()
+        except queue.Empty:
+            pass
+        if ultimo_progress is not None:
+            current, total = ultimo_progress
+            pct = int(current / max(total, 1) * 100)
+            self._progress_var.set(min(pct, 100))
+
+        # Status: aplica todas as mensagens em ordem (status text, botões etc.).
+        try:
+            while True:
+                tipo, valor = self._status_queue.get_nowait()
+                if tipo == "status":
+                    self.var_status.set(str(valor))
+                elif tipo == "btn_run":
+                    self.btn_run.configure(state=str(valor))
+                elif tipo == "btn_cancel":
+                    self.btn_cancel.configure(state=str(valor))
+                elif tipo == "progress_set":
+                    try:
+                        self._progress_var.set(int(valor))
+                    except (TypeError, ValueError):
+                        pass
+        except queue.Empty:
+            pass
+
+        self.after(100, self._drain_ui_queues)
+
+    def _on_run(self) -> None:
+        if self._worker and self._worker.is_alive():
+            return
+        origem = Path(self.var_origem.get()).expanduser()
+        destino = Path(self.var_destino.get() or self.var_origem.get()).expanduser()
+        if not origem.is_dir():
+            messagebox.showerror("Erro", f"Pasta de origem não existe:\n{origem}")
+            return
+
+        self._cancel_event.clear()
+        self.btn_run.configure(state="disabled")
+        self.btn_cancel.configure(state="normal")
+        self.var_status.set("Organizando...")
+        self._limpar_log()
+        self._progress_var.set(0)
+        self._progress_max.set(100)
+        self.progress.configure(maximum=100)
+
+        def run() -> None:
+            try:
+                def progress_cb(current: int, total: int) -> None:
+                    self._progress_queue.put((current, total))
+
+                resumo = organizar_pasta(
+                    origem, destino, log=self._log,
+                    cancel_event=self._cancel_event,
+                    progress_cb=progress_cb,
+                )
+                if self._cancel_event.is_set():
+                    self._log_queue.put("\nOperação cancelada pelo usuário.")
+                    self._status_queue.put(("status", "Cancelado."))
+                else:
+                    self._log_queue.put(
+                        f"\nResumo: {resumo['organizados']} organizado(s), "
+                        f"{resumo['nao_identificados']} não identificado(s)."
+                    )
+                    self._status_queue.put((
+                        "status",
+                        f"Concluído — {resumo['organizados']} processo(s) organizado(s).",
+                    ))
+                self._status_queue.put(("progress_set", 100))
+            except Exception as exc:
+                self._log_queue.put(f"ERRO: {exc}")
+                self._status_queue.put(("status", "Erro durante execução."))
+            finally:
+                self._status_queue.put(("btn_run", "normal"))
+                self._status_queue.put(("btn_cancel", "disabled"))
+
+        self._worker = threading.Thread(target=run, daemon=True)
+        self._worker.start()
+
+    def _on_cancel(self) -> None:
+        self._cancel_event.set()
+        self.btn_cancel.configure(state="disabled")
+        self.var_status.set("Cancelando...")
+
+    # -- ações da aba Pesquisa de Processo ---------------------------------
+    def _escolher_pesquisa_base(self) -> None:
+        path = filedialog.askdirectory(initialdir=self.var_pesquisa_base.get() or PASTA_PADRAO)
+        if path:
+            self.var_pesquisa_base.set(path)
+
+    def _recarregar_pesquisa(self) -> None:
+        pasta = Path(self.var_pesquisa_base.get()).expanduser()
+        if not pasta.is_dir():
+            messagebox.showerror("Erro", f"Pasta não existe:\n{pasta}")
+            return
+        self._processos_carregados = _carregar_processos(pasta)
+        self._preencher_tree(self._processos_carregados)
+
+    def _buscar_online(self) -> None:
+        """Dispara a busca do processo no TJ/sistema escolhido numa thread."""
+        numero = self.var_busca_numero.get().strip()
+        if not numero:
+            messagebox.showwarning("Busca online", "Informe o número do processo (CNJ).")
+            return
+        if self._busca_worker and self._busca_worker.is_alive():
+            return
+        self._btn_buscar.configure(state="disabled")
+        tj_label = self.var_busca_tj.get()
+        headless = self.var_busca_headless.get()
+        modo_docs = "atos" if self.var_busca_docs.get() else "nenhum"
+        self._pesquisa_log_queue.put(f"Buscando {numero} em {tj_label}...\n")
+
+        def run() -> None:
+            # COM precisa ser inicializado por thread (selenium/win32 podem usar).
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+            writer = _LogWriter(self._pesquisa_log_queue.put)
+            try:
+                # Sob pythonw, sys.stdout é None; redireciona os print() do
+                # scraper para o log da aba (e evita que print() quebre).
+                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                    proc = buscar_processo_online(
+                        numero, tj_label, headless,
+                        log=self._pesquisa_log_queue.put, modo_docs=modo_docs,
+                    )
+                self._busca_result_queue.put(("ok", proc))
+            except Exception as exc:
+                self._busca_result_queue.put(("erro", str(exc)))
+
+        self._busca_worker = threading.Thread(target=run, daemon=True)
+        self._busca_worker.start()
+
+    def _drain_busca_result(self) -> None:
+        """Drena resultados da busca online na main thread (Tkinter não é
+        thread-safe). Mescla o Processo na lista e seleciona a linha."""
+        try:
+            while True:
+                tipo, payload = self._busca_result_queue.get_nowait()
+                if tipo == "ok":
+                    proc = payload
+                    self._processos_carregados = [
+                        p for p in self._processos_carregados if p.numero != proc.numero
+                    ]
+                    self._processos_carregados.append(proc)
+                    self._preencher_tree(self._processos_carregados)
+                    if proc.numero and self.tree.exists(proc.numero):
+                        self.tree.selection_set(proc.numero)
+                        self.tree.see(proc.numero)
+                    self._pesquisa_log_queue.put(f"Processo {proc.numero} carregado.\n")
+                else:
+                    self._pesquisa_log_queue.put(f"! Erro na busca online: {payload}\n")
+                    messagebox.showerror("Busca online", str(payload))
+                self._btn_buscar.configure(state="normal")
+        except queue.Empty:
+            pass
+        finally:
+            self.after(150, self._drain_busca_result)
+
+    def _preencher_tree(self, processos: list[Processo]) -> None:
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        for proc in processos:
+            autor = _autor(proc)
+            reu = _reus_joined(proc)
+            proxima = ""
+            if proc.prazos_abertos:
+                proxima = proc.prazos_abertos[0].fim or "?"
+            self.tree.insert("", "end", iid=proc.numero, values=(
+                proc.numero, proc.classe, autor, reu,
+                proc.valor_causa, proc.ultima_movimentacao[:30], proxima,
+            ))
+
+    def _filtrar_pesquisa(self) -> None:
+        filtro = self.var_filtro.get().lower().strip()
+        if not filtro or not self._processos_carregados:
+            self._preencher_tree(self._processos_carregados)
+            return
+        filtrados = [
+            p for p in self._processos_carregados
+            if filtro in p.numero.lower()
+            or filtro in p.classe.lower()
+            or filtro in _autor(p).lower()
+            or filtro in _reus_joined(p).lower()
+        ]
+        self._preencher_tree(filtrados)
+
+    def _on_select_processo(self, event: tk.Event) -> None:
+        sel = self.tree.selection()
+        if not sel:
+            return
+        numero = sel[0]
+        proc = next((p for p in self._processos_carregados if p.numero == numero), None)
+        self._proc_selecionado = proc
+        if not proc:
+            return
+        campos = [
+            ("numero", proc.numero),
+            ("tribunal", proc.tribunal or ""),
+            ("classe", proc.classe or ""),
+            ("orgao_julgador", proc.orgao_julgador or ""),
+            ("juiz", proc.juiz or ""),
+            ("valor_causa", proc.valor_causa or ""),
+            ("tags", ", ".join(proc.tags) if proc.tags else ""),
+            ("autor", _autor(proc)),
+            ("reu", _reus_joined(proc)),
+            ("ultima_movimentacao", proc.ultima_movimentacao or ""),
+            ("proximo_prazo", proc.prazos_abertos[0].fim if proc.prazos_abertos else ""),
+        ]
+        for atr, val in campos:
+            lbl = getattr(self, f"_lbl_{atr}", None)
+            if lbl:
+                lbl.configure(text=val)
+
+        auto_map = {
+            "valor_causa": proc.valor_causa,
+            "comarca": proc.comarca,
+            "vara": proc.vara,
+            "tribunal": proc.tribunal,
+            "endereco_foro": proc.foro_endereco,
+            "juiz": proc.juiz,
+            "assunto": proc.assunto,
+            "municipio": _municipio_de_comarca(proc.comarca),
+            "estado": proc.uf,
+            "oab_uf": proc.uf,
+            "oab_numero": OAB_ESCRITORIO_POR_UF.get((proc.uf or "").upper(), ""),
+        }
+        for atr, val in auto_map.items():
+            var = getattr(self, f"var_{atr}", None)
+            if var is not None:
+                var.set(val)
+
+        self._carregar_templates()
+
+    def _carregar_templates(self) -> None:
+        for w in self._templates_inner.winfo_children():
+            w.destroy()
+        self._templates_vars.clear()
+        pasta = Path(self.var_pesquisa_base.get()).expanduser()
+        templates_dir = pasta.parent / "Petições" if "Petições" in str(pasta.parent) else PASTA_PETICOES
+        if not templates_dir.is_dir():
+            templates_dir = PASTA_PETICOES
+        if templates_dir.is_dir():
+            # Arquivos da raiz da pasta Petições.
+            for f in sorted(templates_dir.iterdir()):
+                if f.is_file() and f.suffix.lower() in (".doc", ".docx"):
+                    var = tk.BooleanVar(value=False)
+                    self._templates_vars[f] = var
+                    cb = ttk.Checkbutton(
+                        self._templates_inner, text=f.stem, variable=var,
+                        command=self._on_template_toggle,
+                    )
+                    cb.pack(anchor="w")
+            # Subdiretórios (ex.: especiais/).
+            subdirs = sorted(
+                d for d in templates_dir.iterdir()
+                if d.is_dir() and not d.name.startswith(".")
+            )
+            for subdir in subdirs:
+                arquivos = sorted(
+                    f for f in subdir.iterdir()
+                    if f.is_file() and f.suffix.lower() in (".doc", ".docx")
+                )
+                if not arquivos:
+                    continue
+                ttk.Label(
+                    self._templates_inner, text=f"— {subdir.name.title()} —",
+                    font=("", 9, "bold"),
+                ).pack(anchor="w", pady=(6, 0))
+                for f in arquivos:
+                    var = tk.BooleanVar(value=False)
+                    self._templates_vars[f] = var
+                    cb = ttk.Checkbutton(
+                        self._templates_inner, text=f.stem, variable=var,
+                        command=self._on_template_toggle,
+                    )
+                    cb.pack(anchor="w")
+        self._scan_templates_em_background()
+        self._on_template_toggle()
+
+    def _marcar_todos_templates(self) -> None:
+        for var in self._templates_vars.values():
+            var.set(True)
+        self._on_template_toggle()
+
+    def _desmarcar_todos_templates(self) -> None:
+        for var in self._templates_vars.values():
+            var.set(False)
+        self._on_template_toggle()
+
+    def _propagar_grupos_templates(self) -> None:
+        """Sincroniza templates combinados com seus individuais."""
+        for comb_stem, membros_stems in _GRUPOS_TEMPLATE.items():
+            # Encontra o Path do template combinado.
+            comb_path = next(
+                (p for p in self._templates_vars if p.stem == comb_stem), None
+            )
+            if comb_path is None:
+                continue
+            # Encontra os Paths dos membros individuais.
+            membros_paths = [
+                p for p in self._templates_vars if p.stem in membros_stems
+            ]
+            if len(membros_paths) != len(membros_stems):
+                continue
+            comb_var = self._templates_vars[comb_path]
+            # Se o combinado está marcado → marca todos os membros.
+            if comb_var.get():
+                for mp in membros_paths:
+                    self._templates_vars[mp].set(True)
+            else:
+                # Se todos os membros estão marcados → marca o combinado.
+                todos_marcados = all(
+                    self._templates_vars[mp].get() for mp in membros_paths
+                )
+                if todos_marcados:
+                    comb_var.set(True)
+                    # Marca novamente os membros (pode ter vindo de desmarcar
+                    # um e re-marcar via grupo).
+                    for mp in membros_paths:
+                        self._templates_vars[mp].set(True)
+                else:
+                    # Se qualquer membro foi desmarcado → desmarca o combinado.
+                    algum_desmarcado = any(
+                        not self._templates_vars[mp].get() for mp in membros_paths
+                    )
+                    if algum_desmarcado:
+                        comb_var.set(False)
+
+    def _scan_templates_em_background(self) -> None:
+        if self._scan_tpls_thread and self._scan_tpls_thread.is_alive():
+            return
+        pendentes = [
+            p for p in self._templates_vars
+            if p not in self._templates_placeholders
+        ]
+        if not pendentes:
+            return
+
+        self._pesquisa_log_queue.put(
+            f"Escaneando placeholders de {len(pendentes)} template(s)...\n"
+        )
+
+        def run() -> None:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+            for p in pendentes:
+                try:
+                    phs = _extrair_placeholders_template(p)
+                except Exception as exc:
+                    self._pesquisa_log_queue.put(f"! Erro escaneando {p.name}: {exc}\n")
+                    phs = set()
+                self._templates_placeholders[p] = phs
+                # Atualiza destaques na main thread sempre que um template é processado.
+                self.after(0, self._on_template_toggle)
+            self._pesquisa_log_queue.put("Escaneamento de templates concluído.\n")
+
+        self._scan_tpls_thread = threading.Thread(target=run, daemon=True)
+        self._scan_tpls_thread.start()
+
+    def _on_template_toggle(self) -> None:
+        # Propagação de grupo de templates combinados (ex.: Sisbajud+Renajud+Infojud).
+        if not self._atualizando_grupo:
+            self._atualizando_grupo = True
+            try:
+                self._propagar_grupos_templates()
+            finally:
+                self._atualizando_grupo = False
+
+        obrigatorias: set[str] = set()
+        desconhecidos: set[str] = set()
+        algum_imobiliario = False
+        for tmpl, var in self._templates_vars.items():
+            if not var.get():
+                continue
+            if _template_eh_imobiliario(tmpl.name):
+                algum_imobiliario = True
+            for ph in self._templates_placeholders.get(tmpl, set()):
+                if ph in PLACEHOLDERS_PETICAO:
+                    obrigatorias.add(PLACEHOLDERS_PETICAO[ph])
+                elif ph in PLACEHOLDERS_AUTO:
+                    # Resolvido automaticamente — não pede ao usuário.
+                    continue
+                else:
+                    desconhecidos.add(ph)
+        # Secretaria e Vara são espelhadas: se uma é exigida, mostramos as duas.
+        if "secretaria" in obrigatorias or "vara" in obrigatorias:
+            obrigatorias.add("secretaria")
+            obrigatorias.add("vara")
+        self._campos_obrigatorios = obrigatorias
+        self._campos_desconhecidos = desconhecidos
+        self._templates_tem_imovel = algum_imobiliario
+        self._atualizar_destaques_campos()
+        self._atualizar_campos_dinamicos()
+        self._atualizar_campo_imoveis()
+
+    def _atualizar_destaques_campos(self) -> None:
+        for atr, lbl in self._labels_edit.items():
+            rotulo = self._rotulos_edit.get(atr, "")
+            entry = self._entries_edit.get(atr)
+            if atr in self._campos_obrigatorios:
+                lbl.configure(text=f"* {rotulo}", foreground="#cc0000")
+                lbl.grid()
+                if entry is not None:
+                    entry.grid()
+            else:
+                lbl.grid_remove()
+                if entry is not None:
+                    entry.grid_remove()
+
+    def _atualizar_campo_imoveis(self) -> None:
+        if self._frame_imoveis is None:
+            return
+        # Posiciona o checkbox em uma nova linha do f_edicao (logo abaixo dos campos).
+        if getattr(self, "_templates_tem_imovel", False):
+            n_linhas = len(self._labels_edit)
+            self._frame_imoveis.grid(
+                row=n_linhas, column=0, columnspan=2,
+                sticky="w", padx=(4, 4), pady=(4, 1),
+            )
+        else:
+            self._frame_imoveis.grid_remove()
+
+    def _atualizar_campos_dinamicos(self) -> None:
+        if self._frame_dinamicos is None:
+            return
+        # Cria entries para placeholders ainda não vistos.
+        for ph in self._campos_desconhecidos:
+            if ph in self._dinamicos:
+                continue
+            var = tk.StringVar()
+            rotulo = ph.capitalize() + ":"
+            lbl = ttk.Label(
+                self._frame_dinamicos, text=f"* {rotulo}",
+                anchor="e", width=18, foreground="#cc0000",
+            )
+            entry = ttk.Entry(self._frame_dinamicos, textvariable=var, width=28)
+            self._dinamicos[ph] = (lbl, entry, var)
+
+        # Reposiciona/esconde conforme estado atual.
+        row = 0
+        qualquer_visivel = False
+        for ph, (lbl, entry, _) in self._dinamicos.items():
+            if ph in self._campos_desconhecidos:
+                lbl.grid(row=row, column=0, sticky="e", padx=(4, 2), pady=1)
+                entry.grid(row=row, column=1, sticky="w", padx=(0, 4), pady=1)
+                qualquer_visivel = True
+                row += 1
+            else:
+                lbl.grid_remove()
+                entry.grid_remove()
+
+        empacotado = self._frame_dinamicos.winfo_manager() == "pack"
+        if qualquer_visivel and not empacotado:
+            self._frame_dinamicos.pack(fill="x", padx=4, pady=2)
+        elif not qualquer_visivel and empacotado:
+            self._frame_dinamicos.pack_forget()
+
+    def _escolher_pesquisa_destino(self) -> None:
+        path = filedialog.askdirectory(initialdir=self.var_pesquisa_destino.get() or ".")
+        if path:
+            self.var_pesquisa_destino.set(path)
+
+    def _gerar_peticoes(self) -> None:
+        if self._gen_worker and self._gen_worker.is_alive():
+            return
+        proc = self._proc_selecionado
+        if not proc:
+            messagebox.showwarning("Aviso", "Selecione um processo na lista.")
+            return
+        destino = Path(self.var_pesquisa_destino.get() or "").expanduser()
+        if not destino:
+            messagebox.showwarning("Aviso", "Escolha uma pasta de destino para as petições.")
+            return
+        templates_sel = [p for p, v in self._templates_vars.items() if v.get()]
+        if not templates_sel:
+            messagebox.showwarning("Aviso", "Selecione ao menos um modelo de petição.")
+            return
+
+        self._pesquisa_log_queue.put(
+            f"Gerando {len(templates_sel)} petição(ões) para {proc.numero} ...\n"
+        )
+
+        # Secretaria e Vara são espelhadas — o mesmo valor alimenta ambos placeholders.
+        vara_val = self.var_vara.get() or proc.vara
+        dados = {
+            "numero": proc.numero,
+            "classe": proc.classe,
+            "assunto": proc.assunto,
+            "tribunal": self.var_tribunal.get() or proc.tribunal,
+            "uf": proc.uf,
+            "comarca": self.var_comarca.get() or proc.comarca,
+            "vara": vara_val,
+            "juiz": self.var_juiz.get() or proc.juiz,
+            "autor": _autor(proc) or self.var_secretaria.get(),
+            "reu": _reus_joined(proc),
+            "valor_causa": self.var_valor_causa.get() or proc.valor_causa,
+            "secretaria": vara_val,
+            "municipio": self.var_municipio.get() or _municipio_de_comarca(proc.comarca),
+            "estado": self.var_estado.get() or proc.uf,
+            "oab_uf": self.var_oab_uf.get() or proc.uf,
+            "oab_numero": self.var_oab_numero.get() or OAB_ESCRITORIO_POR_UF.get((proc.uf or "").upper(), ""),
+            "oab_completa": _oab_completa(
+                self.var_oab_uf.get() or proc.uf,
+                self.var_oab_numero.get() or OAB_ESCRITORIO_POR_UF.get((proc.uf or "").upper(), ""),
+            ),
+            "endereco_reu": self.var_endereco_reu.get(),
+            "vara_edit": vara_val,
+            "tribunal_edit": self.var_tribunal.get() or proc.tribunal,
+            "endereco_foro": self.var_endereco_foro.get() or proc.foro_endereco,
+            "juiz_edit": self.var_juiz.get() or proc.juiz,
+            "assunto_edit": self.var_assunto.get() or proc.assunto,
+            "empregador": self.var_empregador.get(),
+            "percentual": self.var_percentual.get(),
+        }
+        for ph, (_, _, var) in self._dinamicos.items():
+            val = var.get().strip()
+            if val:
+                dados[ph] = val
+
+        documento_unico = self.var_documento_unico.get()
+        ctx = _construir_contexto(proc)
+        multiplos_imoveis = bool(self.var_multiplos_imoveis.get())
+
+        def run() -> None:
+            gerar_peticoes(
+                proc,
+                templates_sel,
+                destino,
+                dados,
+                log=lambda msg: self._pesquisa_log_queue.put(msg + "\n"),
+                documento_unico=documento_unico,
+                ctx=ctx,
+                multiplos_imoveis=multiplos_imoveis,
+            )
+            self._pesquisa_log_queue.put("\nConcluído.\n")
+
+        self._gen_worker = threading.Thread(target=run, daemon=True)
+        self._gen_worker.start()
+
+    def _drain_pesquisa_log_queue(self) -> None:
+        try:
+            while True:
+                msg = self._pesquisa_log_queue.get_nowait()
+                self.txt_pesquisa.configure(state="normal")
+                self.txt_pesquisa.insert("end", msg)
+                self.txt_pesquisa.see("end")
+                self.txt_pesquisa.configure(state="disabled")
+        except queue.Empty:
+            pass
+        self.after(100, self._drain_pesquisa_log_queue)
+
+
+
+def main() -> None:
+    app = App()
+    app.mainloop()

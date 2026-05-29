@@ -1,0 +1,274 @@
+# -*- coding: utf-8 -*-
+"""Detecção de gênero/número e flexão de vocabulário controlado."""
+
+from __future__ import annotations
+
+import re
+import unicodedata
+
+from docx import Document
+
+from .models import Contexto, Parte, Processo
+from .padroes import PAPEIS_ATIVO, PAPEIS_PASSIVO
+
+
+# Heurística de seções da petição. HEADER = endereçamento; CLOSING = fórmula de
+# fechamento ("Termos em que pede deferimento"); BODY = todo o resto.
+RE_ENDERECAMENTO = re.compile(
+    r"^\s*(EXCELENT[IÍ]SSIM|MERIT[IÍ]SSIM|AO\s+JU[IÍ]ZO|JU[IÍ]Z(\(A\))?|VARA\s+|"
+    r"FORO\s+|COMARCA\s+|TRIBUNAL\s+)",
+    re.IGNORECASE,
+)
+RE_FECHAMENTO = re.compile(
+    r"(termos\s+em\s+que|nestes\s+termos|por\s+todo\s+o\s+exposto|"
+    r"pede\s+deferimento|p\.\s*deferimento|pede\s+e\s+espera\s+deferimento)",
+    re.IGNORECASE,
+)
+
+# Heurística de gênero. Overrides para nomes que quebram a regra do "termina em a".
+OVERRIDES_FEMININOS: set[str] = {
+    "isabel", "raquel", "carmen", "ester", "esther", "miriam", "ines",
+    "soledad", "beatriz", "iris", "agar",
+}
+OVERRIDES_MASCULINOS: set[str] = {
+    "joshua", "elias", "tobias", "isaias", "jeremias", "matias", "barnabas",
+    "nicolas", "lucas", "jonas", "ezequias", "josias",
+}
+
+# Vocabulário de papéis processuais flexionáveis.
+FLEXOES: dict[str, dict[str, str]] = {
+    "autor":      {"ms": "autor",      "fs": "autora",      "mp": "autores",      "fp": "autoras"},
+    "réu":        {"ms": "réu",        "fs": "ré",          "mp": "réus",         "fp": "rés"},
+    "executado":  {"ms": "executado",  "fs": "executada",   "mp": "executados",   "fp": "executadas"},
+    "requerido":  {"ms": "requerido",  "fs": "requerida",   "mp": "requeridos",   "fp": "requeridas"},
+    "devedor":    {"ms": "devedor",    "fs": "devedora",    "mp": "devedores",    "fp": "devedoras"},
+    "requerente": {"ms": "requerente", "fs": "requerente",  "mp": "requerentes",  "fp": "requerentes"},
+    "exequente":  {"ms": "exequente",  "fs": "exequente",   "mp": "exequentes",   "fp": "exequentes"},
+}
+# Família de preposições/artigos. Trocadas em conjunto com a forma flexionada
+# para manter regência ("do executado" ↔ "da executada"; "pelo autor" ↔ "pela autora").
+PREP_FAMILIAS: list[dict[str, str]] = [
+    {"ms": "o",    "fs": "a",    "mp": "os",   "fp": "as"},
+    {"ms": "do",   "fs": "da",   "mp": "dos",  "fp": "das"},
+    {"ms": "no",   "fs": "na",   "mp": "nos",  "fp": "nas"},
+    {"ms": "ao",   "fs": "à",    "mp": "aos",  "fp": "às"},
+    {"ms": "pelo", "fs": "pela", "mp": "pelos","fp": "pelas"},
+]
+TODAS_PREPS: set[str] = {p for fam in PREP_FAMILIAS for p in fam.values()}
+
+# Mapeia cada role-base para o "lado" do processo (autor/réu) usado no contexto.
+ROLE_TO_SIDE: dict[str, str] = {
+    "autor": "autor", "requerente": "autor", "exequente": "autor",
+    "réu": "reu", "requerido": "reu", "executado": "reu", "devedor": "reu",
+}
+
+
+def _strip_accents(s: str) -> str:
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)
+    )
+
+
+def _detectar_genero(nome: str, tipo: str) -> str:
+    """Heurística: PJ → m; PF feminino se primeiro nome termina em 'a' (com overrides)."""
+    tipo_low = tipo.lower()
+    if "jurídica" in tipo_low or "juridica" in tipo_low:
+        return "m"
+    nome_strip = nome.strip()
+    if not nome_strip:
+        return "m"
+    primeiro = nome_strip.split()[0]
+    primeiro_norm = _strip_accents(primeiro).lower()
+    if primeiro_norm in OVERRIDES_FEMININOS:
+        return "f"
+    if primeiro_norm in OVERRIDES_MASCULINOS:
+        return "m"
+    return "f" if primeiro_norm.endswith("a") else "m"
+
+
+def _detectar_genero_juiz(nome: str) -> str:
+    """Heurística para juiz: considera pessoa física; retorna 'f' ou 'm'."""
+    nome_strip = nome.strip()
+    if not nome_strip:
+        return "m"
+    primeiro = nome_strip.split()[0]
+    primeiro_norm = _strip_accents(primeiro).lower()
+    if primeiro_norm in OVERRIDES_FEMININOS:
+        return "f"
+    if primeiro_norm in OVERRIDES_MASCULINOS:
+        return "m"
+    return "f" if primeiro_norm.endswith("a") else "m"
+
+
+def _construir_contexto(proc: Processo) -> Contexto:
+    """Deriva Contexto (gênero/número de autor e réu) a partir das partes do processo."""
+    ativo = {p.upper() for p in PAPEIS_ATIVO}
+    passivo = {p.upper() for p in PAPEIS_PASSIVO}
+    autores = [p for p in proc.partes if p.papel.upper() in ativo]
+    reus = [p for p in proc.partes if p.papel.upper() in passivo]
+
+    def _resolver(lista: list[Parte]) -> tuple[str, str]:
+        if not lista:
+            return ("m", "s")
+        generos = [_detectar_genero(p.nome, p.tipo) for p in lista]
+        numero = "p" if len(lista) > 1 else "s"
+        # Plural masculino vence em gênero misto (norma do português).
+        if numero == "p" and "m" in generos:
+            return ("m", "p")
+        return (generos[0], numero)
+
+    g_autor, n_autor = _resolver(autores)
+    g_reu, n_reu = _resolver(reus)
+    # Gênero do juiz (se presente)
+    g_juiz = _detectar_genero_juiz(proc.juiz) if proc.juiz else "m"
+    return Contexto(
+        genero_autor=g_autor, numero_autor=n_autor,
+        genero_reu=g_reu, numero_reu=n_reu,
+        genero_juiz=g_juiz,
+    )
+
+
+def _norm_paragrafo(texto: str) -> str:
+    """Chave de dedup: whitespace colapsado, lowercase, pontuação final removida."""
+    return re.sub(r"\s+", " ", texto).strip().lower().rstrip(".,;:")
+
+
+def _classificar_paragrafos(doc: Document) -> list[str]:
+    """Marca cada parágrafo do doc como HEADER, BODY ou CLOSING (máquina de estados)."""
+    zonas: list[str] = []
+    estado = "HEADER"
+    viu_endereco = False
+    for p in doc.paragraphs:
+        texto = p.text.strip()
+        if not texto:
+            zonas.append(estado)
+            continue
+        if estado == "HEADER":
+            if RE_ENDERECAMENTO.match(texto):
+                viu_endereco = True
+                zonas.append("HEADER")
+                continue
+            # Primeiro parágrafo não-vazio sem padrão de endereçamento: vira BODY.
+            estado = "BODY"
+        if estado == "BODY" and RE_FECHAMENTO.search(texto):
+            estado = "CLOSING"
+        zonas.append(estado)
+    _ = viu_endereco  # informativo; usar futuramente p/ injetar fechamento default.
+    return zonas
+
+
+# ---------------------------------------------------------------------------
+# Flexão de gênero/número
+# ---------------------------------------------------------------------------
+
+_TODAS_FORMAS: set[str] = {f for variantes in FLEXOES.values() for f in variantes.values()}
+_FORMA_PARA_BASE: dict[str, str] = {
+    f.lower(): base
+    for base, variantes in FLEXOES.items()
+    for f in variantes.values()
+}
+_PREPS_RE = "|".join(re.escape(p) for p in sorted(TODAS_PREPS, key=len, reverse=True))
+_FORMAS_RE = "|".join(re.escape(f) for f in sorted(_TODAS_FORMAS, key=len, reverse=True))
+_RE_PREP_ROLE = re.compile(rf"\b({_PREPS_RE})\s+({_FORMAS_RE})\b", re.IGNORECASE)
+_RE_BARE_ROLE = re.compile(rf"\b({_FORMAS_RE})\b", re.IGNORECASE)
+# Marcadores de citação legal — pulamos o parágrafo inteiro para preservar voz original.
+_RE_CITACAO = re.compile(
+    r"(\bart\.|\bArt\.|§|\bincis[oa]\b|\bpar[áa]grafo\b|[\"“”])",
+    re.IGNORECASE,
+)
+
+
+# Padrões para tratamento judicial no HEADER
+_RE_JUDICIAL_TREATMENT = re.compile(
+    r"(EXCELENT[IÍ]SSIM)([OA]?)\s+(SENHOR)(A?)\s+(DOUTOR)(A?)\s+(JUIZ)(A?)",
+    re.IGNORECASE,
+)
+_RE_JUDICIAL_TREATMENT_MERIT = re.compile(
+    r"(MERIT[IÍ]SSIM)([OA]?)\s+(SENHOR)(A?)\s+(DOUTOR)(A?)\s+(JUIZ)(A?)",
+    re.IGNORECASE,
+)
+
+
+def _preservar_caso(original: str, novo: str) -> str:
+    if not original:
+        return novo
+    if original.isupper():
+        return novo.upper()
+    if original[0].isupper():
+        return novo[:1].upper() + novo[1:]
+    return novo
+
+
+def _ajustar_prep(prep: str, key: str) -> str:
+    prep_low = prep.lower()
+    for fam in PREP_FAMILIAS:
+        if prep_low in fam.values():
+            return fam[key]
+    return prep
+
+
+def _flex_judicial_treatment(texto: str, ctx: Contexto | None) -> str:
+    """Ajusta marcadores de gênero no tratamento judicial (Ex.: EXCELENTÍSSIMO SENHOR DOUTOR JUIZ)."""
+    if not ctx:
+        return texto
+    genero = ctx.genero_juiz  # 'm' ou 'f'
+
+    def _repl_judicial(match: re.Match) -> str:
+        bases = [match.group(i) for i in (1, 3, 5, 7)]
+        vowels = [match.group(i) or '' for i in (2, 4, 6, 8)]
+
+        if genero == 'f':
+            sample = next((v for v in vowels if v), bases[0])
+            suffix = 'A' if sample.isupper() else 'a'
+            parts = [f"{b}{suffix}" for b in bases]
+        else:
+            parts = [f"{b}{v}" for b, v in zip(bases, vowels)]
+
+        return ' '.join(parts)
+
+    texto = _RE_JUDICIAL_TREATMENT.sub(_repl_judicial, texto)
+    texto = _RE_JUDICIAL_TREATMENT_MERIT.sub(_repl_judicial, texto)
+    return texto
+
+
+def _inflexionar_texto(texto: str, ctx: Contexto | None) -> str:
+    """Aplica flexão sobre vocabulário controlado, preservando capitalização."""
+    if not ctx or not texto:
+        return texto
+    if _RE_CITACAO.search(texto):
+        return texto
+
+    # Primeiro, ajusta o tratamento judicial (se houver)
+    texto = _flex_judicial_treatment(texto, ctx)
+
+    def _replace_prep(m: re.Match) -> str:
+        prep_orig, forma_orig = m.group(1), m.group(2)
+        base = _FORMA_PARA_BASE.get(forma_orig.lower())
+        if not base:
+            return m.group(0)
+        side = ROLE_TO_SIDE.get(base)
+        if not side:
+            return m.group(0)
+        g = ctx.genero_autor if side == "autor" else ctx.genero_reu
+        n = ctx.numero_autor if side == "autor" else ctx.numero_reu
+        key = g + n
+        forma_nova = FLEXOES[base][key]
+        prep_nova = _ajustar_prep(prep_orig, key)
+        return f"{_preservar_caso(prep_orig, prep_nova)} {_preservar_caso(forma_orig, forma_nova)}"
+
+    texto = _RE_PREP_ROLE.sub(_replace_prep, texto)
+
+    def _replace_bare(m: re.Match) -> str:
+        forma_orig = m.group(1)
+        base = _FORMA_PARA_BASE.get(forma_orig.lower())
+        if not base:
+            return m.group(0)
+        side = ROLE_TO_SIDE.get(base)
+        if not side:
+            return m.group(0)
+        g = ctx.genero_autor if side == "autor" else ctx.genero_reu
+        n = ctx.numero_autor if side == "autor" else ctx.numero_reu
+        forma_nova = FLEXOES[base][g + n]
+        return _preservar_caso(forma_orig, forma_nova)
+
+    return _RE_BARE_ROLE.sub(_replace_bare, texto)

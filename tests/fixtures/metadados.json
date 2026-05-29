@@ -1,0 +1,36 @@
+{
+  "numero": "4004459-04.2026.8.26.0248",
+  "classe": "PROCEDIMENTO COMUM CÍVEL",
+  "assunto": "Inadimplemento",
+  "tribunal": "TJSP",
+  "uf": "SP",
+  "comarca": "Comarca de Carapicuíba",
+  "vara": "2ª Vara Cível",
+  "valor_causa": "R$ 44.924,15",
+  "situacao": "Em andamento",
+  "tags": ["Idoso"],
+  "partes": [
+    {
+      "papel": "AUTOR",
+      "nome": "EMPRESA EXEMPLO LTDA",
+      "documento": "12.345.678/0001-90",
+      "tipo": "Pessoa Jurídica",
+      "advogados": [
+        {"nome": "ADVOGADO DO AUTOR", "oab": "SP346433", "uf": "SP"}
+      ]
+    },
+    {
+      "papel": "RÉU",
+      "nome": "FULANO DE TAL",
+      "documento": "123.456.789-00",
+      "tipo": "Pessoa Física",
+      "advogados": []
+    }
+  ],
+  "eventos": [
+    {"numero": "102", "data": "20/05/2026", "hora": "14:30:00", "descricao": "Juntada de Petição", "usuario": "adv123", "documentos": ["PET1"]}
+  ],
+  "total_eventos": 1,
+  "ultima_movimentacao": "20/05/2026 — Juntada de Petição",
+  "arquivos_origem": ["detalhes.pdf"]
+}

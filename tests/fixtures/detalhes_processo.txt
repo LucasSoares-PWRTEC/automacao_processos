@@ -1,0 +1,52 @@
+Consulta Processual
+Detalhes do Processo
+Idoso
+
+Nº do processo:
+4004459-04.2026.8.26.0248
+
+Classe da ação:
+PROCEDIMENTO COMUM CÍVEL
+
+Assunto:
+Inadimplemento
+
+Competência:
+Cível
+
+Data de autuação:
+12/03/2026
+
+Situação:
+Em andamento
+
+Órgão Julgador:
+2ª Vara Cível da Comarca de Carapicuíba
+
+Juiz(a):
+JOANA PEREIRA DE SOUZA
+
+Partes e Representantes
+AUTOR RÉU
+
+EMPRESA EXEMPLO LTDA (12.345.678/0001-90) - Pessoa Jurídica
+ADVOGADO DO AUTOR SP346433
+
+FULANO DE TAL (123.456.789-00) - Pessoa Física
+ADVOGADA DA RE MG104784
+
+Eventos
+Evento Data/Hora Descrição Usuário Documentos
+102 20/05/2026 14:30:00 Juntada de Petição (RÉU - FULANO DE TAL)
+PET1
+secjudicial
+101 15/05/2026 10:00:00 Decisão
+Prazo: 15 dias Status: ABERTO
+Data inicial: 16/05/2026
+Data final: 16/06/2026
+DESPADEC2
+secretaria
+100 12/03/2026 09:00:00 Distribuição por sorteio
+OUTDOC1
+secjudicial
+https://eproc1g.tjsp.jus.br/eproc/
