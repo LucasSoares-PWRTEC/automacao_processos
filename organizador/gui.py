@@ -48,8 +48,16 @@ _PAD_Y = 6
 class App(ttk.Window):
     def __init__(self) -> None:
         super().__init__(title="Organizador de Processos — eproc", themename="litera")
-        self.geometry("1100x780")
-        self.minsize(860, 620)
+        # Geometria responsiva: ~90% da tela (com teto), centrada. Mantém a
+        # janela redimensionável/maximizável; o layout interno usa fill/expand
+        # e pesos de grid para fluir em qualquer tamanho.
+        sw, sh = self.winfo_screenwidth(), self.winfo_screenheight()
+        w = min(1500, int(sw * 0.9))
+        h = min(950, int(sh * 0.9))
+        x = max(0, (sw - w) // 2)
+        y = max(0, (sh - h) // 3)
+        self.geometry(f"{w}x{h}+{x}+{y}")
+        self.minsize(900, 600)
         self.configure(background="#f0f2f5")
 
         # Estado compartilhado / aba Organizador
@@ -100,6 +108,16 @@ class App(ttk.Window):
         self._gen_worker: threading.Thread | None = None
         self._busca_worker: threading.Thread | None = None
         self._busca_result_queue: queue.Queue = queue.Queue()
+        # Notificações de conclusão (popup + som + status). Fila thread-safe:
+        # workers chamam _notificar(); o popup é mostrado na main thread.
+        # _notify_busy evita empilhar diálogos durante o loop modal aninhado.
+        self._notify_queue: queue.Queue[tuple[str, str, str, str | None]] = queue.Queue()
+        self._notify_busy = False
+        # Visibilidade dos logs: ocultos por padrão, alternáveis via "Ver detalhes".
+        self._log_org_visivel = False
+        self._log_pesq_visivel = False
+        # Estado da barra de progresso indeterminada (animada) da aba Pesquisa.
+        self._pesquisa_em_progresso = False
 
         # Form inteligente: estado para destaque baseado nos templates marcados.
         self._templates_placeholders: dict[Path, set[str]] = {}
@@ -126,6 +144,8 @@ class App(ttk.Window):
         self.after(100, self._drain_ui_queues)
         self.after(100, self._drain_pesquisa_log_queue)
         self.after(150, self._drain_busca_result)
+        self.after(150, self._atualizar_progresso_pesquisa)
+        self.after(200, self._drain_notify_queue)
 
     def _build_widgets(self) -> None:
         nb = ttk.Notebook(self, bootstyle="primary")
@@ -210,6 +230,11 @@ class App(ttk.Window):
             botoes, text="Limpar log", command=self._limpar_log,
             bootstyle="outline-secondary", width=12,
         ).pack(side="left", padx=(8, 0))
+        self.btn_detalhes_org = ttk.Button(
+            botoes, text="Ver detalhes ▾", command=self._toggle_log_org,
+            bootstyle="outline-secondary", width=16,
+        )
+        self.btn_detalhes_org.pack(side="left", padx=(8, 0))
 
         self.progress = ttk.Progressbar(
             section_actions, orient="horizontal",
@@ -218,12 +243,13 @@ class App(ttk.Window):
         )
         self.progress.pack(fill="x", pady=(8, 0))
 
-        # ── Seção: Log ─────────────────────────────────────────────────
-        section_log = ttk.Labelframe(
+        # ── Seção: Log (oculta por padrão; alternada por "Ver detalhes") ─
+        self._section_log_org = ttk.Labelframe(
             parent, text="  Log  ", bootstyle="default",
             padding=(12, 8),
         )
-        section_log.pack(fill="both", expand=True)
+        # Não empacotada aqui: fica oculta até o usuário clicar em "Ver detalhes".
+        section_log = self._section_log_org
 
         self.txt = tk.Text(
             section_log, height=14, wrap="word", state="disabled",
@@ -263,30 +289,38 @@ class App(ttk.Window):
         )
         section_busca.pack(fill="x", pady=(0, 6))
 
+        # Grid em 2 linhas para os controles não transbordarem em larguras
+        # menores: só o Entry do número absorve a folga; o resto mantém
+        # largura natural e o botão "Buscar" fica sempre visível (linha 2).
         f_busca = ttk.Frame(section_busca)
         f_busca.pack(fill="x")
-        ttk.Label(f_busca, text="Nº do processo:", font=_FONT_BASE).pack(side="left")
+        f_busca.columnconfigure(1, weight=1)
+        ttk.Label(f_busca, text="Nº do processo:", font=_FONT_BASE).grid(
+            row=0, column=0, sticky="e", padx=(0, 6), pady=2,
+        )
         ttk.Entry(
             f_busca, textvariable=self.var_busca_numero, font=_FONT_BASE,
-        ).pack(side="left", fill="x", expand=True, padx=6)
-        ttk.Label(f_busca, text="TJ/Sistema:", font=_FONT_BASE).pack(side="left", padx=(8, 0))
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=2)
+        ttk.Label(f_busca, text="TJ/Sistema:", font=_FONT_BASE).grid(
+            row=0, column=2, sticky="e", padx=(8, 6), pady=2,
+        )
         ttk.Combobox(
             f_busca, textvariable=self.var_busca_tj, values=list(TJ_SISTEMAS),
             state="readonly", width=18, font=_FONT_BASE,
-        ).pack(side="left", padx=6)
+        ).grid(row=0, column=3, sticky="w", pady=2)
         ttk.Checkbutton(
             f_busca, text="Baixar documentos", variable=self.var_busca_docs,
             bootstyle="info",
-        ).pack(side="left", padx=6)
+        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=(0, 6), pady=(4, 0))
         ttk.Checkbutton(
             f_busca, text="Navegador invisível", variable=self.var_busca_headless,
             bootstyle="info",
-        ).pack(side="left", padx=6)
+        ).grid(row=1, column=2, sticky="w", padx=(8, 6), pady=(4, 0))
         self._btn_buscar = ttk.Button(
             f_busca, text="🔍  Buscar online", command=self._buscar_online,
             bootstyle="info", width=16,
         )
-        self._btn_buscar.pack(side="left", padx=(8, 0))
+        self._btn_buscar.grid(row=1, column=3, sticky="e", pady=(4, 0))
 
         # ── Seção: Filtro ──────────────────────────────────────────────
         f_filtro = ttk.Frame(parent)
@@ -326,7 +360,7 @@ class App(ttk.Window):
         )
         scroll_tree.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scroll_tree.set)
-        f_main.add(f_lista, weight=2)
+        f_main.add(f_lista, weight=1)
 
         # ── Painel direito: Detalhes (scrollável) ─────────────────────
         f_det_container = ttk.Frame(f_main)
@@ -410,14 +444,24 @@ class App(ttk.Window):
             ("empregador", "O empregador:"),
             ("percentual", "Percentual (penhora):"),
         ]
+        # Layout em 2 colunas (4 colunas de grid: rótulo, entry, rótulo, entry)
+        # para a seção ocupar ~metade da altura. As colunas de entry (1 e 3)
+        # dividem a largura. A ordem é guardada em _ordem_edit; a posição de
+        # cada índice visível é calculada por _pos_edit (reusado na
+        # recompactação de _atualizar_destaques_campos / _atualizar_campo_imoveis).
+        f_edicao.columnconfigure(1, weight=1)
+        f_edicao.columnconfigure(3, weight=1)
+        self._ordem_edit = [atr for atr, _ in campos_edit]
+        self._n_linhas_visiveis = len(self._ordem_edit)
         for i, (atr, rotulo) in enumerate(campos_edit):
             var = getattr(self, f"var_{atr}")
+            row, col_rot, col_ent = self._pos_edit(i)
             lbl = ttk.Label(f_edicao, text=rotulo, anchor="e", width=18, font=_FONT_BASE)
-            lbl.grid(row=i, column=0, sticky="e", padx=(4, 6), pady=2)
+            lbl.grid(row=row, column=col_rot, sticky="e", padx=(4, 6), pady=2)
             self._labels_edit[atr] = lbl
             self._rotulos_edit[atr] = rotulo
-            entry = ttk.Entry(f_edicao, textvariable=var, width=28, font=_FONT_BASE)
-            entry.grid(row=i, column=1, sticky="w", padx=(0, 4), pady=2)
+            entry = ttk.Entry(f_edicao, textvariable=var, width=22, font=_FONT_BASE)
+            entry.grid(row=row, column=col_ent, sticky="ew", padx=(0, 12), pady=2)
             self._entries_edit[atr] = entry
             if atr in ("valor_causa", "comarca", "vara", "tribunal", "endereco_foro",
                        "juiz", "assunto", "municipio", "estado", "oab_uf", "oab_numero"):
@@ -441,13 +485,17 @@ class App(ttk.Window):
         )
 
         # ── Modelos de petição ─────────────────────────────────────────
+        # Exibido ANTES dos "Campos editáveis" (before=f_edicao): escolher os
+        # modelos primeiro é o que destaca quais campos editáveis são exigidos.
         f_templates = ttk.Labelframe(
             f_detalhes, text="  Modelos de petição  ",
             bootstyle="default", padding=(12, 8),
         )
-        f_templates.pack(fill="x", pady=(0, 6))
+        f_templates.pack(fill="both", expand=True, pady=(0, 6), before=f_edicao)
+        # height é apenas um mínimo (Tk trata como pedido, não teto): com
+        # fill/expand o canvas cresce junto com a janela.
         self._templates_canvas = tk.Canvas(
-            f_templates, highlightthickness=0, height=140, bg="#fafbfc",
+            f_templates, highlightthickness=0, height=120, bg="#fafbfc",
         )
         scroll_t = ttk.Scrollbar(
             f_templates, orient="vertical", command=self._templates_canvas.yview,
@@ -474,9 +522,9 @@ class App(ttk.Window):
             lambda e: det_canvas.bind_all("<MouseWheel>", _on_det_mousewheel),
         )
 
-        # Botões de templates
+        # Botões de templates (logo abaixo da lista de modelos, ainda acima dos editáveis)
         f_btn_t = ttk.Frame(f_detalhes)
-        f_btn_t.pack(fill="x", pady=(0, 6))
+        f_btn_t.pack(fill="x", pady=(0, 6), before=f_edicao)
         ttk.Button(
             f_btn_t, text="Marcar todos", command=self._marcar_todos_templates,
             bootstyle="outline", width=14,
@@ -516,16 +564,47 @@ class App(ttk.Window):
             bootstyle="success", width=28,
         ).grid(row=1, column=0, columnspan=3, pady=(8, 0))
 
-        f_main.add(f_det_container, weight=1)
+        f_main.add(f_det_container, weight=2)
 
-        # ── Log da pesquisa ────────────────────────────────────────────
-        section_log = ttk.Labelframe(
+        # Posição inicial do divisor: detalhes ~58% (precisam de espaço para
+        # as 2 colunas + modelos que crescem). Aplicada uma única vez no
+        # primeiro <Map>; depois disso o usuário pode arrastar livremente.
+        self._sash_inicializado = False
+
+        def _init_sash(_event: tk.Event) -> None:
+            if self._sash_inicializado:
+                return
+            largura = f_main.winfo_width()
+            if largura <= 1:
+                return  # ainda não renderizado; aguarda próximo evento
+            f_main.sashpos(0, int(largura * 0.42))
+            self._sash_inicializado = True
+
+        f_main.bind("<Map>", _init_sash, add="+")
+        f_main.bind("<Configure>", _init_sash, add="+")
+
+        # ── Barra de progresso (animada) + botão de detalhes ───────────
+        f_status_pesq = ttk.Frame(parent)
+        f_status_pesq.pack(fill="x", pady=(0, 6))
+        self.progress_pesquisa = ttk.Progressbar(
+            f_status_pesq, orient="horizontal",
+            mode="indeterminate", bootstyle="info-striped",
+        )
+        self.progress_pesquisa.pack(side="left", fill="x", expand=True)
+        self.btn_detalhes_pesq = ttk.Button(
+            f_status_pesq, text="Ver detalhes ▾", command=self._toggle_log_pesq,
+            bootstyle="outline-secondary", width=16,
+        )
+        self.btn_detalhes_pesq.pack(side="left", padx=(8, 0))
+
+        # ── Log da pesquisa (oculto por padrão; alternado por "Ver detalhes") ─
+        self._section_log_pesq = ttk.Labelframe(
             parent, text="  Log  ", bootstyle="default",
             padding=(12, 8),
         )
-        section_log.pack(fill="x")
+        # Não empacotado aqui: fica oculto até o usuário clicar em "Ver detalhes".
         self.txt_pesquisa = tk.Text(
-            section_log, height=4, wrap="word", state="disabled",
+            self._section_log_pesq, height=4, wrap="word", state="disabled",
             font=_FONT_MONO, bg="#fafbfc", relief="flat",
             borderwidth=1, highlightthickness=1,
             highlightcolor="#d0d5dd", highlightbackground="#d0d5dd",
@@ -554,6 +633,17 @@ class App(ttk.Window):
         self.txt.configure(state="normal")
         self.txt.delete("1.0", "end")
         self.txt.configure(state="disabled")
+
+    def _toggle_log_org(self) -> None:
+        """Mostra/oculta o log da aba Organizador."""
+        if self._log_org_visivel:
+            self._section_log_org.pack_forget()
+            self._log_org_visivel = False
+            self.btn_detalhes_org.configure(text="Ver detalhes ▾")
+        else:
+            self._section_log_org.pack(fill="both", expand=True)
+            self._log_org_visivel = True
+            self.btn_detalhes_org.configure(text="Ocultar detalhes ▴")
 
     def _espelhar_secretaria_para_vara(self, *_args) -> None:
         if self._espelhando_sec_vara:
@@ -626,6 +716,52 @@ class App(ttk.Window):
 
         self.after(100, self._drain_ui_queues)
 
+    # -- feedback de conclusão ---------------------------------------------
+    def _notificar(
+        self, titulo: str, mensagem: str,
+        nivel: str = "info", pasta: str | None = None,
+    ) -> None:
+        """Enfileira uma notificação de conclusão (thread-safe).
+
+        ``nivel``: "info" | "warning" | "error". Para "info" com ``pasta``
+        existente, o popup oferece abrir a pasta. Pode ser chamado de
+        qualquer thread; o popup aparece na main thread via _drain_notify_queue.
+        """
+        self._notify_queue.put((nivel, titulo, mensagem, pasta))
+
+    def _drain_notify_queue(self) -> None:
+        # Uma notificação por tick + guarda _notify_busy: o messagebox roda um
+        # loop de eventos aninhado, então sem isso diálogos se empilhariam.
+        if not self._notify_busy:
+            try:
+                nivel, titulo, mensagem, pasta = self._notify_queue.get_nowait()
+            except queue.Empty:
+                nivel = None  # type: ignore[assignment]
+            if nivel is not None:
+                self._notify_busy = True
+                try:
+                    self._mostrar_notificacao(nivel, titulo, mensagem, pasta)
+                finally:
+                    self._notify_busy = False
+        self.after(200, self._drain_notify_queue)
+
+    def _mostrar_notificacao(
+        self, nivel: str, titulo: str, mensagem: str, pasta: str | None,
+    ) -> None:
+        self.var_status.set(mensagem)
+        with contextlib.suppress(Exception):
+            self.bell()  # sinal sonoro de conclusão
+        if nivel == "error":
+            messagebox.showerror(titulo, mensagem)
+        elif nivel == "warning":
+            messagebox.showwarning(titulo, mensagem)
+        elif pasta and Path(pasta).exists():
+            if messagebox.askyesno(titulo, f"{mensagem}\n\nAbrir a pasta de destino?"):
+                with contextlib.suppress(Exception):
+                    os.startfile(pasta)
+        else:
+            messagebox.showinfo(titulo, mensagem)
+
     def _on_run(self) -> None:
         if self._worker and self._worker.is_alive():
             return
@@ -657,6 +793,11 @@ class App(ttk.Window):
                 if self._cancel_event.is_set():
                     self._log_queue.put("\nOperação cancelada pelo usuário.")
                     self._status_queue.put(("status", "Cancelado."))
+                    self._notificar(
+                        "Organização cancelada",
+                        "A operação foi cancelada pelo usuário.",
+                        nivel="warning",
+                    )
                 else:
                     self._log_queue.put(
                         f"\nResumo: {resumo['organizados']} organizado(s), "
@@ -666,10 +807,17 @@ class App(ttk.Window):
                         "status",
                         f"Concluído — {resumo['organizados']} processo(s) organizado(s).",
                     ))
+                    self._notificar(
+                        "Organização concluída",
+                        f"{resumo['organizados']} processo(s) organizado(s), "
+                        f"{resumo['nao_identificados']} não identificado(s).",
+                        pasta=str(destino),
+                    )
                 self._status_queue.put(("progress_set", 100))
             except Exception as exc:
                 self._log_queue.put(f"ERRO: {exc}")
                 self._status_queue.put(("status", "Erro durante execução."))
+                self._notificar("Erro na organização", str(exc), nivel="error")
             finally:
                 self._status_queue.put(("btn_run", "normal"))
                 self._status_queue.put(("btn_cancel", "disabled"))
@@ -750,9 +898,12 @@ class App(ttk.Window):
                         self.tree.selection_set(proc.numero)
                         self.tree.see(proc.numero)
                     self._pesquisa_log_queue.put(f"Processo {proc.numero} carregado.\n")
+                    self.var_status.set(f"Processo {proc.numero} carregado.")
+                    with contextlib.suppress(Exception):
+                        self.bell()  # sinal sonoro de conclusão da busca
                 else:
                     self._pesquisa_log_queue.put(f"! Erro na busca online: {payload}\n")
-                    messagebox.showerror("Busca online", str(payload))
+                    self._notificar("Busca online", str(payload), nivel="error")
                 self._btn_buscar.configure(state="normal")
         except queue.Empty:
             pass
@@ -982,27 +1133,47 @@ class App(ttk.Window):
         self._atualizar_campos_dinamicos()
         self._atualizar_campo_imoveis()
 
+    @staticmethod
+    def _pos_edit(vis_idx: int) -> tuple[int, int, int]:
+        """Posição (linha, col_rótulo, col_entry) do campo editável de índice
+        visível ``vis_idx`` no grid de 2 pares por linha."""
+        return vis_idx // 2, (vis_idx % 2) * 2, (vis_idx % 2) * 2 + 1
+
     def _atualizar_destaques_campos(self) -> None:
-        for atr, lbl in self._labels_edit.items():
+        # Recompacta os campos obrigatórios em slots contíguos no grid de 2
+        # colunas (sem buracos quando campos não-obrigatórios são ocultados).
+        # _ordem_edit garante ordem estável; _n_linhas_visiveis informa
+        # _atualizar_campo_imoveis onde posicionar o checkbox.
+        vis_idx = 0
+        for atr in self._ordem_edit:
+            lbl = self._labels_edit.get(atr)
+            if lbl is None:
+                continue
             rotulo = self._rotulos_edit.get(atr, "")
             entry = self._entries_edit.get(atr)
             if atr in self._campos_obrigatorios:
+                row, col_rot, col_ent = self._pos_edit(vis_idx)
                 lbl.configure(text=f"* {rotulo}", foreground="#e03131")
-                lbl.grid()
+                lbl.grid(row=row, column=col_rot, sticky="e", padx=(4, 6), pady=2)
                 if entry is not None:
-                    entry.grid()
+                    entry.grid(row=row, column=col_ent, sticky="ew", padx=(0, 12), pady=2)
+                vis_idx += 1
             else:
                 lbl.grid_remove()
                 if entry is not None:
                     entry.grid_remove()
+        self._n_linhas_visiveis = vis_idx
 
     def _atualizar_campo_imoveis(self) -> None:
         if self._frame_imoveis is None:
             return
         if getattr(self, "_templates_tem_imovel", False):
-            n_linhas = len(self._labels_edit)
+            # Logo abaixo da última linha de campos visíveis, abrangendo as
+            # 4 colunas do grid de 2 pares.
+            n_vis = getattr(self, "_n_linhas_visiveis", len(self._ordem_edit))
+            row = (n_vis + 1) // 2
             self._frame_imoveis.grid(
-                row=n_linhas, column=0, columnspan=2,
+                row=row, column=0, columnspan=4,
                 sticky="w", padx=(4, 4), pady=(4, 1),
             )
         else:
@@ -1108,18 +1279,30 @@ class App(ttk.Window):
         ctx = _construir_contexto(proc)
         multiplos_imoveis = bool(self.var_multiplos_imoveis.get())
 
+        n_templates = len(templates_sel)
+
         def run() -> None:
-            gerar_peticoes(
-                proc,
-                templates_sel,
-                destino,
-                dados,
-                log=lambda msg: self._pesquisa_log_queue.put(msg + "\n"),
-                documento_unico=documento_unico,
-                ctx=ctx,
-                multiplos_imoveis=multiplos_imoveis,
-            )
-            self._pesquisa_log_queue.put("\nConcluído.\n")
+            try:
+                gerar_peticoes(
+                    proc,
+                    templates_sel,
+                    destino,
+                    dados,
+                    log=lambda msg: self._pesquisa_log_queue.put(msg + "\n"),
+                    documento_unico=documento_unico,
+                    ctx=ctx,
+                    multiplos_imoveis=multiplos_imoveis,
+                )
+                self._pesquisa_log_queue.put("\nConcluído.\n")
+                self._notificar(
+                    "Petições geradas",
+                    f"Geração concluída para o processo {proc.numero} "
+                    f"({n_templates} modelo(s)).",
+                    pasta=str(destino),
+                )
+            except Exception as exc:
+                self._pesquisa_log_queue.put(f"\nERRO: {exc}\n")
+                self._notificar("Erro ao gerar petições", str(exc), nivel="error")
 
         self._gen_worker = threading.Thread(target=run, daemon=True)
         self._gen_worker.start()
@@ -1135,6 +1318,36 @@ class App(ttk.Window):
         except queue.Empty:
             pass
         self.after(100, self._drain_pesquisa_log_queue)
+
+    def _toggle_log_pesq(self) -> None:
+        """Mostra/oculta o log da aba Pesquisa de Processo."""
+        if self._log_pesq_visivel:
+            self._section_log_pesq.pack_forget()
+            self._log_pesq_visivel = False
+            self.btn_detalhes_pesq.configure(text="Ver detalhes ▾")
+        else:
+            self._section_log_pesq.pack(fill="x")
+            self._log_pesq_visivel = True
+            self.btn_detalhes_pesq.configure(text="Ocultar detalhes ▴")
+
+    def _atualizar_progresso_pesquisa(self) -> None:
+        """Anima a barra de progresso enquanto houver trabalho em segundo plano.
+
+        A checagem roda na main thread (Tkinter não é thread-safe), inspecionando
+        as threads worker da aba Pesquisa: busca online, geração de petições e
+        escaneamento de templates. A barra é indeterminada — só sinaliza que o
+        sistema está rodando, sem percentual."""
+        ativo = any(
+            t is not None and t.is_alive()
+            for t in (self._busca_worker, self._gen_worker, self._scan_tpls_thread)
+        )
+        if ativo and not self._pesquisa_em_progresso:
+            self._pesquisa_em_progresso = True
+            self.progress_pesquisa.start(15)
+        elif not ativo and self._pesquisa_em_progresso:
+            self._pesquisa_em_progresso = False
+            self.progress_pesquisa.stop()
+        self.after(150, self._atualizar_progresso_pesquisa)
 
 
 def main() -> None:

@@ -231,6 +231,81 @@ def test_flex_judicial_treatment_nao_correponde():
 
 
 # --------------------------------------------------------------------------
+# Tratamento judicial com parênteses (A)
+# --------------------------------------------------------------------------
+
+
+def test_flex_judicial_treatment_parenteses_masculino():
+    ctx = Contexto(genero_juiz="m")
+    texto = "EXCELENTÍSSIMO(A) SENHOR(A) DOUTOR(A) JUIZ(A)"
+    resultado = op._flex_judicial_treatment(texto, ctx)
+    assert resultado == "EXCELENTÍSSIMO SENHOR DOUTOR JUIZ"
+
+
+def test_flex_judicial_treatment_parenteses_feminino():
+    ctx = Contexto(genero_juiz="f")
+    texto = "EXCELENTÍSSIMO(A) SENHOR(A) DOUTOR(A) JUIZ(A)"
+    resultado = op._flex_judicial_treatment(texto, ctx)
+    assert resultado == "EXCELENTÍSSIMA SENHORA DOUTORA JUIZA"
+
+
+def test_flex_judicial_treatment_parenteses_meritissimo_masculino():
+    ctx = Contexto(genero_juiz="m")
+    texto = "MERITÍSSIMO(A) SENHOR(A) DOUTOR(A) JUIZ(A)"
+    resultado = op._flex_judicial_treatment(texto, ctx)
+    assert resultado == "MERITÍSSIMO SENHOR DOUTOR JUIZ"
+
+
+def test_flex_judicial_treatment_parenteses_meritissimo_feminino():
+    ctx = Contexto(genero_juiz="f")
+    texto = "MERITÍSSIMO(A) SENHOR(A) DOUTOR(A) JUIZ(A)"
+    resultado = op._flex_judicial_treatment(texto, ctx)
+    assert resultado == "MERITÍSSIMA SENHORA DOUTORA JUIZA"
+
+
+def test_flex_judicial_treatment_parenteses_misto():
+    ctx = Contexto(genero_juiz="f")
+    texto = "EXCELENTÍSSIMO(A) SENHOR(A) DOUTOR JUIZ"
+    resultado = op._flex_judicial_treatment(texto, ctx)
+    assert resultado == "EXCELENTÍSSIMA SENHORA DOUTORA JUIZA"
+
+
+def test_flex_judicial_treatment_sem_doutor_masculino():
+    ctx = Contexto(genero_juiz="m")
+    texto = "EXCELENTÍSSIMO(A) SENHOR(A) JUIZ(A)"
+    resultado = op._flex_judicial_treatment(texto, ctx)
+    assert resultado == "EXCELENTÍSSIMO SENHOR JUIZ"
+
+
+def test_flex_judicial_treatment_sem_doutor_feminino():
+    ctx = Contexto(genero_juiz="f")
+    texto = "EXCELENTÍSSIMO(A) SENHOR(A) JUIZ(A)"
+    resultado = op._flex_judicial_treatment(texto, ctx)
+    assert resultado == "EXCELENTÍSSIMA SENHORA JUIZA"
+
+
+def test_flex_judicial_treatment_sem_doutor_meritissimo_feminino():
+    ctx = Contexto(genero_juiz="f")
+    texto = "MERITÍSSIMO(A) SENHOR(A) JUIZ(A)"
+    resultado = op._flex_judicial_treatment(texto, ctx)
+    assert resultado == "MERITÍSSIMA SENHORA JUIZA"
+
+
+def test_inflexionar_texto_com_tratamento_judicial_parenteses_feminino():
+    ctx = Contexto(genero_juiz="f", genero_autor="f", numero_autor="s")
+    texto = "EXCELENTÍSSIMO(A) SENHOR(A) DOUTOR(A) JUIZ(A). VEM REQUERER O AUTOR."
+    resultado = op._inflexionar_texto(texto, ctx)
+    assert resultado == "EXCELENTÍSSIMA SENHORA DOUTORA JUIZA. VEM REQUERER A AUTORA."
+
+
+def test_inflexionar_texto_com_tratamento_judicial_parenteses_masculino():
+    ctx = Contexto(genero_juiz="m", genero_autor="f", numero_autor="s")
+    texto = "EXCELENTÍSSIMO(A) SENHOR(A) DOUTOR(A) JUIZ(A). VEM REQUERER O AUTOR."
+    resultado = op._inflexionar_texto(texto, ctx)
+    assert resultado == "EXCELENTÍSSIMO SENHOR DOUTOR JUIZ. VEM REQUERER A AUTORA."
+
+
+# --------------------------------------------------------------------------
 # _inflexionar_texto com tratamento judicial
 # --------------------------------------------------------------------------
 

@@ -179,12 +179,23 @@ _RE_CITACAO = re.compile(
 
 
 # Padrões para tratamento judicial no HEADER
+# Aceita: "EXCELENTÍSSIMO SENHOR DOUTOR JUIZ", "EXCELENTÍSSIMO SENHOR JUIZ",
+#         "EXCELENTÍSSIMO(A) SENHOR(A) DOUTOR(A) JUIZ(A)", etc.
+_MARK = r"(?:[OA](?:\(A\))?|\(A\)|)"
 _RE_JUDICIAL_TREATMENT = re.compile(
-    r"(EXCELENT[IÍ]SSIM)([OA]?)\s+(SENHOR)(A?)\s+(DOUTOR)(A?)\s+(JUIZ)(A?)",
+    rf"(EXCELENT[IÍ]SSIM){_MARK}\s+(SENHOR){_MARK}\s+(DOUTOR){_MARK}\s+(JUIZ){_MARK}",
+    re.IGNORECASE,
+)
+_RE_JUDICIAL_TREATMENT_SHORT = re.compile(
+    rf"(EXCELENT[IÍ]SSIM){_MARK}\s+(SENHOR){_MARK}\s+(JUIZ){_MARK}",
     re.IGNORECASE,
 )
 _RE_JUDICIAL_TREATMENT_MERIT = re.compile(
-    r"(MERIT[IÍ]SSIM)([OA]?)\s+(SENHOR)(A?)\s+(DOUTOR)(A?)\s+(JUIZ)(A?)",
+    rf"(MERIT[IÍ]SSIM){_MARK}\s+(SENHOR){_MARK}\s+(DOUTOR){_MARK}\s+(JUIZ){_MARK}",
+    re.IGNORECASE,
+)
+_RE_JUDICIAL_TREATMENT_MERIT_SHORT = re.compile(
+    rf"(MERIT[IÍ]SSIM){_MARK}\s+(SENHOR){_MARK}\s+(JUIZ){_MARK}",
     re.IGNORECASE,
 )
 
@@ -213,21 +224,26 @@ def _flex_judicial_treatment(texto: str, ctx: Contexto | None) -> str:
         return texto
     genero = ctx.genero_juiz  # 'm' ou 'f'
 
-    def _repl_judicial(match: re.Match) -> str:
-        bases = [match.group(i) for i in (1, 3, 5, 7)]
-        vowels = [match.group(i) or '' for i in (2, 4, 6, 8)]
-
+    def _repl_4(match: re.Match) -> str:
+        e, s, d, j = match.group(1), match.group(2), match.group(3), match.group(4)
         if genero == 'f':
-            sample = next((v for v in vowels if v), bases[0])
-            suffix = 'A' if sample.isupper() else 'a'
-            parts = [f"{b}{suffix}" for b in bases]
+            parts = [f"{e}A", f"{s}A", f"{d}A", f"{j}A"]
         else:
-            parts = [f"{b}{v}" for b, v in zip(bases, vowels)]
-
+            parts = [f"{e}O", s, d, j]
         return ' '.join(parts)
 
-    texto = _RE_JUDICIAL_TREATMENT.sub(_repl_judicial, texto)
-    texto = _RE_JUDICIAL_TREATMENT_MERIT.sub(_repl_judicial, texto)
+    def _repl_3(match: re.Match) -> str:
+        e, s, j = match.group(1), match.group(2), match.group(3)
+        if genero == 'f':
+            parts = [f"{e}A", f"{s}A", f"{j}A"]
+        else:
+            parts = [f"{e}O", s, j]
+        return ' '.join(parts)
+
+    texto = _RE_JUDICIAL_TREATMENT.sub(_repl_4, texto)
+    texto = _RE_JUDICIAL_TREATMENT_SHORT.sub(_repl_3, texto)
+    texto = _RE_JUDICIAL_TREATMENT_MERIT.sub(_repl_4, texto)
+    texto = _RE_JUDICIAL_TREATMENT_MERIT_SHORT.sub(_repl_3, texto)
     return texto
 
 

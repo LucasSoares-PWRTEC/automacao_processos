@@ -14,7 +14,7 @@ from docx.enum.text import WD_COLOR_INDEX
 from docx.shared import Pt
 
 from .config import CACHE_TEMPLATES_DOCX, LINE_SPACING, SPACE_AFTER_PT
-from .flexao import _classificar_paragrafos, _inflexionar_texto, _norm_paragrafo, _strip_accents
+from .flexao import _classificar_paragrafos, _flex_judicial_treatment, _inflexionar_texto, _norm_paragrafo, _strip_accents
 from .models import Contexto, Processo
 
 
@@ -24,6 +24,12 @@ from .models import Contexto, Processo
 RE_PLACEHOLDER_TEMPLATE = re.compile(
     r"\(([a-záéíóúâêôãõçñü][a-záéíóúâêôãõçñü ]{1,38}[a-záéíóúâêôãõçñü])\)"
 )
+
+# Parentéticas que casam com o regex mas são texto literal, não campos a preencher.
+# (Apenas afeta a detecção de "campos desconhecidos" da GUI; a geração já as preserva.)
+_PLACEHOLDERS_IGNORADOS = {
+    "assinado eletronicamente",
+}
 
 
 def _obter_docx_cacheado(template_path: Path) -> Path:
@@ -79,7 +85,16 @@ def _extrair_placeholders_template(template_path: Path) -> set[str]:
 
     def _scan(texto: str) -> None:
         for m in RE_PLACEHOLDER_TEMPLATE.finditer(texto):
-            encontrados.add(m.group(1).strip().lower())
+            ph = m.group(1).strip().lower()
+            if ph in _PLACEHOLDERS_IGNORADOS:
+                continue
+            # "10 (dez) dias", "R$ 500 (quinhentos reais)": número por extenso após
+            # dígito é literal, não campo — exceto se for placeholder mapeado.
+            if ph not in PLACEHOLDERS_PETICAO and ph not in PLACEHOLDERS_AUTO:
+                anterior = texto[: m.start()].rstrip()
+                if anterior and anterior[-1].isdigit():
+                    continue
+            encontrados.add(ph)
 
     for p in doc.paragraphs:
         _scan(p.text)
@@ -298,17 +313,24 @@ PLACEHOLDERS_PETICAO = {
 
 
 # Placeholders "X ou Y" resolvidos por contexto (sem precisar de input manual).
-# Formato: ph_lowercase -> (fonte, forma_singular, forma_plural)
-# fonte: "imovel" usa flag multiplos_imoveis; "reu"/"autor" usam Contexto.
-PLACEHOLDERS_AUTO: dict[str, tuple[str, str, str]] = {
-    # Imóvel (controlado pelo checkbox "Múltiplos imóveis")
+# Formato: ph_lowercase -> (fonte, *formas). O nº de formas depende da fonte:
+#   - "imovel"                    : (forma_sing, forma_plur)   -> flag multiplos_imoveis
+#   - "reu_gen" / "autor_gen"     : (forma_masc, forma_fem)    -> gênero da parte
+#   - "reu_num" / "autor_num"     : (forma_sing, forma_plur)   -> número da parte
+#   - "reu_genum"                 : (masc_sing, masc_plur, fem_sing, fem_plur) -> gênero+número do réu
+PLACEHOLDERS_AUTO: dict[str, tuple[str, ...]] = {
+    # Imóvel propriamente dito (controlado pelo checkbox "Múltiplos imóveis").
+    # Só aparecem em "Penhora imobiliária": o substantivo e o verbo "é/são".
     "imóvel ou imóveis": ("imovel", "imóvel", "imóveis"),
     "imovel ou imoveis": ("imovel", "imóvel", "imóveis"),
-    "do ou dos":         ("imovel", "do", "dos"),
-    "da ou das":         ("imovel", "da", "das"),
-    "o ou os":           ("imovel", "o", "os"),
-    "a ou as":           ("imovel", "a", "as"),
     "são":               ("imovel", "é", "são"),
+
+    # Conectores (artigo/preposição) — concordam SEMPRE com o nº de réus que os segue,
+    # nunca com imóvel: "(do ou dos) (executado ou executados)", "(da ou das) (parte ou partes)".
+    "do ou dos":         ("reu_num", "do", "dos"),
+    "da ou das":         ("reu_num", "da", "das"),
+    "o ou os":           ("reu_num", "o", "os"),
+    "a ou as":           ("reu_num", "a", "as"),
 
     # Réu — singular/plural por Contexto
     "réu ou ré":         ("reu_gen", "réu", "ré"),
@@ -319,6 +341,18 @@ PLACEHOLDERS_AUTO: dict[str, tuple[str, str, str]] = {
     # Autor — singular/plural por Contexto
     "autor ou autora":      ("autor_gen", "autor", "autora"),
     "autores ou autoras":   ("autor_gen", "autores", "autoras"),
+
+    # Concordância de NÚMERO pela quantidade de réus (singular vs. plural).
+    # Usado nas petições de Citação/Juntada e em "Descumprimento de acordo".
+    "parte ou partes":      ("reu_num", "parte", "partes"),
+    "ré ou rés":            ("reu_num", "ré", "rés"),
+    "citado ou citados":    ("reu_num", "citado", "citados"),
+    "compôs ou compuseram": ("reu_num", "compôs", "compuseram"),
+    "cumpriu ou cumpriram": ("reu_num", "cumpriu", "cumpriram"),
+    "deu ou deram":         ("reu_num", "deu", "deram"),
+
+    # Gênero + número (4 vias) pelo réu — o placeholder mais comum das novas petições.
+    "ré ou rés ou réu ou réus": ("reu_genum", "réu", "réus", "ré", "rés"),
 }
 
 
@@ -330,16 +364,31 @@ def _resolver_auto(
     spec = PLACEHOLDERS_AUTO.get(ph)
     if not spec:
         return None
-    fonte, sing, plur = spec
+    fonte = spec[0]
     if fonte == "imovel":
+        _, sing, plur = spec
         return plur if multiplos_imoveis else sing
+    # Sem contexto não há como flexionar por gênero/número: usa a 1ª forma (sing./masc.).
     if ctx is None:
-        return sing
+        return spec[1]
     if fonte == "reu_gen":
         # sing/plur já têm a forma masc/fem; escolhemos por gênero do réu
+        _, sing, plur = spec
         return plur if ctx.genero_reu == "f" else sing
     if fonte == "autor_gen":
+        _, sing, plur = spec
         return plur if ctx.genero_autor == "f" else sing
+    if fonte == "reu_num":
+        _, sing, plur = spec
+        return plur if ctx.numero_reu == "p" else sing
+    if fonte == "autor_num":
+        _, sing, plur = spec
+        return plur if ctx.numero_autor == "p" else sing
+    if fonte == "reu_genum":
+        _, masc_sing, masc_plur, fem_sing, fem_plur = spec
+        if ctx.genero_reu == "f":
+            return fem_plur if ctx.numero_reu == "p" else fem_sing
+        return masc_plur if ctx.numero_reu == "p" else masc_sing
     return None
 
 
@@ -389,6 +438,7 @@ def _substituir_paragrafo(
     if ctx is not None and zona in ("BODY", "CLOSING"):
         texto_novo = _inflexionar_texto(texto_novo, ctx)
     if zona == "HEADER":
+        texto_novo = _flex_judicial_treatment(texto_novo, ctx)
         texto_novo = texto_novo.upper()
     if texto_novo == texto_original:
         return
