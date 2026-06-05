@@ -11,6 +11,10 @@ from typing import Callable
 
 from docx import Document
 from docx.enum.text import WD_COLOR_INDEX
+from docx.oxml.table import CT_Tbl
+from docx.oxml.text.paragraph import CT_P
+from docx.table import Table
+from docx.text.paragraph import Paragraph
 from docx.shared import Pt
 
 from .config import CACHE_TEMPLATES_DOCX, LINE_SPACING, SPACE_AFTER_PT
@@ -104,6 +108,17 @@ def _extrair_placeholders_template(template_path: Path) -> set[str]:
                 for p in cell.paragraphs:
                     _scan(p.text)
     return encontrados
+
+
+def _iterar_blocos_doc(doc: Document):
+    """Percorre blocos do corpo em ordem real, preservando tabelas."""
+    paragrafos = {p._element: p for p in doc.paragraphs}
+    tabelas = {t._element: t for t in doc.tables}
+    for child in doc.element.body.iterchildren():
+        if isinstance(child, CT_P) and child in paragrafos:
+            yield "paragraph", paragrafos[child]
+        elif isinstance(child, CT_Tbl) and child in tabelas:
+            yield "table", tabelas[child]
 
 
 def gerar_peticoes(
@@ -220,23 +235,35 @@ def _gerar_peticao_consolidada(
 
     # 1) HEADER do 1º template.
     novas_zonas: list[str] = []
-    for p, zona in zip(primeiro_doc.paragraphs, primeiro_zonas):
+    idx_paragrafo = 0
+    for tipo_bloco, bloco in _iterar_blocos_doc(primeiro_doc):
+        if tipo_bloco != "paragraph":
+            continue
+        zona = primeiro_zonas[idx_paragrafo]
+        idx_paragrafo += 1
         if zona == "HEADER":
-            _append(p._element)
+            _append(bloco._element)
             novas_zonas.append("HEADER")
 
     # 2) BODYs com dedup. Parágrafos curtos (<25 chars normalizados) sempre passam.
     vistos: set[str] = set()
     for _, d, zonas in docs:
-        for p, zona in zip(d.paragraphs, zonas):
+        idx_paragrafo = 0
+        for tipo_bloco, bloco in _iterar_blocos_doc(d):
+            if tipo_bloco == "table":
+                _append(bloco._element)
+                continue
+
+            zona = zonas[idx_paragrafo]
+            idx_paragrafo += 1
             if zona != "BODY":
                 continue
-            chave = _norm_paragrafo(p.text)
+            chave = _norm_paragrafo(bloco.text)
             if chave and len(chave) >= 25:
                 if chave in vistos:
                     continue
                 vistos.add(chave)
-            _append(p._element)
+            _append(bloco._element)
             novas_zonas.append("BODY")
 
     # 3) CLOSING do 1º template que tenha (ou injeta fechamento default).
@@ -249,6 +276,7 @@ def _gerar_peticao_consolidada(
                 _append(p._element)
                 novas_zonas.append("CLOSING")
                 closing_emitido = True
+                break
     if not closing_emitido:
         para = destino_doc.add_paragraph("Termos em que pede deferimento.")
         # add_paragraph adiciona ao fim — após sectPr. Se sectPr existir, move antes.

@@ -160,3 +160,45 @@ def test_parse_desconhecido_extrai_numero_do_texto():
     tipo, proc = op.parse_pdf(texto)
     assert tipo == "desconhecido"
     assert proc.numero == "4004459-04.2026.8.26.0248"
+
+
+def test_parse_evento_multilinha_com_referencia_e_nao_gerou_documento():
+    linhas = [
+        "101 20/05/2026 14:30:00 Intimacao da parte",
+        "Refer. ao Evento 77,",
+        "Evento não gerou documento",
+    ]
+    ev = op._parse_evento_linhas(linhas)
+    assert ev is not None
+    assert ev.numero == "101"
+    assert ev.refer_evento == "77"
+    assert "Refer. ao Evento 77," in ev.descricao
+    assert ev.documentos == ["Evento nao gerou documento"]
+
+
+def test_parse_evento_usuario_extraido_do_tail():
+    linhas = [
+        "101",
+        "20/05/2026 14:30:00 Juntada de petição secretaria",
+    ]
+    ev = op._parse_evento_linhas(linhas)
+    assert ev is not None
+    assert ev.usuario == "secretaria"
+    assert ev.descricao == "Juntada de petição"
+
+
+def test_parse_data_br_invalida_retorna_none():
+    assert op._parse_data_br("31/02/2026") is None
+    assert op._parse_data_br("") is None
+
+
+def test_evento_parte_papel_identifica_pelo_texto_e_por_decorrido_prazo():
+    partes = [
+        op.Parte(papel="RÉU", nome="FULANO DE TAL"),
+        op.Parte(papel="AUTOR", nome="EMPRESA EXEMPLO LTDA"),
+    ]
+    ev1 = op.Evento(descricao="Prazo aberto (RÉU - FULANO DE TAL)")
+    assert op._evento_parte_papel(ev1, partes) == ("FULANO DE TAL", "RÉU")
+
+    ev2 = op.Evento(descricao="Decorrido prazo de FULANO DE TAL em 20/05")
+    assert op._evento_parte_papel(ev2, partes) == ("FULANO DE TAL", "RÉU")

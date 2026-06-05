@@ -5,9 +5,13 @@ Não cobre a conversão .doc -> .docx (requer Word via COM) — apenas o caminho
 .docx puro, manipulado em memória com python-docx.
 """
 
+import sys
+import types
+
 import docx
 from docx.enum.text import WD_COLOR_INDEX
 from docx.shared import Pt
+import pytest
 
 import organizar_processos as op
 from organizar_processos import Contexto
@@ -90,6 +94,21 @@ def test_resolver_auto_reu_num():
     assert op._resolver_auto("cumpriu ou cumpriram", Contexto(numero_reu="p"), False) == "cumpriram"
 
 
+def test_resolver_auto_autor_num():
+    assert op._resolver_auto("autor ou autora", Contexto(genero_autor="m"), False) == "autor"
+    assert op._resolver_auto("autor ou autora", Contexto(genero_autor="f"), False) == "autora"
+
+
+def test_resolver_auto_autor_num_por_monkeypatch(monkeypatch):
+    monkeypatch.setitem(op.peticoes.PLACEHOLDERS_AUTO, "autor ou autores", ("autor_num", "autor", "autores"))
+    assert op._resolver_auto("autor ou autores", Contexto(numero_autor="p"), False) == "autores"
+
+
+def test_resolver_auto_fonte_desconhecida_retorna_none(monkeypatch):
+    monkeypatch.setitem(op.peticoes.PLACEHOLDERS_AUTO, "placeholder invalido", ("desconhecida", "x"))
+    assert op._resolver_auto("placeholder invalido", Contexto(), False) is None
+
+
 def test_resolver_auto_reu_genum_4vias():
     ph = "ré ou rés ou réu ou réus"
     assert op._resolver_auto(ph, Contexto(genero_reu="m", numero_reu="s"), False) == "réu"
@@ -109,6 +128,10 @@ def test_substituicoes_auto_genum_no_texto():
     ctx = Contexto(genero_reu="f", numero_reu="p")
     out = op._aplicar_substituicoes("requer a intimação d@ (ré ou rés ou réu ou réus)", {}, ctx=ctx)
     assert out == "requer a intimação d@ rés"
+
+
+def test_substituicoes_placeholder_generico_com_valor_vazio_preserva_original():
+    assert op._aplicar_substituicoes("Campo (nome)", {"nome": "   "}) == "Campo (nome)"
 
 
 def test_extrair_ignora_literais_nao_sao_campos(tmp_path):
@@ -137,6 +160,156 @@ def test_extrair_mantem_placeholder_mapeado_mesmo_apos_digito(tmp_path):
     assert "trinta por cento" in phs
 
 
+def test_extrair_placeholder_dentro_de_tabela(tmp_path):
+    doc = docx.Document()
+    tabela = doc.add_table(rows=1, cols=1)
+    tabela.cell(0, 0).text = "(secretaria)"
+    p = tmp_path / "modelo_tabela.docx"
+    doc.save(str(p))
+    assert "secretaria" in op._extrair_placeholders_template(p)
+
+
+def test_obter_docx_cacheado_retorna_docx_sem_converter(tmp_path):
+    docx_path = tmp_path / "modelo.docx"
+    docx.Document().save(str(docx_path))
+    assert op._obter_docx_cacheado(docx_path) == docx_path
+
+
+def test_obter_docx_cacheado_retorna_arquivo_cacheado_sem_com(tmp_path):
+    template = tmp_path / "modelo.doc"
+    template.write_text("bin", encoding="utf-8")
+    st = template.stat()
+    raw = f"{template.name}|{st.st_size}|{int(st.st_mtime)}"
+    cached = op.CACHE_TEMPLATES_DOCX / f"{op.hashlib.md5(raw.encode()).hexdigest()}.docx"
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    cached.write_text("cache", encoding="utf-8")
+    try:
+        assert op._obter_docx_cacheado(template) == cached
+    finally:
+        cached.unlink(missing_ok=True)
+
+
+def test_obter_docx_cacheado_converte_doc_via_com_fake(monkeypatch, tmp_path):
+    template = tmp_path / "modelo.doc"
+    template.write_text("bin", encoding="utf-8")
+
+    class FakeDoc:
+        def __init__(self):
+            self.saved = None
+            self.closed = 0
+
+        def SaveAs(self, path, FileFormat):
+            self.saved = (path, FileFormat)
+
+        def Close(self, SaveChanges=None):
+            self.closed += 1
+
+    fake_doc = FakeDoc()
+
+    class FakeDocuments:
+        def Open(self, path):
+            return fake_doc
+
+    class FakeWord:
+        Visible = True
+
+        def __init__(self):
+            self.Documents = FakeDocuments()
+            self.quit = 0
+
+        def Quit(self):
+            self.quit += 1
+
+    fake_word = FakeWord()
+    client_mod = types.SimpleNamespace(Dispatch=lambda _name: fake_word)
+    monkeypatch.setitem(sys.modules, "win32com", types.SimpleNamespace(client=client_mod))
+    monkeypatch.setitem(sys.modules, "win32com.client", client_mod)
+
+    out = op._obter_docx_cacheado(template)
+    assert out.suffix.lower() == ".docx"
+    assert fake_doc.saved is not None
+    assert fake_doc.closed == 1
+    assert fake_word.quit == 1
+
+
+def test_obter_docx_cacheado_fecha_recursos_em_erro(monkeypatch, tmp_path):
+    template = tmp_path / "modelo.doc"
+    template.write_text("bin", encoding="utf-8")
+    chamadas = {"close": 0, "quit": 0}
+
+    class FakeDoc:
+        def SaveAs(self, path, FileFormat):
+            raise RuntimeError("falhou")
+
+        def Close(self, SaveChanges=None):
+            chamadas["close"] += 1
+            raise RuntimeError("close")
+
+    class FakeDocuments:
+        def Open(self, path):
+            return FakeDoc()
+
+    class FakeWord:
+        Visible = True
+
+        def __init__(self):
+            self.Documents = FakeDocuments()
+
+        def Quit(self):
+            chamadas["quit"] += 1
+            raise RuntimeError("quit")
+
+    client_mod = types.SimpleNamespace(Dispatch=lambda _name: FakeWord())
+    monkeypatch.setitem(sys.modules, "win32com", types.SimpleNamespace(client=client_mod))
+    monkeypatch.setitem(sys.modules, "win32com.client", client_mod)
+
+    with pytest.raises(RuntimeError, match="falhou"):
+        op._obter_docx_cacheado(template)
+    assert chamadas == {"close": 1, "quit": 1}
+
+
+def test_template_eh_imobiliario():
+    assert op._template_eh_imobiliario("Penhora imobiliária.docx") is True
+    assert op._template_eh_imobiliario("Citação.docx") is False
+
+
+def test_iterar_blocos_doc_preserva_ordem_de_paragrafos_e_tabelas():
+    doc = docx.Document()
+    doc.add_paragraph("Primeiro")
+    doc.add_table(rows=1, cols=1)
+    doc.add_paragraph("Segundo")
+    tipos = [tipo for tipo, _ in op.peticoes._iterar_blocos_doc(doc)]
+    assert tipos == ["paragraph", "table", "paragraph"]
+
+
+def test_gerar_peticao_unica_docx_salva_arquivo(tmp_path):
+    template = tmp_path / "modelo.docx"
+    doc = docx.Document()
+    doc.add_paragraph("Processo (numero do processo)")
+    doc.save(str(template))
+    op._gerar_peticao_unica(template, tmp_path, {"numero": "123"})
+    assert (tmp_path / "modelo - 123.docx").exists()
+
+
+def test_gerar_peticoes_loga_sucesso_e_erro_no_modo_individual(monkeypatch, tmp_path):
+    logs = []
+
+    def fake_gerar(tmpl, destino, dados, ctx=None, multiplos_imoveis=False):
+        if tmpl.stem == "b":
+            raise RuntimeError("falhou")
+
+    monkeypatch.setattr(op.peticoes, "_gerar_peticao_unica", fake_gerar)
+    op.gerar_peticoes(
+        op.Processo(numero="1"),
+        [tmp_path / "a.docx", tmp_path / "b.docx"],
+        tmp_path,
+        {},
+        log=logs.append,
+    )
+    assert any("OK: a" in linha for linha in logs)
+    assert any("ERRO em b.docx: falhou" in linha for linha in logs)
+
+
 # --------------------------------------------------------------------------
 # Geração de .docx em memória (_preencher_campos_docx e helpers)
 # --------------------------------------------------------------------------
@@ -161,6 +334,47 @@ def test_preencher_campos_docx_flexiona_papel_nu():
     ctx = Contexto(genero_reu="f", numero_reu="s")
     op._preencher_campos_docx(doc, {}, ctx=ctx)
     assert doc.paragraphs[0].text == "Citar a executada no prazo legal."
+
+
+def test_substituir_paragrafo_sem_runs_nao_falha():
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    op._substituir_paragrafo(p, {"numero": "123"})
+    assert p.text == ""
+
+
+def test_substituir_paragrafo_sem_mudanca_preserva_texto():
+    doc = docx.Document()
+    p = doc.add_paragraph("Sem placeholders.")
+    op._substituir_paragrafo(p, {})
+    assert p.text == "Sem placeholders."
+
+
+def test_substituir_paragrafo_limpa_runs_excedentes():
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    p.add_run("Processo ")
+    p.add_run("(numero do processo)")
+    op._substituir_paragrafo(p, {"numero": "123"})
+    assert p.runs[0].text == "Processo 123"
+    assert p.runs[1].text == ""
+
+
+def test_preencher_campos_docx_substitui_placeholders_em_tabela():
+    doc = docx.Document()
+    tabela = doc.add_table(rows=1, cols=1)
+    tabela.cell(0, 0).text = "Processo (numero do processo)"
+    op._preencher_campos_docx(doc, {"numero": "4004459-04.2026.8.26.0248"})
+    assert tabela.cell(0, 0).text == "Processo 4004459-04.2026.8.26.0248"
+
+
+def test_preencher_campos_docx_com_zonas_curtas_trata_excedente_como_body():
+    doc = docx.Document()
+    doc.add_paragraph("Cabeçalho")
+    doc.add_paragraph("Executado no corpo.")
+    ctx = Contexto(genero_reu="f", numero_reu="s")
+    op._preencher_campos_docx(doc, {}, ctx=ctx, zonas_paragrafos=["HEADER"])
+    assert doc.paragraphs[1].text == "Executada no corpo."
 
 
 def test_padronizar_espacamento_paragrafo_com_texto():
@@ -203,6 +417,11 @@ def test_colapsar_paragrafos_vazios():
     op._colapsar_paragrafos_vazios(doc)
     textos = [p.text for p in doc.paragraphs]
     assert textos == ["Primeiro", "", "Segundo"]
+
+
+def test_colapsar_paragrafos_vazios_sem_paragrafos():
+    vazio = type("DocVazio", (), {"paragraphs": []})()
+    op._colapsar_paragrafos_vazios(vazio)
 
 
 def test_gera_docx_em_disco(tmp_path):

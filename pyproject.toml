@@ -4,4 +4,14 @@ requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --tb=short"
+addopts = "-v --tb=short --cov=organizador --cov-report=term-missing --cov-fail-under=95"
+
+[tool.coverage.run]
+source = ["organizador"]
+omit = [
+    "organizador/gui.py",
+    "organizador/scraper.py",
+]
+
+[tool.coverage.report]
+show_missing = true
