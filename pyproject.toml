@@ -11,6 +11,7 @@ source = ["organizador"]
 omit = [
     "organizador/gui.py",
     "organizador/scraper.py",
+    "organizador/integracoes/tjsp_scraper/*",
 ]
 
 [tool.coverage.report]

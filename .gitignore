@@ -1,0 +1,7 @@
+.coverage
+__pycache__/
+.pytest_cache/
+.cache_templates_docx/
+config/.env
+config/credenciais.json
+config/*.local.*

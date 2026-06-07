@@ -2,8 +2,14 @@
 pypdf
 python-docx
 ttkbootstrap
+beautifulsoup4
+openpyxl
+pandas
+pyotp
+python-dotenv
+selenium
+unidecode
+webdriver-manager
 
-# Opcionais (somente em ambiente Windows com Word + TJSP-Scraper):
-#   pywin32          -> conversão .doc -> .docx e busca online (win32com)
-#   selenium, etc.   -> instalados junto ao projeto TJSP-Scraper
-# A ausência dessas libs NÃO derruba o app: os imports são tardios e tratados.
+# O scraper segue opcional em uso: as dependências acima só são exigidas
+# quando a busca online é acionada.

@@ -468,7 +468,7 @@ def _dict_para_processo(dados: dict) -> Processo:
     TJSP-Scraper) numa instância de Processo.
 
     O filtro `{k: ... if k in}` ignora chaves que não são campos da dataclass
-    (ex.: dicas linguísticas `genero_autor`/`numero_autor` do scraper). Trata a
+    (ex.: dicas linguísticas `genero_autor`/`numero_autor` da integração interna). Trata a
     única divergência de formato: o scraper devolve `ultima_movimentacao` como
     dict {"data","descricao"}, enquanto Processo espera uma str.
     """

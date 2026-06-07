@@ -1,0 +1,24 @@
+{
+  "credenciais": [
+    {
+      "tj": "TJSP - Esaj",
+      "login": "00000000000",
+      "senha": "substitua-aqui"
+    },
+    {
+      "tj": "TJMG - PJE",
+      "login": "00000000000",
+      "senha": "substitua-aqui"
+    },
+    {
+      "tj": "TJMG - eproc 1 e 2 graus",
+      "login": "00000000000",
+      "senha": "substitua-aqui"
+    },
+    {
+      "tj": "TJSP - Eproc",
+      "login": "00000000000",
+      "senha": "substitua-aqui"
+    }
+  ]
+}

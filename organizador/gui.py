@@ -997,7 +997,7 @@ class App(ttk.Window):
         if templates_dir.is_dir():
             # Arquivos da raiz da pasta Petições.
             for f in sorted(templates_dir.iterdir()):
-                if f.is_file() and f.suffix.lower() in (".doc", ".docx"):
+                if f.is_file() and f.suffix.lower() == ".docx":
                     var = tk.BooleanVar(value=False)
                     self._templates_vars[f] = var
                     cb = ttk.Checkbutton(
@@ -1013,7 +1013,7 @@ class App(ttk.Window):
             for subdir in subdirs:
                 arquivos = sorted(
                     f for f in subdir.iterdir()
-                    if f.is_file() and f.suffix.lower() in (".doc", ".docx")
+                    if f.is_file() and f.suffix.lower() == ".docx"
                 )
                 if not arquivos:
                     continue

@@ -81,16 +81,11 @@ def test_gerar_peticao_unica_formato_invalido_falha(tmp_path):
         op._gerar_peticao_unica(template, tmp_path, {})
 
 
-def test_gerar_peticao_unica_doc_usa_cache_convertido(monkeypatch, tmp_path):
-    template_docx = tmp_path / "modelo_cache.docx"
-    _criar_template(template_docx, "HEADER", ["Processo (numero do processo)"], "Fecho")
+def test_gerar_peticao_unica_doc_legado_falha(tmp_path):
     template_doc = tmp_path / "modelo.doc"
     template_doc.write_text("binario", encoding="utf-8")
-
-    monkeypatch.setattr(op.peticoes, "_obter_docx_cacheado", lambda _path: template_docx)
-    op._gerar_peticao_unica(template_doc, tmp_path, {"numero": "123"})
-    saida = tmp_path / "modelo - 123.docx"
-    assert saida.exists()
+    with pytest.raises(ValueError, match="Use apenas .docx"):
+        op._gerar_peticao_unica(template_doc, tmp_path, {"numero": "123"})
 
 
 def test_gerar_peticoes_modo_documento_unico_registra_erro(monkeypatch, tmp_path):

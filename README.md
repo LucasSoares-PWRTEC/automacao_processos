@@ -7,7 +7,7 @@ CNJ), cria uma subpasta por processo, move os documentos e extrai os metadados
 `resumo.txt`, além de um `índice.csv` consolidado.
 
 Também permite pesquisar um processo já organizado (ou buscá-lo online via
-[TJSP-Scraper](#busca-online-opcional)) e gerar petições `.docx` a partir de
+scraper internalizado) e gerar petições `.docx` a partir de
 modelos da pasta `Petições/`, com flexão automática de gênero/número.
 
 ## Funcionalidades
@@ -17,7 +17,7 @@ modelos da pasta `Petições/`, com flexão automática de gênero/número.
   distribuição (`extrato`) ou ato individual — despacho/decisão/sentença (`ato`).
 - **Extração estruturada**: tribunal/UF (inferidos do CNJ), comarca, vara, partes,
   advogados (OAB), eventos com prazos abertos, atos com signatário e código verificador.
-- **Geração de petições** a partir de modelos `.doc`/`.docx`, substituindo
+- **Geração de petições** a partir de modelos `.docx`, substituindo
   placeholders e flexionando o vocabulário processual (autor/ré/executados...)
   conforme o gênero e número das partes. Suporta documento consolidado (vários
   modelos em um) com deduplicação de parágrafos.
@@ -36,14 +36,14 @@ Instalação:
 python -m pip install -r requirements.txt
 ```
 
-### Dependências opcionais (somente Windows)
+### Busca online e configuração local
 
-São carregadas de forma **tardia** — a ausência delas não impede o uso das demais
-funções:
-
-- **`pywin32`** — conversão `.doc → .docx` via Microsoft Word (COM) e busca online.
-- **[TJSP-Scraper](https://github.com/)** (projeto irmão, `selenium`, `python-dotenv`
-  etc.) — necessário apenas para a busca online de processos.
+- A geração de petições não depende mais de Microsoft Word nem de `pywin32`.
+- O scraper dos tribunais foi incorporado ao pacote `organizador.integracoes.tjsp_scraper`.
+- Credenciais e segredos locais ficam em `config/credenciais.json` e `config/.env`
+  (com exemplos versionados em `config/credenciais.example.json` e `config/.env.example`).
+- As dependências de scraping continuam sendo carregadas apenas quando a busca
+  online é usada.
 
 ## Como executar
 
@@ -71,9 +71,11 @@ automacao_processos/
 │   ├── organizacao.py       # organização de pastas, índice CSV, loaders
 │   ├── flexao.py            # gênero/número e flexão de vocabulário
 │   ├── peticoes.py          # geração de petições .docx
-│   ├── scraper.py           # busca online (TJSP-Scraper, imports tardios)
+│   ├── scraper.py           # busca online (integração internalizada)
+│   ├── integracoes/         # scraper incorporado ao projeto
 │   └── gui.py               # interface gráfica Tkinter + main()
-├── Petições/                # modelos .doc/.docx das petições
+├── config/                  # exemplos de configuração local
+├── Petições/                # modelos .docx das petições
 ├── tests/                   # suíte de testes (pytest)
 └── pyproject.toml           # configuração do projeto e do pytest
 ```
@@ -85,9 +87,8 @@ de texto sintéticas), inferência de CNJ, flexão de gênero/número, substitui
 placeholders, geração de `.docx` em memória, índice CSV e carregamento de
 metadados.
 
-Ficam **fora** da cobertura automatizada (dependem de ambiente externo): a GUI
-Tkinter, a busca online (Selenium/credenciais) e a conversão `.doc → .docx` via
-Microsoft Word (COM).
+Ficam **fora** da cobertura automatizada os fluxos que exigem ambiente externo
+real: GUI Tkinter interativa, autenticação nos tribunais e 2FA.
 
 ```powershell
 python -m pip install -r requirements-dev.txt
@@ -97,10 +98,10 @@ python -m pytest
 ## Busca online (opcional)
 
 A aba *Pesquisa de Processo* permite consultar um processo diretamente no tribunal
-via TJSP-Scraper. Apenas o **eproc** tem extrator estruturado (auto-preenche os
-campos da petição); para e-SAJ/PJe é devolvido um processo mínimo. O caminho do
-projeto TJSP-Scraper é configurado em [`organizador/config.py`](organizador/config.py)
-(`TJSP_SCRAPER_DIR`).
+via integração internalizada. Apenas o **eproc** tem extrator estruturado
+(auto-preenche os campos da petição); para e-SAJ/PJe é devolvido um processo
+mínimo. Antes de usar a busca online, configure `config/.env` e
+`config/credenciais.json` a partir dos arquivos de exemplo.
 
 ## Saída gerada
 

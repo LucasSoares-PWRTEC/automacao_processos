@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from copy import deepcopy
 from pathlib import Path
@@ -17,7 +16,7 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from docx.shared import Pt
 
-from .config import CACHE_TEMPLATES_DOCX, LINE_SPACING, SPACE_AFTER_PT
+from .config import LINE_SPACING, SPACE_AFTER_PT
 from .flexao import _classificar_paragrafos, _flex_judicial_treatment, _inflexionar_texto, _norm_paragrafo, _strip_accents
 from .models import Contexto, Processo
 
@@ -37,38 +36,13 @@ _PLACEHOLDERS_IGNORADOS = {
 
 
 def _obter_docx_cacheado(template_path: Path) -> Path:
-    """Devolve um .docx pronto pra leitura via python-docx.
-    Converte .doc → .docx via win32com e cacheia por mtime+size."""
-    if template_path.suffix.lower() == ".docx":
-        return template_path
-    CACHE_TEMPLATES_DOCX.mkdir(parents=True, exist_ok=True)
-    st = template_path.stat()
-    raw = f"{template_path.name}|{st.st_size}|{int(st.st_mtime)}"
-    h = hashlib.md5(raw.encode()).hexdigest()
-    cached = CACHE_TEMPLATES_DOCX / f"{h}.docx"
-    if cached.exists():
-        return cached
-
-    import win32com.client
-    word = win32com.client.Dispatch("Word.Application")
-    word.Visible = False
-    doc = None
-    try:
-        doc = word.Documents.Open(str(template_path.resolve()))
-        doc.SaveAs(str(cached), FileFormat=16)
-        doc.Close()
-        doc = None
-    finally:
-        if doc is not None:
-            try:
-                doc.Close(SaveChanges=False)
-            except Exception:
-                pass
-        try:
-            word.Quit()
-        except Exception:
-            pass
-    return cached
+    """Valida que o template já está no formato .docx suportado."""
+    if template_path.suffix.lower() != ".docx":
+        raise ValueError(
+            f"Template não suportado: {template_path.name}. "
+            "Converta o modelo para .docx."
+        )
+    return template_path
 
 
 _PALAVRAS_IMOBILIARIO = ("imobiliári", "imovel", "imóvel", "matricula", "matrícula")
@@ -166,21 +140,16 @@ def _gerar_peticao_unica(
     nome_base = template_path.stem
     destino_path = destino / f"{nome_base} - {dados.get('numero', 'sem_numero')}"
 
-    if sufixo == ".docx":
-        doc = Document(str(template_path))
-        zonas = _classificar_paragrafos(doc)
-        _preencher_campos_docx(
-            doc, dados, ctx=ctx, zonas_paragrafos=zonas,
-            multiplos_imoveis=multiplos_imoveis,
-        )
-        doc.save(str(destino_path) + ".docx")
-    elif sufixo == ".doc":
-        _converter_doc_para_docx(
-            template_path, destino_path, dados, ctx=ctx,
-            multiplos_imoveis=multiplos_imoveis,
-        )
-    else:
-        raise ValueError(f"Formato de template não suportado: {sufixo}")
+    if sufixo != ".docx":
+        raise ValueError(f"Formato de template não suportado: {sufixo}. Use apenas .docx.")
+
+    doc = Document(str(template_path))
+    zonas = _classificar_paragrafos(doc)
+    _preencher_campos_docx(
+        doc, dados, ctx=ctx, zonas_paragrafos=zonas,
+        multiplos_imoveis=multiplos_imoveis,
+    )
+    doc.save(str(destino_path) + ".docx")
 
 
 def _gerar_peticao_consolidada(
@@ -198,17 +167,17 @@ def _gerar_peticao_consolidada(
     if not templates:
         raise ValueError("Nenhum template selecionado.")
 
-    # Carrega todos os templates (convertendo .doc se necessário) e classifica zonas.
+    # Carrega todos os templates .docx e classifica zonas.
     docs: list[tuple[Path, Document, list[str]]] = []
     for tmpl in templates:
-        docx_path = _obter_docx_cacheado(tmpl) if tmpl.suffix.lower() == ".doc" else tmpl
+        docx_path = _obter_docx_cacheado(tmpl)
         d = Document(str(docx_path))
         zonas = _classificar_paragrafos(d)
         docs.append((tmpl, d, zonas))
 
     # Documento destino herda estilos do 1º template.
     primeiro_path, primeiro_doc, primeiro_zonas = docs[0]
-    primeiro_docx = _obter_docx_cacheado(primeiro_path) if primeiro_path.suffix.lower() == ".doc" else primeiro_path
+    primeiro_docx = _obter_docx_cacheado(primeiro_path)
     destino_doc = Document(str(primeiro_docx))
     body = destino_doc.element.body
 
@@ -296,7 +265,7 @@ def _gerar_peticao_consolidada(
     return saida
 
 
-# Placeholders reais usados nos modelos .doc da pasta "Petições".
+# Placeholders reais usados nos modelos .docx da pasta "Petições".
 # Cada chave é o texto que aparece entre parênteses no modelo; o valor é
 # a chave correspondente no dict `dados` montado em _gerar_peticoes.
 PLACEHOLDERS_PETICAO = {
@@ -569,11 +538,7 @@ def _converter_doc_para_docx(
     ctx: Contexto | None = None,
     multiplos_imoveis: bool = False,
 ) -> None:
-    cached_docx = _obter_docx_cacheado(src)
-    document = Document(str(cached_docx))
-    zonas = _classificar_paragrafos(document)
-    _preencher_campos_docx(
-        document, dados, ctx=ctx, zonas_paragrafos=zonas,
-        multiplos_imoveis=multiplos_imoveis,
+    raise ValueError(
+        f"Template não suportado: {src.name}. "
+        "Converta o modelo para .docx."
     )
-    document.save(str(destino_path) + ".docx")

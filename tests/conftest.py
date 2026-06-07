@@ -8,9 +8,7 @@ ao shim `organizar_processos.py`, que re-exporta os símbolos do pacote.
 Fora de escopo de teste automatizado (dependem de ambiente externo):
   - GUI Tkinter (classe App): requer display e interação manual.
   - Busca online (scraper.buscar_processo_online): requer Selenium, credenciais,
-    win32com e o projeto TJSP-Scraper.
-  - Conversão .doc -> .docx (_obter_docx_cacheado / _extrair_placeholders_template
-    / _converter_doc_para_docx): requer Microsoft Word via COM (win32com).
+    2FA e acesso real aos tribunais.
 
 Tudo o que é lógica pura, parsing de texto e geração de .docx em memória é
 exercitado pelos testes desta pasta.

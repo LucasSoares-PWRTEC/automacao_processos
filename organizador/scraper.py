@@ -1,13 +1,22 @@
 # -*- coding: utf-8 -*-
-"""Busca online de processos via TJSP-Scraper (imports tardios, isolados)."""
+"""Busca online de processos via scraper internalizado (imports tardios, isolados)."""
 
 from __future__ import annotations
 
 import io
-import sys
+import shutil
 from typing import Callable
 
-from .config import TJ_SISTEMAS, TJSP_SCRAPER_DIR, _ESTADO_TJ_UF
+from .config import (
+    CONFIG_DIR,
+    CONFIG_ENV_EXAMPLE_PATH,
+    CONFIG_ENV_PATH,
+    LEGACY_ENV_PATH,
+    TJ_SISTEMAS,
+    _ESTADO_TJ_UF,
+)
+from .integracoes.tjsp_scraper.parser import _extrair_blocos_com_origem, extrair_penhora_bloqueio_tribunais
+from .integracoes.tjsp_scraper.scrapers import criar_scraper
 from .models import Processo
 from .organizacao import _dict_para_processo
 from .padroes import MAPA_UF_CNJ, RE_CNJ_TR, RE_NUMERO_CNJ
@@ -26,11 +35,23 @@ class _LogWriter(io.TextIOBase):
         return len(s)
 
 
+def _preparar_env_local() -> None:
+    """Garante que exista um `.env` local, migrando do legado quando possível."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    if CONFIG_ENV_PATH.exists():
+        return
+    if LEGACY_ENV_PATH.exists():
+        shutil.copy2(LEGACY_ENV_PATH, CONFIG_ENV_PATH)
+        return
+    if CONFIG_ENV_EXAMPLE_PATH.exists():
+        shutil.copy2(CONFIG_ENV_EXAMPLE_PATH, CONFIG_ENV_PATH)
+
+
 def buscar_processo_online(
     numero: str, tj_label: str, headless: bool, log: Callable[[str], None],
     modo_docs: str = "nenhum",
 ) -> Processo:
-    """Loga no TJ/sistema escolhido via TJSP-Scraper, consulta o processo e
+    """Loga no TJ/sistema escolhido via integração internalizada, consulta o processo e
     devolve um Processo.
 
     `tj_label` é uma das chaves de TJ_SISTEMAS (ex.: "TJSP — eproc"). Só o eproc
@@ -59,12 +80,9 @@ def buscar_processo_online(
     if uf_num and uf_num != uf:
         log(f"Aviso: o número parece ser de {uf_num}, mas você selecionou {tribunal} ({uf}).\n")
 
-    if str(TJSP_SCRAPER_DIR) not in sys.path:
-        sys.path.insert(0, str(TJSP_SCRAPER_DIR))
     from dotenv import load_dotenv
-    load_dotenv(TJSP_SCRAPER_DIR / ".env")
-    from src.scrapers import criar_scraper
-    from src.parser import _extrair_blocos_com_origem, extrair_penhora_bloqueio_tribunais
+    _preparar_env_local()
+    load_dotenv(CONFIG_ENV_PATH)
 
     log(f"Abrindo {tj_label} e logando...\n")
     scraper = criar_scraper(site=site, estado=estado, url=url, headless=headless)
@@ -80,7 +98,7 @@ def buscar_processo_online(
             raise RuntimeError("Scraper não retornou dados para esse número.")
 
         if site == "eproc":
-            from src.parser_processo import extrair_processo
+            from .integracoes.tjsp_scraper.parser_processo import extrair_processo
             proc = _dict_para_processo(
                 extrair_processo(html, _extrair_blocos_com_origem(html), numero_cnj=numero)
             )

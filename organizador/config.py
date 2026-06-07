@@ -1,21 +1,36 @@
 # -*- coding: utf-8 -*-
-"""Configurações: caminhos, mapa de TJ/sistema, OAB do escritório, layout."""
+"""Configurações: caminhos, mapa de TJ/sistema, OAB do escritório e layout."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 # Raiz do projeto = pasta que contém o pacote organizador/.
 _RAIZ = Path(__file__).resolve().parent.parent
 
-PASTA_PADRAO = r"C:\Users\Usuario\Desktop\Processos"
+def _resolver_pasta_padrao() -> str:
+    env = os.getenv("ORGANIZADOR_PASTA_PADRAO")
+    if env:
+        return str(Path(env).expanduser())
+    desktop = Path.home() / "Desktop" / "Processos"
+    if desktop.exists():
+        return str(desktop)
+    return str((Path.home() / "Processos").expanduser())
+
+
+PASTA_PADRAO = _resolver_pasta_padrao()
 PASTA_NAO_IDENTIFICADOS = "_nao_identificados"
 CACHE_DIR = ".cache_texto"
 PASTA_PETICOES = _RAIZ / "Petições"
-CACHE_TEMPLATES_DOCX = _RAIZ / ".cache_templates_docx"
-
-# Projeto TJSP-Scraper (busca online). Import tardio em scraper.py.
-TJSP_SCRAPER_DIR = Path(r"C:\Users\Usuario\Desktop\Workspace\TJSP-Scraper")
+CONFIG_DIR = _RAIZ / "config"
+CONFIG_ENV_PATH = CONFIG_DIR / ".env"
+CONFIG_ENV_EXAMPLE_PATH = CONFIG_DIR / ".env.example"
+CREDENCIAIS_PATH = CONFIG_DIR / "credenciais.json"
+CREDENCIAIS_EXAMPLE_PATH = CONFIG_DIR / "credenciais.example.json"
+LEGACY_SCRAPER_DIR = _RAIZ.parent / "TJSP-Scraper"
+LEGACY_ENV_PATH = LEGACY_SCRAPER_DIR / ".env"
+LEGACY_SENHAS_XLSX_PATH = LEGACY_SCRAPER_DIR / "data" / "senhas.xlsx"
 
 # Rótulo do seletor de TJ/Sistema -> (site, estado, url). e-SAJ e PJe têm a URL
 # de login fixa dentro da própria classe do scraper (ignoram a url passada); só

@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Substituição de placeholders e geração de .docx em memória.
-
-Não cobre a conversão .doc -> .docx (requer Word via COM) — apenas o caminho
-.docx puro, manipulado em memória com python-docx.
-"""
-
-import sys
-import types
+"""Substituição de placeholders e geração de .docx em memória."""
 
 import docx
 from docx.enum.text import WD_COLOR_INDEX
@@ -175,97 +168,25 @@ def test_obter_docx_cacheado_retorna_docx_sem_converter(tmp_path):
     assert op._obter_docx_cacheado(docx_path) == docx_path
 
 
-def test_obter_docx_cacheado_retorna_arquivo_cacheado_sem_com(tmp_path):
+def test_obter_docx_cacheado_rejeita_doc_legado(tmp_path):
     template = tmp_path / "modelo.doc"
     template.write_text("bin", encoding="utf-8")
-    st = template.stat()
-    raw = f"{template.name}|{st.st_size}|{int(st.st_mtime)}"
-    cached = op.CACHE_TEMPLATES_DOCX / f"{op.hashlib.md5(raw.encode()).hexdigest()}.docx"
-    cached.parent.mkdir(parents=True, exist_ok=True)
-    cached.write_text("cache", encoding="utf-8")
-    try:
-        assert op._obter_docx_cacheado(template) == cached
-    finally:
-        cached.unlink(missing_ok=True)
-
-
-def test_obter_docx_cacheado_converte_doc_via_com_fake(monkeypatch, tmp_path):
-    template = tmp_path / "modelo.doc"
-    template.write_text("bin", encoding="utf-8")
-
-    class FakeDoc:
-        def __init__(self):
-            self.saved = None
-            self.closed = 0
-
-        def SaveAs(self, path, FileFormat):
-            self.saved = (path, FileFormat)
-
-        def Close(self, SaveChanges=None):
-            self.closed += 1
-
-    fake_doc = FakeDoc()
-
-    class FakeDocuments:
-        def Open(self, path):
-            return fake_doc
-
-    class FakeWord:
-        Visible = True
-
-        def __init__(self):
-            self.Documents = FakeDocuments()
-            self.quit = 0
-
-        def Quit(self):
-            self.quit += 1
-
-    fake_word = FakeWord()
-    client_mod = types.SimpleNamespace(Dispatch=lambda _name: fake_word)
-    monkeypatch.setitem(sys.modules, "win32com", types.SimpleNamespace(client=client_mod))
-    monkeypatch.setitem(sys.modules, "win32com.client", client_mod)
-
-    out = op._obter_docx_cacheado(template)
-    assert out.suffix.lower() == ".docx"
-    assert fake_doc.saved is not None
-    assert fake_doc.closed == 1
-    assert fake_word.quit == 1
-
-
-def test_obter_docx_cacheado_fecha_recursos_em_erro(monkeypatch, tmp_path):
-    template = tmp_path / "modelo.doc"
-    template.write_text("bin", encoding="utf-8")
-    chamadas = {"close": 0, "quit": 0}
-
-    class FakeDoc:
-        def SaveAs(self, path, FileFormat):
-            raise RuntimeError("falhou")
-
-        def Close(self, SaveChanges=None):
-            chamadas["close"] += 1
-            raise RuntimeError("close")
-
-    class FakeDocuments:
-        def Open(self, path):
-            return FakeDoc()
-
-    class FakeWord:
-        Visible = True
-
-        def __init__(self):
-            self.Documents = FakeDocuments()
-
-        def Quit(self):
-            chamadas["quit"] += 1
-            raise RuntimeError("quit")
-
-    client_mod = types.SimpleNamespace(Dispatch=lambda _name: FakeWord())
-    monkeypatch.setitem(sys.modules, "win32com", types.SimpleNamespace(client=client_mod))
-    monkeypatch.setitem(sys.modules, "win32com.client", client_mod)
-
-    with pytest.raises(RuntimeError, match="falhou"):
+    with pytest.raises(ValueError, match="Converta o modelo para .docx"):
         op._obter_docx_cacheado(template)
-    assert chamadas == {"close": 1, "quit": 1}
+
+
+def test_obter_docx_cacheado_rejeita_txt(tmp_path):
+    template = tmp_path / "modelo.txt"
+    template.write_text("bin", encoding="utf-8")
+    with pytest.raises(ValueError, match="Converta o modelo para .docx"):
+        op._obter_docx_cacheado(template)
+
+
+def test_converter_doc_para_docx_rejeita_modelo_legado(tmp_path):
+    template = tmp_path / "modelo.doc"
+    template.write_text("bin", encoding="utf-8")
+    with pytest.raises(ValueError, match="Converta o modelo para .docx"):
+        op._converter_doc_para_docx(template, tmp_path / "saida", {})
 
 
 def test_template_eh_imobiliario():
