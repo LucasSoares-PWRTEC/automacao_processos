@@ -32,17 +32,45 @@ LEGACY_SCRAPER_DIR = _RAIZ.parent / "TJSP-Scraper"
 LEGACY_ENV_PATH = LEGACY_SCRAPER_DIR / ".env"
 LEGACY_SENHAS_XLSX_PATH = LEGACY_SCRAPER_DIR / "data" / "senhas.xlsx"
 
-# Rótulo do seletor de TJ/Sistema -> (site, estado, url). e-SAJ e PJe têm a URL
-# de login fixa dentro da própria classe do scraper (ignoram a url passada); só
-# o eproc usa a url. Apenas o eproc tem extrator estruturado (auto-preenche a
+# Rótulo do seletor de TJ/Sistema -> (site, estado, url, perfil). e-SAJ e PJe têm
+# a URL de login fixa dentro da própria classe do scraper (ignoram a url passada);
+# só o eproc usa a url. Apenas o eproc tem extrator estruturado (auto-preenche a
 # petição); e-SAJ/PJe entram com Processo mínimo + palavras-chave de penhora.
+#
+# `perfil` (4º elemento, só eproc): sigla da OAB a selecionar na tela "Seleção de
+# perfil". A conta do TJSP eproc dá acesso a 6 perfis de OAB do mesmo advogado
+# (SP, MG, RJ, PR, RN, GO) — o login/2FA é o mesmo; muda só qual botão clicar.
+# Quando None, o scraper usa a sigla padrão do estado (ex.: TJMG → "MG").
 TJ_SISTEMAS = {
-    "TJSP — eproc": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/"),
-    "TJSP — e-SAJ": ("esaj",  "SAO PAULO",    "https://esaj.tjsp.jus.br/cpopg/open.do"),
-    "TJMG — eproc": ("eproc", "MINAS GERAIS", "https://eproc1g.tjmg.jus.br/eproc/"),
-    "TJMG — PJe":   ("pje",   "MINAS GERAIS", "https://pje.tjmg.jus.br/pje/"),
+    "TJSP — eproc (SP)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "SP"),
+    "TJSP — eproc (MG)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "MG"),
+    "TJSP — eproc (RJ)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "RJ"),
+    "TJSP — eproc (PR)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "PR"),
+    "TJSP — eproc (RN)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "RN"),
+    "TJSP — eproc (GO)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "GO"),
+    "TJSP — e-SAJ": ("esaj",  "SAO PAULO",    "https://esaj.tjsp.jus.br/cpopg/open.do", None),
+    "TJMG — eproc": ("eproc", "MINAS GERAIS", "https://eproc1g.tjmg.jus.br/eproc/", None),
+    "TJMG — PJe":   ("pje",   "MINAS GERAIS", "https://pje.tjmg.jus.br/pje/", None),
 }
 _ESTADO_TJ_UF = {"SAO PAULO": ("TJSP", "SP"), "MINAS GERAIS": ("TJMG", "MG")}
+
+
+def uf_efetiva_tj(tj_label: str) -> str:
+    """UF que o sistema efetivamente atende (perfil da OAB ou UF do estado)."""
+    if tj_label not in TJ_SISTEMAS:
+        return ""
+    _site, estado, _url, perfil = TJ_SISTEMAS[tj_label]
+    return (perfil or _ESTADO_TJ_UF[estado][1]).upper()
+
+
+def sugerir_tj_para_uf(uf: str) -> str | None:
+    """Rótulo de TJ_SISTEMAS cuja UF efetiva == uf. Prefere eproc; senão o 1º."""
+    uf = (uf or "").upper()
+    candidatos = [lbl for lbl in TJ_SISTEMAS if uf_efetiva_tj(lbl) == uf]
+    if not candidatos:
+        return None
+    eproc = [lbl for lbl in candidatos if TJ_SISTEMAS[lbl][0] == "eproc"]
+    return (eproc or candidatos)[0]
 
 # OAB do advogado do escritório (Felipe Machado) por UF — usado para
 # autopreencher os campos OAB UF / OAB Nº ao selecionar um processo.

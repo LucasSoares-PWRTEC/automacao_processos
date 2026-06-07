@@ -208,10 +208,18 @@ def _extrair_partes(soup: BeautifulSoup) -> list[dict]:
 
     partes: list[dict] = []
     # Linhas de dados (todas exceto a do header).
+    #
+    # A 1ª parte de cada polo vem numa <td class="autorReu">. As demais
+    # partes (link "e outros"/carregarPartes, eproc 9.20.x) sao injetadas
+    # via AJAX como NOVAS <tr>, e a celula da parte vem como <td> SIMPLES
+    # (sem a classe autorReu), com a outra coluna vazia. Por isso iteramos
+    # TODAS as celulas diretas da linha e mapeamos o papel pelo INDICE da
+    # coluna (col 0 = polo ativo, col 1 = polo passivo). Celulas sem
+    # infraNomeParte (placeholder vazio) sao descartadas por _parse_td_parte.
     for tr in tabela.find_all("tr"):
         if tr is primeiro_tr:
             continue
-        tds = tr.find_all("td", class_="autorReu")
+        tds = tr.find_all("td", recursive=False)
         for idx, td in enumerate(tds):
             parte = _parse_td_parte(td, papeis_humanos[idx] if idx < len(papeis_humanos) else "")
             if parte and parte.get("nome"):
@@ -220,7 +228,13 @@ def _extrair_partes(soup: BeautifulSoup) -> list[dict]:
 
 
 def _parse_td_parte(td: Tag, papel_humano: str) -> Optional[dict]:
-    nome_a = td.find("a", class_="infraNomeParte")
+    # O eproc renderiza o nome ora como <a class="infraNomeParte"> (parte
+    # clicavel/"Consultar"), ora como <span class="infraNomeParte"> (ex.:
+    # partes com selo "Domicilio Judicial Eletronico"). A versao 9.20.9
+    # (2026-06) passou a usar <span> em varios processos — buscar so <a>
+    # descartava a parte inteira e zerava o mapeamento EXEQUENTE/EXECUTADO.
+    # Casamos pela CLASSE, em qualquer tag; o data-parte vem nos dois.
+    nome_a = td.find(class_="infraNomeParte")
     if not nome_a:
         return None
     nome = _normaliza(_txt(nome_a))

@@ -13,9 +13,14 @@ from .pje import PJEScraper
 from .eproc import EprocScraper
 
 
-def criar_scraper(site: str, estado: str, url: str, headless: bool = False) -> TribunalScraper:
+def criar_scraper(
+    site: str, estado: str, url: str, headless: bool = False, perfil: str | None = None
+) -> TribunalScraper:
     """
     Fábrica: devolve a instância de scraper para o 'site'.
+
+    `perfil` (só eproc): sigla da OAB a selecionar na tela "Seleção de perfil"
+    (ex.: "SP", "MG", "RJ"). Ignorado por e-SAJ/PJe.
 
     Levanta NotImplementedError para sites ainda não implementados,
     para o fluxo principal poder pular o site sem derrubar a execução.
@@ -27,7 +32,7 @@ def criar_scraper(site: str, estado: str, url: str, headless: bool = False) -> T
     if site == "pje":
         return PJEScraper(estado=estado, url=url, headless=headless)
     if site == "eproc":
-        return EprocScraper(estado=estado, url=url, headless=headless)
+        return EprocScraper(estado=estado, url=url, headless=headless, perfil=perfil)
 
     raise NotImplementedError(
         f"Scraper para o site '{site}' ainda não implementado."

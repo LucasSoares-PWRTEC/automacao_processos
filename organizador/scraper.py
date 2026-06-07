@@ -35,6 +35,26 @@ class _LogWriter(io.TextIOBase):
         return len(s)
 
 
+# Marcadores de "processo não encontrado" por site. Quando a página de
+# resultado contém um destes (em minúsculas), o tribunal está dizendo que não
+# há processo com aquele número/foro — devolver isso ao extrator só geraria um
+# registro vazio, então sinalizamos com uma mensagem clara ao usuário.
+_MARCADORES_NAO_ENCONTRADO = {
+    "eproc": ("processo não encontrado", "processo nao encontrado"),
+    "esaj": (
+        "não existem informações disponíveis para os parâmetros informados",
+        "nao existem informacoes disponiveis para os parametros informados",
+        "não foram encontrados resultados",
+    ),
+    "pje": ("não foram encontrados", "nao foram encontrados", "nenhum registro encontrado"),
+}
+
+
+def _html_indica_nao_encontrado(html: str, site: str) -> bool:
+    alvo = (html or "").lower()
+    return any(marca in alvo for marca in _MARCADORES_NAO_ENCONTRADO.get(site, ()))
+
+
 def _preparar_env_local() -> None:
     """Garante que exista um `.env` local, migrando do legado quando possível."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -50,17 +70,32 @@ def _preparar_env_local() -> None:
 def buscar_processo_online(
     numero: str, tj_label: str, headless: bool, log: Callable[[str], None],
     modo_docs: str = "nenhum",
+    modo_debug: str = "off",
+    reter_scraper: Callable[[object], None] | None = None,
 ) -> Processo:
     """Loga no TJ/sistema escolhido via integração internalizada, consulta o processo e
     devolve um Processo.
 
-    `tj_label` é uma das chaves de TJ_SISTEMAS (ex.: "TJSP — eproc"). Só o eproc
+    `tj_label` é uma das chaves de TJ_SISTEMAS (ex.: "TJSP — eproc (SP)"). Só o eproc
     tem extrator estruturado (auto-preenche os campos); para e-SAJ/PJe devolve um
     Processo mínimo (número + tribunal/UF) e anexa as palavras-chave de
     penhora/bloqueio encontradas.
 
     `modo_docs` (só eproc): "nenhum" (default — não abre documentos, bem mais
     rápido; a petição não usa o teor dos atos), "atos" ou "todos".
+
+    `modo_debug` controla pontos de parada para inspeção manual (deixa o
+    navegador ABERTO em vez de fechá-lo):
+      - "off" (default): fluxo normal — loga, consulta, fecha o navegador.
+      - "pos_login": para logo após o login, SEM pesquisar o processo.
+        Devolve um Processo mínimo (só número/tribunal); use para conferir
+        a tela pós-login (Painel do Advogado, perfil selecionado etc.).
+      - "pos_consulta": consulta o processo e extrai os dados normalmente,
+        mas mantém o navegador aberto e loga um resumo dos campos para você
+        validar a extração contra a página real.
+    Nos dois modos de debug a função NÃO fecha o navegador; passe
+    `reter_scraper` para que o chamador segure a referência do scraper (evita
+    que o navegador feche por coleta de lixo) e possa fechá-lo depois.
 
     Levanta ValueError (número/TJ inválidos), ImportError (libs do scraper
     ausentes) ou RuntimeError (login/consulta sem resultado).
@@ -71,7 +106,7 @@ def buscar_processo_online(
     numero = m.group(0)
     if tj_label not in TJ_SISTEMAS:
         raise ValueError(f"TJ/sistema inválido: {tj_label!r}")
-    site, estado, url = TJ_SISTEMAS[tj_label]
+    site, estado, url, perfil = TJ_SISTEMAS[tj_label]
     tribunal, uf = _ESTADO_TJ_UF[estado]
 
     # Aviso (não bloqueia): número parece ser de outra UF que não a do TJ escolhido.
@@ -84,10 +119,25 @@ def buscar_processo_online(
     _preparar_env_local()
     load_dotenv(CONFIG_ENV_PATH)
 
+    debug = modo_debug in ("pos_login", "pos_consulta")
+    if debug and headless:
+        log("Aviso: modo debug com 'Navegador invisível' ligado — nada a inspecionar.\n")
+
     log(f"Abrindo {tj_label} e logando...\n")
-    scraper = criar_scraper(site=site, estado=estado, url=url, headless=headless)
+    scraper = criar_scraper(
+        site=site, estado=estado, url=url, headless=headless, perfil=perfil
+    )
+    # Em debug o navegador fica aberto após a função retornar; o chamador
+    # precisa segurar a referência do scraper para o Chrome não ser fechado
+    # pela coleta de lixo (e para conseguir fechá-lo depois).
+    if debug and reter_scraper is not None:
+        reter_scraper(scraper)
     try:
         scraper.login()
+        if modo_debug == "pos_login":
+            log("🐞 DEBUG: parado após o login (sem pesquisar o processo). "
+                "Navegador deixado aberto para inspeção.\n")
+            return Processo(numero=numero, tribunal=tribunal, uf=uf)
         log(f"Consultando processo {numero}"
             + (f" (docs={modo_docs})" if site == "eproc" else "") + "...\n")
         if site == "eproc":
@@ -96,6 +146,13 @@ def buscar_processo_online(
             html = scraper.consultar_processo(numero)  # esaj/pje não aceitam modo_docs
         if not html:
             raise RuntimeError("Scraper não retornou dados para esse número.")
+
+        if _html_indica_nao_encontrado(html, site):
+            raise RuntimeError(
+                f"Processo {numero} não encontrado em {tj_label}. "
+                "Confira o número e o foro/UF, e se o processo está mesmo nesse "
+                "sistema (eproc × e-SAJ × PJe)."
+            )
 
         if site == "eproc":
             from .integracoes.tjsp_scraper.parser_processo import extrair_processo
@@ -121,9 +178,26 @@ def buscar_processo_online(
                 for kw in keywords:
                     if kw not in proc.tags:
                         proc.tags.append(kw)
+
+        if modo_debug == "pos_consulta":
+            log("🐞 DEBUG: consulta concluída — valide os dados extraídos abaixo "
+                "contra a página aberta no navegador.\n")
+            log(f"   Nº: {proc.numero}\n")
+            log(f"   Classe: {proc.classe or '—'}\n")
+            log(f"   Tribunal/UF: {proc.tribunal or '—'}/{proc.uf or '—'}\n")
+            log(f"   Órgão julgador: {proc.orgao_julgador or '—'}\n")
+            log(f"   Juiz(a): {proc.juiz or '—'}\n")
+            log(f"   Valor da causa: {proc.valor_causa or '—'}\n")
+            log(f"   Comarca/Vara: {proc.comarca or '—'} / {proc.vara or '—'}\n")
+            log(f"   Última mov.: {proc.ultima_movimentacao or '—'}\n")
+            log(f"   Tags: {', '.join(proc.tags) if proc.tags else '—'}\n")
+            log("   Navegador deixado aberto para conferência.\n")
+
         return proc
     finally:
-        try:
-            scraper.fechar()
-        except Exception:
-            pass
+        # Em debug o navegador é mantido aberto (o chamador o fecha depois).
+        if not debug:
+            try:
+                scraper.fechar()
+            except Exception:
+                pass

@@ -1,0 +1,33 @@
+{
+  "numero": "",
+  "classe": "",
+  "competencia": "",
+  "data_autuacao": "",
+  "situacao": "",
+  "orgao_julgador": "",
+  "juiz": "",
+  "chave_consulta": "",
+  "assunto": "",
+  "tribunal": "TJSP",
+  "uf": "SP",
+  "comarca": "",
+  "vara": "",
+  "valor_causa": "",
+  "foro_endereco": "",
+  "tags": [],
+  "partes": [],
+  "eventos": [],
+  "prazos_abertos": [],
+  "atos": [],
+  "total_eventos": 0,
+  "primeira_movimentacao": "",
+  "ultima_movimentacao": {
+    "data": "",
+    "descricao": ""
+  },
+  "arquivos_origem": [],
+  "genero_autor": "",
+  "numero_autor": "",
+  "genero_reu": "",
+  "numero_reu": ""
+}

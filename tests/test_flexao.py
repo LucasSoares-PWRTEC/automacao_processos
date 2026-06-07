@@ -97,6 +97,13 @@ def test_inflexionar_preserva_caixa():
     assert op._inflexionar_texto("O Autor requer", ctx) == "A Autora requer"
 
 
+def test_inflexionar_artigo_inicial_maiusculo_nao_vira_allcaps():
+    # Artigo de uma letra no início da frase é maiúscula-inicial, não all-caps:
+    # "O executado" -> "Os executados" (e não "OS executados").
+    ctx = Contexto(genero_reu="m", numero_reu="p")
+    assert op._inflexionar_texto("O executado foi intimado.", ctx) == "Os executados foi intimado."
+
+
 def test_inflexionar_pula_citacao_legal():
     ctx = Contexto(genero_autor="f", numero_autor="s")
     texto = "conforme art. 5º o autor"

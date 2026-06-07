@@ -116,7 +116,7 @@ def test_busca_online_usa_scraper_interno_sem_manipular_sys_path(monkeypatch):
 
     proc = mod.buscar_processo_online(
         "4004459-04.2026.8.26.0248",
-        "TJSP — eproc",
+        "TJSP — eproc (SP)",
         True,
         logs.append,
     )
@@ -125,6 +125,120 @@ def test_busca_online_usa_scraper_interno_sem_manipular_sys_path(monkeypatch):
     assert sys.path == sys_path_antes
     assert env_calls == [mod.CONFIG_ENV_PATH]
     assert any("Dados extraídos com sucesso." in linha for linha in logs)
+
+
+def test_busca_online_sinaliza_processo_nao_encontrado(monkeypatch):
+    """Página de 'Processo não encontrado' deve virar erro claro, não um
+    registro vazio (eproc devolve a página, não None)."""
+    mod = importlib.import_module("organizador.scraper")
+
+    class FakeScraper:
+        def login(self) -> None:
+            return None
+
+        def consultar_processo(self, numero: str, modo_docs: str = "nenhum") -> str:
+            # É o que o eproc devolve quando o número não está na carteira.
+            return '<span class="infraExcecao">Processo não encontrado. [00002235220258260127]</span>'
+
+        def fechar(self) -> None:
+            return None
+
+    _fake_dotenv(monkeypatch)
+    monkeypatch.setattr(mod, "criar_scraper", lambda **kwargs: FakeScraper())
+
+    logs: list[str] = []
+    with pytest.raises(RuntimeError, match="não encontrado"):
+        mod.buscar_processo_online(
+            "0000223-52.2025.8.26.0127", "TJSP — eproc (SP)", True, logs.append,
+        )
+
+
+def test_html_indica_nao_encontrado_por_site():
+    mod = importlib.import_module("organizador.scraper")
+
+    assert mod._html_indica_nao_encontrado("Processo não encontrado.", "eproc")
+    assert mod._html_indica_nao_encontrado(
+        "Não existem informações disponíveis para os parâmetros informados", "esaj"
+    )
+    # Marcador de um site não dispara em outro nem em página normal.
+    assert not mod._html_indica_nao_encontrado("Processo não encontrado.", "esaj")
+    assert not mod._html_indica_nao_encontrado("<html>Detalhes do Processo</html>", "eproc")
+
+
+def _fake_dotenv(monkeypatch):
+    monkeypatch.setitem(
+        sys.modules, "dotenv",
+        types.SimpleNamespace(load_dotenv=lambda path: None),
+    )
+
+
+def test_modo_debug_pos_login_para_antes_da_consulta(monkeypatch):
+    mod = importlib.import_module("organizador.scraper")
+
+    eventos: list[str] = []
+
+    class FakeScraper:
+        def login(self) -> None:
+            eventos.append("login")
+
+        def consultar_processo(self, numero: str, modo_docs: str = "nenhum") -> str:
+            eventos.append("consulta")  # NÃO deve ser chamado em pos_login
+            return "<html>ok</html>"
+
+        def fechar(self) -> None:
+            eventos.append("fechar")  # NÃO deve fechar em debug
+
+    _fake_dotenv(monkeypatch)
+    monkeypatch.setattr(mod, "criar_scraper", lambda **kwargs: FakeScraper())
+
+    retidos: list[object] = []
+    logs: list[str] = []
+    proc = mod.buscar_processo_online(
+        "4004459-04.2026.8.26.0248", "TJSP — eproc (SP)", False,
+        logs.append, modo_debug="pos_login", reter_scraper=retidos.append,
+    )
+
+    assert eventos == ["login"]  # logou, não consultou, não fechou
+    assert len(retidos) == 1  # scraper retido p/ o navegador não fechar
+    assert proc.numero == "4004459-04.2026.8.26.0248"
+    assert any("após o login" in linha for linha in logs)
+
+
+def test_modo_debug_pos_consulta_extrai_e_nao_fecha(monkeypatch):
+    mod = importlib.import_module("organizador.scraper")
+    parser_mod = importlib.import_module("organizador.integracoes.tjsp_scraper.parser_processo")
+
+    eventos: list[str] = []
+
+    class FakeScraper:
+        def login(self) -> None:
+            eventos.append("login")
+
+        def consultar_processo(self, numero: str, modo_docs: str = "nenhum") -> str:
+            eventos.append("consulta")
+            return "<html>ok</html>"
+
+        def fechar(self) -> None:
+            eventos.append("fechar")  # NÃO deve fechar em debug
+
+    _fake_dotenv(monkeypatch)
+    monkeypatch.setattr(mod, "criar_scraper", lambda **kwargs: FakeScraper())
+    monkeypatch.setattr(mod, "_extrair_blocos_com_origem", lambda html: [("", "", "", "", html)])
+    monkeypatch.setattr(mod, "extrair_penhora_bloqueio_tribunais", lambda html: [])
+    monkeypatch.setattr(mod, "_dict_para_processo", lambda payload: Processo(numero=payload["numero"], tribunal="TJSP", uf="SP"))
+    monkeypatch.setattr(parser_mod, "extrair_processo", lambda html, blocos_documentos, numero_cnj: {"numero": numero_cnj})
+
+    retidos: list[object] = []
+    logs: list[str] = []
+    proc = mod.buscar_processo_online(
+        "4004459-04.2026.8.26.0248", "TJSP — eproc (SP)", False,
+        logs.append, modo_debug="pos_consulta", reter_scraper=retidos.append,
+    )
+
+    assert eventos == ["login", "consulta"]  # consultou, mas não fechou
+    assert len(retidos) == 1
+    assert proc.numero == "4004459-04.2026.8.26.0248"
+    assert any("valide os dados extraídos" in linha for linha in logs)
 
 
 def test_preparar_env_local_copia_legado(monkeypatch, tmp_path):
@@ -146,6 +260,28 @@ def test_preparar_env_local_copia_legado(monkeypatch, tmp_path):
 
     assert env_destino.exists()
     assert env_destino.read_text(encoding="utf-8") == "IMAP_USER=abc\n"
+
+
+def test_uf_efetiva_tj_usa_perfil_ou_estado():
+    from organizador.config import uf_efetiva_tj
+
+    assert uf_efetiva_tj("TJSP — eproc (MG)") == "MG"  # perfil tem prioridade
+    assert uf_efetiva_tj("TJSP — eproc (SP)") == "SP"
+    assert uf_efetiva_tj("TJSP — e-SAJ") == "SP"  # sem perfil → UF do estado
+    assert uf_efetiva_tj("TJMG — eproc") == "MG"
+    assert uf_efetiva_tj("inexistente") == ""
+
+
+def test_sugerir_tj_para_uf_prefere_eproc():
+    from organizador.config import TJ_SISTEMAS, sugerir_tj_para_uf
+
+    sug_mg = sugerir_tj_para_uf("MG")
+    assert sug_mg is not None and TJ_SISTEMAS[sug_mg][0] == "eproc"
+
+    assert sugerir_tj_para_uf("SP") == "TJSP — eproc (SP)"
+    assert sugerir_tj_para_uf("sp") == "TJSP — eproc (SP)"  # case-insensitive
+    assert sugerir_tj_para_uf("BA") is None  # sem sistema configurado
+    assert sugerir_tj_para_uf("") is None
 
 
 def test_gui_inicializa_com_caminhos_padrao_validos():

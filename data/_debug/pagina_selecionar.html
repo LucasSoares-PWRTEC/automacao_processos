@@ -1,0 +1,687 @@
+<html lang="pt-br" style="font-size: 100%;"><head>
+<link rel="shortcut icon" href="/eproc/imagens/icons/favicons/favicon_P_SP.ico"><meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"><style id="css-ddslick" type="text/css">.dd-select{ border-radius:2px; border:solid 1px #ccc; position:relative; cursor:pointer;}.dd-desc { color:#aaa; display:block; overflow: hidden; font-weight:normal; line-height: 1.4em; }.dd-selected{ overflow:hidden; display:block; padding:10px; font-weight:bold;}.dd-pointer{ width:0; height:0; position:absolute; right:10px; top:50%; margin-top:-3px;}.dd-pointer-down{ border:solid 5px transparent; border-top:solid 5px #000; }.dd-pointer-up{border:solid 5px transparent !important; border-bottom:solid 5px #000 !important; margin-top:-8px;}.dd-options{ border:solid 1px #ccc; border-top:none; list-style:none; box-shadow:0px 1px 5px #ddd; display:none; position:absolute; z-index:2000; margin:0; padding:0;background:#fff; overflow:auto;}.dd-option{ padding:10px; display:block; border-bottom:solid 1px #ddd; overflow:hidden; text-decoration:none; color:#333; cursor:pointer;-webkit-transition: all 0.25s ease-in-out; -moz-transition: all 0.25s ease-in-out;-o-transition: all 0.25s ease-in-out;-ms-transition: all 0.25s ease-in-out; }.dd-options > li:last-child > .dd-option{ border-bottom:none;}.dd-option:hover{ background:#f3f3f3; color:#000;}.dd-selected-description-truncated { text-overflow: ellipsis; white-space:nowrap; }.dd-option-selected { background:#f6f6f6; }.dd-option-image, .dd-selected-image { vertical-align:middle; float:left; margin-right:5px; max-width:64px;}.dd-image-right { float:right; margin-right:15px; margin-left:5px;}.dd-container{ position:relative;}​ .dd-selected-text { font-weight:bold}​</style><style>[vw] [vw-access-button]{display:none;flex-direction:row-reverse;width:40px;height:40px;cursor:pointer;overflow:hidden;position:absolute;border-radius:8px;transition:all 0.5s ease;right:0;left:auto}[vw] [vw-access-button] img{max-height:40px;transition:all 0.5s ease;border-radius:8px;opacity:1 !important;visibility:visible !important}[vw] [vw-access-button] .vp-access-button{width:40px;height:40px;z-index:1}[vw] [vw-access-button] .vp-pop-up{position:absolute;height:40px;min-width:150px;z-index:0;left:0;right:auto}[vw] [vw-access-button]:hover{width:200px}[vw] [vw-access-button].isLeft{flex-direction:row;left:0;right:auto}[vw] [vw-access-button].isLeft .vp-pop-up{left:auto;right:0}[vw] [vw-access-button].isTopOrBottom:hover{bottom:-20px;top:0;margin-right:-80px}[vw] [vw-access-button].active{display:flex}
+</style><style>[vw].left [vw-plugin-wrapper]{float:left}[vw] [vw-plugin-wrapper]{position:relative;display:none;width:300px;height:100%;float:right;background:white;-webkit-box-shadow:0px 0px 15px rgba(0,0,0,0.2);-moz-box-shadow:0px 0px 15px rgba(0,0,0,0.2);box-shadow:0px 0px 15px rgba(0,0,0,0.2);border-radius:12px;-moz-border-radius:12px;-webkit-border-radius:12px}[vw] [vw-plugin-wrapper].active{display:-webkit-flex;display:flex;flex-direction:column;-webkit-flex-direction:column;height:450px;max-width:100%;min-height:100%}
+</style><style>div[vw]{position:fixed;max-width:95vw;min-height:40px;min-width:40px;z-index:2147483645 !important;display:none;margin:10px !important}div[vw].enabled{display:block}div[vw].active{margin-top:-285px}div[vw].left{left:0;right:initial}
+</style></head><body style="background-color: #f8f8f8" onload="infraProcessarMouseDown(); inicializar();" class="bootstrap-styles instancia-1g"><input id="url_log_erro_javascript" name="url_log_erro_javascript" type="hidden" value="controlador_ajax.php?acao_ajax=log_erro_javascript&amp;acao_origem=principal">
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<meta name="robots" content="noindex">
+<title>:: eproc - :: Sistema Eproc :: ::</title>
+                <link rel="stylesheet" charset="utf-8" href="css/dist/bundle-bs4.css?9.20.9-20260603-2.49.0">
+                <link rel="stylesheet" charset="utf-8" href="css/dist/bundle-bs4-contrast.css?9.20.9-20260603-2.49.0">
+                <link rel="stylesheet" charset="utf-8" href="css/dist/bundle-global.css?9.20.9-20260603-2.49.0">
+                <link rel="stylesheet" charset="utf-8" href="css/dist/bundle-infra.css?9.20.9-20260603-2.49.0">
+                <link rel="stylesheet" charset="utf-8" href="css/dist/bundle-infra-contrast.css?9.20.9-20260603-2.49.0"><link href="infra_js/multiple-select/multiple-select.css?9.20.9-20260603-2.49.0" rel="stylesheet" type="text/css" media="all">
+<link href="css/govbr.css?9.20.9-20260603-2.49.0" rel="stylesheet" type="text/css" media="all">
+<script>var INFRA_PATH_CSS = "infra_css",
+    INFRA_PATH_IMAGENS = "infra_css\/imagens",
+    INFRA_PATH_JS = "infra_js",
+    INFRA_PATH_SVG = "infra_css\/svg",
+    INFRA_LUPA_TIPO_JANELA = 1,
+    INFRA_BARRA_TIPO_JANELA = 1,
+    INFRA_TIPO_ALERTA = 1,
+    ENV = "prod",
+    LOGAR_ERROS_JS = false;</script>				<script charset="utf-8" src="js/dist/runtime.376b6e32261d816babc3.js"></script><script charset="utf-8" src="js/dist/npm.jquery-ui.6ed44e53d46f4a2b38c6.js"></script><script charset="utf-8" src="js/dist/npm.jquery.ec6ae383bf7cd205acd4.js"></script><script charset="utf-8" src="js/dist/npm.js-cookie.4af414506b558fd3daca.js"></script><script charset="utf-8" src="js/dist/npm.jquery-contextmenu.5f240bdf285a5268faa3.js"></script><script charset="utf-8" src="js/dist/npm.expose-loader.370c01bb730bd4cf7283.js"></script><script charset="utf-8" src="js/dist/shared.0867eca10a57d92653b8.js"></script><script charset="utf-8" src="js/dist/3247.48a0bf44afdce0a0d7be.js"></script><script charset="utf-8" src="js/dist/websocket.a9288f06c295c6b29483.js"></script><script charset="utf-8" src="js/dist/npm.lodash.08e813ea78501ca9222d.js"></script><script charset="utf-8" src="js/dist/npm.unorm.7c6644b24278601ff1b5.js"></script><script charset="utf-8" src="js/dist/npm.imask.9d3187e549b182be57c7.js"></script><script charset="utf-8" src="js/dist/npm.lodash.debounce.7779bfcead8798c9ab81.js"></script><script charset="utf-8" src="js/dist/npm.core-js.1b03c5ed71d8f6be52f6.js"></script><script charset="utf-8" src="js/dist/npm.moment.f4b6a22a598cbe45d33a.js"></script><script charset="utf-8" src="js/dist/npm.bootstrap-fileinput.c21d2a574c1b57bf0708.js"></script><script charset="utf-8" src="js/dist/npm.local-storage-fallback.fdeb25e82f9535ca82f3.js"></script><script charset="utf-8" src="js/dist/npm.bootstrap-select.8af284c439448044d45e.js"></script><script charset="utf-8" src="js/dist/npm.yaireo.c732a4c235e0fef2074a.js"></script><script charset="utf-8" src="js/dist/npm.axios.468cd9d1f80786acd302.js"></script><script charset="utf-8" src="js/dist/npm.tempusdominus-bootstrap-4.9d7726d86f49696098e8.js"></script><script charset="utf-8" src="js/dist/npm.regenerator-runtime.d763563780dcde793658.js"></script><script charset="utf-8" src="js/dist/npm.popper.js.440d612ff6db9865ee6c.js"></script><script charset="utf-8" src="js/dist/npm.lodash.throttle.505610caf1df2aae3d03.js"></script><script charset="utf-8" src="js/dist/npm.jstree.3ae82f43ab0f1be417ce.js"></script><script charset="utf-8" src="js/dist/npm.cookie.c1ec3358ae9c7d9c67be.js"></script><script charset="utf-8" src="js/dist/npm.bs-custom-file-input.cd8d20efd5bf26680c0e.js"></script><script charset="utf-8" src="js/dist/npm.bootstrap.c6d94baa5116a1f03df1.js"></script><script charset="utf-8" src="js/dist/npm.abortcontroller-polyfill.57f2c84528dd8e150f66.js"></script><script charset="utf-8" src="js/dist/5298.95c8abf1cb570008cbd2.js"></script><script charset="utf-8" src="js/dist/466.c0bbf9814ec51e2e7160.js"></script><script charset="utf-8" src="js/dist/8901.cdceaabadeea9f104675.js"></script><script charset="utf-8" src="js/dist/main.26ae8d1b6737349f7844.js"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraUtil.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraCookie.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraUpload.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraMenu.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraBotaoMenu.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraAcaoMenu.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraTabelaDinamica.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraLupas.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraSelectEditavel.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraAjax.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraTooltip.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/InfraPagina.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/calendario/v1/InfraCalendario.js?9.20.9-20260603-2.49.0"></script>
+				<script type="text/javascript" charset="iso-8859-1" src="infra_js/arvore/InfraArvore.js?9.20.9-20260603-2.49.0"></script>
+                <script type="text/javascript" charset="utf-8" src="js/exibir-aviso.js?9.20.9-20260603-2.49.0"></script><script type="text/javascript" charset="iso-8859-1" src="infra_js/infra_pagina_renderer/bs4/main.js?9.20.9-20260603-2.49.0"></script><script type="text/javascript" charset="iso-8859-1" src="infra_js/maskedpwd/MaskedPassword.js?9.20.9-20260603-2.49.0"></script>
+<script type="text/javascript" charset="iso-8859-1" src="js/cookie/urlCookie.js?9.20.9-20260603-2.49.0"></script>
+
+
+
+    
+
+    <div id="divInfraAreaGlobal">
+        
+                    <div class="bootstrap-styles navbar-wrapper">
+                
+<nav id="navbar-accessibility" class="accessibility-bar bg-instancia collapse show" data-id="69" data-ativo="S" style="">
+    <a href="#divInfraBarraLocalizacao" id="ancora-conteudo" tabindex="0" title="Conteúdo principal da página (Alt+1 e ENTER)" class="item-acessibilidade">Ir para conteúdo</a>
+    <a href="#sidebar-searchbox" id="ancora-menu" tabindex="0" title="(Alt+M)" class="item-acessibilidade">Ir para menu</a>
+
+    
+            <a href="#/" id="btn-aumentar-fonte" tabindex="0" title="Aumentar fonte (100%)" class="item-acessibilidade" data-id="70" data-ativo="N" data-numvalor="">
+            <i class="material-icons icon-aligned-sm" aria-hidden="true">text_increase</i>
+        </a>
+        <a href="#/" id="btn-diminuir-fonte" tabindex="0" title="Diminuir fonte (100%)" class="item-acessibilidade" data-id="70" data-ativo="N" data-numvalor="">
+            <i class="material-icons icon-aligned-sm" aria-hidden="true">text_decrease</i>
+        </a>
+        <a href="#/" id="btn-theme-contrast" tabindex="0" title="Alto contraste" data-id="68" data-ativo="N" class="item-acessibilidade">
+        <i class="material-icons icon-aligned-sm" aria-hidden="true">contrast</i>
+    </a>
+    <a href="#/" id="btn-vlibras" tabindex="0" title="Habilitar o tradutor para libras" class="item-acessibilidade">
+        <img src="imagens/icons/maos_libras.png" aria-hidden="true"> Libras
+    </a>
+    <input type="hidden" id="link-usuario-configuracao-personalizacao" value="controlador_ajax.php?acao_ajax=usuario_configuracao_personalizacao&amp;acao_origem=principal">
+    <a href="externo_controlador.php?acao=tutorial_acessibilidade&amp;acao_origem=principal" id="btn-pagina-acessibilidade" tabindex="0" title="Acessibilidade (Alt+F1)" class="item-acessibilidade">Acessibilidade</a>
+
+    </nav>                <nav id="navbar" class="navbar text-white d-xl-flex bg-instancia ">
+                    <div class="d-flex w-100 justify-content-between" style="font-size: 14px;">
+    <div class="d-flex align-items-center">
+                    <div style="padding: 8px">
+                <a href="#" id="menu-btn" aria-label="Abrir menu" title="Abrir menu" class="">
+                    <i class="material-icons navbar-icons">menu</i>
+                </a>
+            </div>
+        
+        <div><a href="http://www.tjsp.jus.br" title="http://www.tjsp.jus.br">
+						<span class="pr-3 d-none text-white d-sm-block">Cível - Tribunal de Justiça do Estado de São Paulo</span>
+						<span class="navbar-span pr-3 d-block d-sm-none">SP</span>
+					</a>
+				</div>
+    </div>
+    <div class="d-none d-flex align-items-center">
+        
+            </div>
+</div>
+                </nav>
+            </div>
+            <!-- Modal -->
+            <div class="bootstrap-styles">
+                <div class="modal fade" id="modal-pesquisar-processo" tabindex="-1" aria-labelledby="pesquisaProcessoModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="pesquisaProcessoModalLabel">Pesquisar processo</h5>
+                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                    <span aria-hidden="true">×</span>
+                                </button>
+                            </div>
+                            <div class="modal-body">
+                                
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="infraButton" data-dismiss="modal">Cancelar</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        
+                    <div id="wrapper" class="abre-automaticamente">
+        
+                    <div class="bootstrap-styles">
+                <div id="sidebar-wrapper" class="menu-dark">
+                    <div class="menu-searchbox input-group input-group-sm">
+                        <input id="sidebar-searchbox" type="text" class="form-control menu-search-box" style="margin: 5px;" title="Pesquisar no menu (Alt + m)" placeholder="Pesquisar no Menu (Alt + m)">
+                    </div>
+                    <ul id="main-menu" class="sidebar-nav search-list">
+                        
+    <li class="has-submenu">
+
+        <a href="#" class="collapsed" tabindex="0" data-toggle="collapse" data-target="#menu-ul-40" aria-label="CEJUSC Virtual">
+            <span class="menu-item-text">CEJUSC Virtual</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+                    <ul class="collapse" id="menu-ul-40">
+                
+    <li class="">
+
+        <a href="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=FormularioAtermacao/CadastrarAtermacao" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-42" aria-label="Formulário Atermação">
+            <span class="menu-item-text">Formulário Atermação</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+            </ul>
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=principal" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-1" aria-label="Entrar no Sistema">
+            <span class="menu-item-text">Entrar no Sistema</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=tutorial_acessibilidade" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-37" aria-label="Acessibilidade">
+            <span class="menu-item-text">Acessibilidade</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=pauta_audiencias" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-2" aria-label="Audiências">
+            <span class="menu-item-text">Audiências</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://www.tjsp.jus.br/auxiliaresdajustica" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-32" aria-label="Auxiliares da Justiça">
+            <span class="menu-item-text">Auxiliares da Justiça</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="has-submenu">
+
+        <a href="#" class="collapsed" tabindex="0" data-toggle="collapse" data-target="#menu-ul-3" aria-label="Cadastre-se AQUI!">
+            <span class="menu-item-text">Cadastre-se AQUI!</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+                    <ul class="collapse" id="menu-ul-3">
+                
+    <li class="">
+
+        <a href="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=selecionar_tipo_advogado_cadastrar" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-4" aria-label="Cadastrar Advogado">
+            <span class="menu-item-text">Cadastrar Advogado</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=selecionar_tipo_jus_postulandi_cadastrar" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-5" aria-label="Cadastrar Jus Postulandi">
+            <span class="menu-item-text">Cadastrar Jus Postulandi</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://www.cnj.jus.br/tecnologia-da-informacao-e-comunicacao/justica-4-0/domicilio-judicial-eletronico" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-17" aria-label="Domicílio Judicial Eletrônico" target="_blank">
+            <span class="menu-item-text">Domicílio Judicial Eletrônico</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+            </ul>
+            </li>
+
+    <li class="has-submenu">
+
+        <a href="#" class="collapsed" tabindex="0" data-toggle="collapse" data-target="#menu-ul-6" aria-label="Consulta Pública">
+            <span class="menu-item-text">Consulta Pública</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+                    <ul class="collapse" id="menu-ul-6">
+                
+    <li class="">
+
+        <a href="https://eproc-consulta.tjsp.jus.br/consulta_1g/externo_controlador.php?acao=consulta_autenticidade_certidao_narratoria" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-26" aria-label="Consulta Autenticidade de Certidão Narratória">
+            <span class="menu-item-text">Consulta Autenticidade de Certidão Narratória</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc-consulta.tjsp.jus.br/consulta_1g/externo_controlador.php?acao=certidaoexecucao/consultar" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-10" aria-label="Consulta Certidão para Execuções">
+            <span class="menu-item-text">Consulta Certidão para Execuções</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=processo_consulta_publica_chave/consultar" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-9" aria-label="Consulta Documento pela Chave">
+            <span class="menu-item-text">Consulta Documento pela Chave</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc-consulta.tjsp.jus.br/consulta_1g/externo_controlador.php?acao=consulta_autenticidade_documentos" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-8" aria-label="Consulta de autenticidade de documento">
+            <span class="menu-item-text">Consulta de autenticidade de documento</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc-consulta.tjsp.jus.br/consulta_1g/externo_controlador.php?acao=processo_distribuicao_listar" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-31" aria-label="Lista de Distribuição">
+            <span class="menu-item-text">Lista de Distribuição</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc-consulta.tjsp.jus.br/consulta_1g/externo_controlador.php?acao=relatorios/processosOrdemCronologicaJulgamento" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-18" aria-label="Ordem Cronológica de Julgamento">
+            <span class="menu-item-text">Ordem Cronológica de Julgamento</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+            </ul>
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc-consulta.tjsp.jus.br/consulta_1g/externo_controlador.php?acao=tjsp@consulta_unificada_publica/consultar" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-39" aria-label="Consulta Unificada">
+            <span class="menu-item-text">Consulta Unificada</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc1g-crim.tjsp.jus.br/eproc" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-44" aria-label="Criminal Comum e Juizado Especial">
+            <span class="menu-item-text">Criminal Comum e Juizado Especial</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-24" aria-label="Custas processuais">
+            <span class="menu-item-text">Custas processuais</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc1g-ef.tjsp.jus.br/eproc" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-43" aria-label="Execução Fiscal e Fazenda Pública">
+            <span class="menu-item-text">Execução Fiscal e Fazenda Pública</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=fale" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-11" aria-label="Fale Conosco">
+            <span class="menu-item-text">Fale Conosco</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="externo_controlador.php?acao=jurisprudencia@jurisprudencia/pesquisar" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-38" aria-label="Jurisprudência">
+            <span class="menu-item-text">Jurisprudência</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=legislacao" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-12" aria-label="Legislação">
+            <span class="menu-item-text">Legislação</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://eproc-consulta.tjsp.jus.br/consulta_1g/externo_controlador.php?acao=consultaPublica/sessoesDeJulgamento" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-28" aria-label="Sessões de Julgamento">
+            <span class="menu-item-text">Sessões de Julgamento</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="has-submenu">
+
+        <a href="#" class="collapsed" tabindex="0" data-toggle="collapse" data-target="#menu-ul-13" aria-label="Tutoriais">
+            <span class="menu-item-text">Tutoriais</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+                    <ul class="collapse" id="menu-ul-13">
+                
+    <li class="">
+
+        <a href="https://www.tjsp.jus.br/eproc/ManuaisTutoriais" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-14" aria-label="Tutoriais eproc usuários externos">
+            <span class="menu-item-text">Tutoriais eproc usuários externos</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+
+    <li class="">
+
+        <a href="https://www.tjsp.jus.br/moodle/eproc/" class="collapsed" tabindex="0" data-toggle="" data-target="#menu-ul-15" aria-label="Tutoriais eproc usuários internos">
+            <span class="menu-item-text">Tutoriais eproc usuários internos</span>
+            <span class="sub-arrow material-icons">arrow_drop_down</span>
+        </a>
+
+            </li>
+            </ul>
+            </li>
+                                            </ul>
+                    <div id="empty-space" style="height: 200px"></div>
+                </div>
+                <div id="sidebar-wrapper-background"></div>
+            </div>
+                            <div id="page-content-wrapper" class="bootstrap-styles">
+                <div id="divInfraAreaTela" class="infraAreaTela mt-2">
+                    <div id="divInfraAreaTelaD" class="container-fluid">
+                        
+
+
+
+<style>
+    .icon-align {
+        margin-top: -3px;
+        margin-right: 7px;
+        vertical-align: middle;
+        font-size: 18px !important
+    }
+
+    #divInfraAreaTela {
+        min-height: calc(100vh - 42px - 15px - 130px); /* navbar, barra de desenvolvimento e padding-bottom da página */
+        display: flex;
+        align-items: center;
+    }
+
+    #area-cards-login {
+        max-width: 600px;
+    }
+    #frmUsuario i, #frmSenha i {
+        margin-top: 8px;
+    }
+
+    #frmUsuario .form-group, #frmSenha .form-group {
+        color: #0b2e13;
+    }
+
+    #frmUsuario input:focus, #frmSenha input:focus {
+        outline: none;
+        box-shadow: 0 0 0;
+    }
+    #pwdSenha, #showPwd {
+        border-radius: 0.2rem;
+    }
+</style>
+<div class="row justify-content-center align-items-center">
+    <div id="area-cards-login" class="col">
+        <div class="card">
+            <div class="card-body">
+                <div class="justify-content-center align-items-center p-md-4">
+                    <div class="text-center">
+                        <img src="css/images/logo_eproc.png?h=456705ce8f4ed311f570ae63f000ec25" title="logo" class="img-fluid" alt="Logo">
+                    </div>
+                    <div class="text-center">
+                                            </div>
+
+                    <form id="frmLogin" name="frmLogin" method="post" class="mt-4" action="index.php" autocomplete="off" onsubmit="return validarCadastro();">
+                        
+                        
+                        
+                        
+                                                    <div>
+                                <div class="form-group mb-2" id="frmUsuario"><label class="d-flex" for="txtUsuario">Usuário</label>
+<span class="uic-input-wrapper"><input aria-autocomplete="none" autocomplete="false" class="form-control form-control-sm" id="txtUsuario" maxlength="30" name="txtUsuario" oninput="usuarioJaDigitou=true;" type="text">
+</span>
+</div>
+
+
+                                <div id="frmSenha" class="form-group mb-4">
+                                    <label for="pwdSenha">Senha</label>
+                                    <div class="d-flex">
+                                        <span class="input-group"><input type="password" style="display: none;" name="pwdSenha" autocomplete="one-time-code"><input id="pwdSenha" class="form-control form-control-sm masked" maxlength="40" oninput="usuarioJaDigitou=true;" autocomplete="off" inputmode="none" onfocus="this.setAttribute('inputmode', 'text');" value="" type="text"></span> <span id="showHidePwd" style="cursor: pointer;height: calc(1.5em + 0.5rem);" class="input-group-text form-control-sm">
+                                            <i class="material-icons m-0">visibility</i>
+                                        </span>
+                                </div>
+                                </div>
+
+                                                                    
+                                
+                                <div class="md-form">
+                                    <button type="button" id="sbmEntrar" name="sbmEntrar" class="btn btn-sm btn-primary w-100" accesskey="n" onclick="Submit('login');">
+                                        Entrar
+                                    </button>
+                                </div>
+                                <div class="text-center">
+                                    <div class="my-3 border-bottom d-flex">
+                                        <div class="w-100 text-left font-weight-light">Outras opções de acesso</div>
+                                        <div class="flex-shrink-1">
+                                            <a href="#" id="dropdownMenuButton" data-toggle="dropdown" aria-label="Ajuda"><i class="material-icons">help_outline</i></a>
+
+                                            <div class="dropdown-menu">
+                                                                                                    <a class="dropdown-item" href="https://autenticador.certisign.com.br/CertisignLogin/certificado/login?id=28424&amp;nome=eproc1g_prod&amp;retorno=https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=entrar_certificado_certisign" title="Utilize essa opção em caso de problema de acesso com o certificado digital">Acesso alternativo com certificado digital</a>
+                                                
+                                                <a class="dropdown-item" href="javascript:exibirSubFrm('externo_controlador.php?acao=obter_certificado_subfrm&amp;acao_origem=principal',700,480);" id="obterCertificado">Como obter certificado digital</a>
+
+                                                <a class="dropdown-item" href="javascript:exibirSubFrm('externo_controlador.php?acao=problema_acesso_certificado&amp;acao_origem=principal',800, 600);" id="problemasCertificado">Problemas de acesso com certificado?</a>
+
+                                                <div class="dropdown-divider"></div>
+                                                <a class="dropdown-item" href="externo_controlador.php?acao=fale" title="Fale Conosco">Fale conosco</a>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div class="row px-3 mt-2 d-flex justify-content-center">
+                                        <input class="w-100 btn btn-sm btn-secondary" data-content="Acople o token do certificado digital ao seu computador antes de acessar esta opção." data-toggle="popover" onclick="SubmitCert()" title="" type="button" value="Certificado Digital" data-original-title="Atenção">
+
+                                    </div>
+                                                                    </div>
+
+                                <div>
+                                                                    </div>
+
+                                <div class="text-right">
+                                    <div>
+    <a href="externo_controlador.php?acao=esqueci_senha_solicitar_redefinicao" title="Clique aqui se você esqueceu sua senha e quer receber um e-mail para redefini-la"> <small>Esqueci minha senha</small> </a>
+</div>                                        <div>
+        <a href="#" id="lnk2fa" onclick="Submit('2fa_configurar');" data-toggle="popover" data-trigger="hover" data-html="true" title="" data-content="Adicione maior segurança no seu acesso ao sistema. Clique para configurar." data-original-title="Autenticação em dois fatores"> <small>Autenticação em dois fatores</small> </a>
+    </div>
+                                </div>
+                            </div>
+
+                                                <input type="hidden" id="hdnAcao" name="hdnAcao" value="login"> <input type="hidden" id="hdnDebug" name="hdnDebug" value="">
+                    </form>
+                </div>
+            </div>
+        </div>
+
+                    <div class="card mt-2">
+                <div class="card-body text-center">
+                    <div class="row">
+                        <div class="col" id="board">
+                            <div>
+
+                                
+                                <div id="mensagemUsuario" class="text-justify" style="font-size: 0.8em; display=">
+                                    <div class="collapse" id="collapseSummary">
+                                                                                    <ul>
+	<li><span style="font-size:16px"><a href="https://www.tjsp.jus.br/eproc/ManuaisTutoriais" target="_blank"><span style="color:#e74c3c">Orientações&nbsp;para realizar o <strong>CADASTRO</strong> no eproc-TJSP</span></a><span style="color:#2980b9">&nbsp;</span></span><span style="font-size:14px"><span style="color:#2980b9">&nbsp;</span></span></li>
+	<li><span style="font-size:14px"><a href="https://www.suportesistemastjsp.com.br" target="_blank">Autoatendimento</a></span></li>
+	<li><span style="color:#2980b9"><span style="font-size:14px">Dificuldade com o duplo fator de autenticação? <a href="https://www.tjsp.jus.br/Download/EPROC/InfoEproc/Infoeproc7.pdf">clique aqui</a></span></span></li>
+	<li><span style="font-size:14px"><span style="color:#2980b9">Dificuldade de acesso com o certificado digital?</span></span></li>
+</ul>
+
+<p><span style="font-size:14px"><span style="color:#2980b9">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; </span></span><span style="font-size:12px"><span style="color:#2980b9">1)&nbsp;</span><a href="https://eproc1g.tjsp.jus.br/eproc/index.php?sso=N"><span style="color:#2980b9">clique aqui para acesso alternativo.</span></a></span></p>
+
+<p><span style="font-size:12px"><span style="color:#2980b9">&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;2) a) retirar o token, b) reiniciar o computador, c) inserir o token e d)</span><strong><span style="color:#2980b9"> acessar o eproc antes de outros sistemas</span></strong></span></p>
+
+                                                                            </div>
+
+                                    <div id="divVerMaisMenos" class="d-flex align-items-end">
+                                        <a id="verMaisMenos" class="collapsed" data-toggle="collapse" href="#collapseSummary" title="Ver mais" aria-expanded="false" aria-controls="collapseSummary"></a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        
+        <div class="justify-content-between row px-3">
+            <div class="text-left ml-1">
+
+            </div>
+        <div class="text-right mr-1">
+            <small class="font-italic text-muted">Versão 9.20.9-20260603-2.49.0 </small>
+        </div>
+        </div>
+
+        
+    </div>
+
+            <input id="should_bloquear_navegadores_antigos" name="should_bloquear_navegadores_antigos" type="hidden">
+
+        <input id="destinoV2Cert" name="destinoV2Cert" type="hidden" value="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=login_cert">
+
+        <input id="hdnStrTela" name="hdnStrTela" type="hidden" value="login">
+
+        <input id="strAcaoSubmit" name="strAcaoSubmit" type="hidden" value="login">
+
+        <input id="link_erro_certificado_digital" name="link_erro_certificado_digital" type="hidden" value="externo_controlador.php?acao=erro_certificado_digital&amp;acao_origem=principal">
+
+        <input id="link_erro_carregar_certificado_digital" name="link_erro_carregar_certificado_digital" type="hidden" value="externo_controlador.php?acao=erro_carregar_certificado_digital&amp;acao_origem=principal">
+
+        <input id="link_validar_email_nao_institucional" name="link_validar_email_nao_institucional" type="hidden" value="externo_controlador_ajax.php?acao_ajax=validar_email_nao_institucional&amp;et=1780936946&amp;hashd=5d5c2be6f6b608ba16b4b5a9188f2ccb">
+
+        <input id="mostrarAvisoRequest" name="mostrarAvisoRequest" type="hidden">
+
+        <input id="tipoCadastro" name="tipoCadastro" type="hidden">
+
+        <input id="strNomeJustica" name="strNomeJustica" type="hidden" value="Justiça Estadual">
+
+        <input id="strLinkOrientacaoCadastroAdvogado" name="strLinkOrientacaoCadastroAdvogado" type="hidden" value="externo_controlador.php?acao=orientacao_cadastro_advogado_subfrm&amp;acao_origem=principal">
+
+        <input id="foco" name="foco" type="hidden" value="txtUsuario">
+
+        <input id="str_msg" name="str_msg" type="hidden">
+
+        <input id="erro" name="erro" type="hidden">
+
+        <input id="destino_v2_cert" name="destino_v2_cert" type="hidden" value="https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=login_cert">
+
+    
+</div>
+
+<!--
+    A[PRDPEPRNO-35]
+    C [SP]
+    I [10.191.240.44]
+    IP [186.209.111.84]
+    B [eproc1]
+    2 [https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=entrar]
+    3 [https://eproc1g.tjsp.jus.br/eproc/externo_controlador.php?acao=entrar]
+    
+-->
+
+<script>
+    var usuarioJaDigitou
+
+    function inicializar() {
+
+    }
+            setTimeout(function() {window.location = "index.php";}, 1000);
+    </script>
+    <script type="text/javascript" charset="utf-8" src="js/dist/index-browser-support.js?9.20.9-20260603-2.49.0"></script><script charset="utf-8" src="js/dist/core/index/index.js.4d6a086c3e349c669b7e.js"></script>    <link rel="stylesheet" href="/css/dist/dynamic/core/index/index.css">    <div id="vlibras-container" vw="" style="left: initial; right: 0px; top: 50%; bottom: initial; transform: translateY(calc(-50% - 10px));">
+        <div id="vlibras-access-button" vw-access-button="" class="active"><img class="vp-access-button" data-src="assets/access_icon.svg" alt="Conteúdo acessível em Libras usando o VLibras Widget com opções dos Avatares Ícaro, Hosana ou Guga." src="https://vlibras.gov.br/app//assets/access_icon.svg">
+<img class="vp-pop-up" data-src="assets/access_popup.jpg" alt="Conteúdo acessível em Libras usando o VLibras Widget com opções dos Avatares Ícaro, Hosana ou Guga." src="https://vlibras.gov.br/app//assets/access_popup.jpg">
+</div>
+        <div vw-plugin-wrapper=""><div vp="">
+  <div vp-box=""></div>
+  <div vp-message-box=""></div>
+  <div vp-settings=""></div>
+  <div vp-dictionary=""></div>
+  <div vp-settings-btn=""></div>
+  <div vp-info-screen=""></div>
+  <div vp-suggestion-screen=""></div>
+  <div vp-translator-screen=""></div>
+  <div vp-more-options-screen=""></div>
+  <div vp-emotions-tooltip=""></div>
+  <div vp-main-guide-screen=""></div>
+  <div vp-suggestion-button=""></div>
+  <div vp-rate-box=""></div>
+  <div vp-change-avatar=""></div>
+  <div vp-aux-controls=""></div>
+  <div vp-controls=""></div>
+  <span vp-click-blocker=""></span>
+</div>
+</div>
+    </div>
+    <script defer="defer" src="https://cdn.jsdelivr.net/gh/spbgovbr-vlibras/vlibras-portal@dev/app/vlibras-plugin.js" charset="UTF-8" onload="new window.VLibras.Widget('https://vlibras.gov.br/app');">
+    </script>                <link rel="stylesheet" href="css/dist/bundle-jquery-ui.css?9.20.9-20260603-2.49.0">
+                <script charset="utf-8" src="js/dist/npm.lodash.08e813ea78501ca9222d.js"></script><script charset="utf-8" src="js/dist/npm.marked.73aacf1743e8734e1596.js"></script><script charset="utf-8" src="js/dist/npm.unorm.7c6644b24278601ff1b5.js"></script><script charset="utf-8" src="js/dist/npm.lodash.debounce.7779bfcead8798c9ab81.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-buttons.95e575aac67ac3f2f50c.js"></script><script charset="utf-8" src="js/dist/npm.pdfmake.9ae59074c9354a6ec5f5.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net.284d57226d1c80dd0b1c.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-select.456b6d226b6d623d1ec9.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-select-bs4.79be88935ba4f35b2256.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-rowgroup.c281a2853095c6a08904.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-rowgroup-bs4.9e84b03ed914f52a1724.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-responsive.77165d210ce1f7622040.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-responsive-bs4.054c4b66d217da398913.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-buttons-bs4.aa6d097ed02d4e3a2db4.js"></script><script charset="utf-8" src="js/dist/npm.datatables.net-bs4.bac12b9c70f4806f457d.js"></script><script charset="utf-8" src="js/dist/npm.plupload.3518855d2e6e71031c99.js"></script><script charset="utf-8" src="js/dist/npm.jszip.4ac44e7cb0757e74a294.js"></script><script charset="utf-8" src="js/dist/npm.focus-within-polyfill.11ffee643864aa114b1d.js"></script><script charset="utf-8" src="js/dist/5298.95c8abf1cb570008cbd2.js"></script><script charset="utf-8" src="js/dist/466.c0bbf9814ec51e2e7160.js"></script><script charset="utf-8" src="js/dist/8901.cdceaabadeea9f104675.js"></script><script charset="utf-8" src="js/dist/4312.0a1502efa70d8137a1e6.js"></script><script charset="utf-8" src="js/dist/main-pos.0dde42dc5764d088e80d.js"></script>                
+			<link href="infra_css/infra-barra-progresso.css?9.20.9-20260603-2.49.0" rel="stylesheet" type="text/css" media="all"><link href="infra_css/infra-impressao-global.css?9.20.9-20260603-2.49.0" rel="stylesheet" type="text/css" media="print">
+	<link href="infra_css/infra-ajax.css?9.20.9-20260603-2.49.0" rel="stylesheet" type="text/css" media="all">
+				<link href="infra_js/calendario/v1/infra-calendario.css?9.20.9-20260603-2.49.0" rel="stylesheet" type="text/css" media="all">
+				<link href="infra_js/mapa/infra-mapa.css?9.20.9-20260603-2.49.0" rel="stylesheet" type="text/css" media="all">
+		                        <div class="bootstrap-styles">
+                            
+                        </div>
+                    </div>
+                </div>
+                            </div>
+        </div>
+    </div>
+
+                        <div class="bootstrap-styles ">
+                <button id="backTop" type="button" class="btn btn-light shadow-sm" style="display:none;" aria-label="Navegar para início" tabindex="-1">
+                    <i class="material-icons p-0">keyboard_arrow_up</i>
+                </button>
+                <button id="backBottom" type="button" class="btn btn-light shadow-sm" style="display:none;" aria-label="Navegar para fim" tabindex="-1">
+                    <i class="material-icons p-0">keyboard_arrow_down</i>
+                </button>
+            </div>
+            
+    <input type="hidden" id="hdnInfraPrefixoCookie" name="hdnInfraPrefixoCookie" value="TJSP_Eproc_">
+
+            <script>
+            $(function() {
+                if(window.ClienteWebsocket) {
+                    delete window.ClienteWebsocket;
+                }
+                var currentScript;
+                currentScript = document.currentScript || document.scripts[document.scripts.length - 1];
+                currentScript.parentNode.removeChild(currentScript);
+            })
+        </script>
+    
+    <div id="infraDivImpressao" class="infraImpressao"></div>
+    <textarea id="txaInfraMsg" name="txaInfraMsg" style="display:none">Sua sessão foi encerrada. Por favor, inicie uma nova sessão.</textarea>
+
+<script type="text/javascript" charset="iso-8859-1">
+<!--//--><![CDATA[//><!--
+
+self.setTimeout('alert(document.getElementById(\'txaInfraMsg\').value)',300);
+//--><!]]>
+</script>
+
+
+    <div class="bootstrap-styles" aria-live="polite">
+        <div id="toasts-container" class="d-block flex-column-reverse w-100 p-2 align-content-end h-100 w-100 fixed-bottom pe-none" style="pointer-events: none"></div>
+    </div>
+
+    
+
+
+
+
+
+</body></html>

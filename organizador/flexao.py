@@ -203,7 +203,10 @@ _RE_JUDICIAL_TREATMENT_MERIT_SHORT = re.compile(
 def _preservar_caso(original: str, novo: str) -> str:
     if not original:
         return novo
-    if original.isupper():
+    # Só tratamos como CAIXA-ALTA quando há mais de uma letra: um artigo de
+    # uma letra ("O"/"A" no início da frase) é maiúscula-inicial, não all-caps
+    # — senão "O executado" virava "OS executados" em vez de "Os executados".
+    if len(original) > 1 and original.isupper():
         return novo.upper()
     if original[0].isupper():
         return novo[:1].upper() + novo[1:]

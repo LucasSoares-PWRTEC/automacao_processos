@@ -348,6 +348,21 @@ PLACEHOLDERS_AUTO: dict[str, tuple[str, ...]] = {
     "cumpriu ou cumpriram": ("reu_num", "cumpriu", "cumpriram"),
     "deu ou deram":         ("reu_num", "deu", "deram"),
 
+    # Substantivo/verbo do polo passivo por NÚMERO de réus. Sao os
+    # placeholders mais comuns dos modelos (ex.: "(réu ou réus)" aparece em
+    # ~20 modelos, "(executado ou executados)" em ~8). Sem registro aqui o
+    # placeholder ficava literal e a flexao gerava lixo ("(réus ou réus)").
+    # O genero, quando aplicavel (réu/executado/devedor estao em FLEXOES), eh
+    # ajustado depois por _inflexionar_texto na zona BODY/CLOSING.
+    "réu ou réus":             ("reu_num", "réu", "réus"),
+    "reu ou reus":             ("reu_num", "réu", "réus"),
+    "executado ou executados": ("reu_num", "executado", "executados"),
+    "devedor ou devedores":    ("reu_num", "devedor", "devedores"),
+    "empresa ou empresas":     ("reu_num", "empresa", "empresas"),
+    "nome ou nomes":           ("reu_num", "nome", "nomes"),
+    "mantém ou mantêm":        ("reu_num", "mantém", "mantêm"),
+    "mantem ou mantêm":        ("reu_num", "mantém", "mantêm"),
+
     # Gênero + número (4 vias) pelo réu — o placeholder mais comum das novas petições.
     "ré ou rés ou réu ou réus": ("reu_genum", "réu", "réus", "ré", "rés"),
 }

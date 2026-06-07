@@ -85,14 +85,18 @@ EPROC_DOC_TIMEOUT = int(os.getenv("EPROC_DOC_TIMEOUT", "20"))
 
 class EprocScraper(TribunalScraper):
 
-    def __init__(self, estado: str, url: str, headless: bool = False):
+    def __init__(self, estado: str, url: str, headless: bool = False, perfil: str | None = None):
         super().__init__(estado=estado, url=url, headless=headless)
         if estado not in _CONFIG_POR_ESTADO:
             raise ValueError(f"eproc: estado não suportado: {estado}")
         cfg = _CONFIG_POR_ESTADO[estado]
         self._tj_chave        = cfg["tj_chave"]
         self._totp_env        = cfg["totp_env"]
-        self._sigla           = cfg["sigla"]
+        # `perfil` (ex.: "SP", "MG", "RJ") seleciona qual lotação/OAB clicar na
+        # tela "Seleção de perfil". O login/2FA continua o do estado (a mesma
+        # conta do TJSP eproc dá acesso a vários perfis de OAB). Quando None,
+        # cai na sigla padrão do estado.
+        self._sigla           = (perfil or cfg["sigla"]).upper()
         self._login_user_id   = cfg["login_user_id"]
         self._login_pass_id   = cfg["login_pass_id"]
         self._login_submit_id = cfg["login_submit_id"]
@@ -406,6 +410,10 @@ class EprocScraper(TribunalScraper):
         except Exception:
             pass
 
+        # Carrega as partes ocultas ("e outros") antes de capturar o HTML —
+        # senao o parser so enxerga a 1a parte de cada polo.
+        self._expandir_partes_ocultas()
+
         html_detalhes = self.driver.page_source or ""
         if modo_docs == "nenhum":
             print(f"   eproc/{self._sigla}: modo_docs='nenhum' — pulando abertura de documentos.")
@@ -414,6 +422,47 @@ class EprocScraper(TribunalScraper):
         if not textos_docs:
             return html_detalhes
         return html_detalhes + "\n\n<!-- DOCUMENTOS DO PROCESSO -->\n\n" + "\n\n".join(textos_docs)
+
+    def _expandir_partes_ocultas(self) -> None:
+        """O eproc 9.20.x mostra so a 1a parte de cada polo na pagina de
+        detalhes; as demais ficam atras de um link "e outros" que chama
+        carregarPartes(...) por AJAX e injeta novas linhas na tabela
+        #tblPartesERepresentantes. Clica em cada link e espera o AJAX
+        terminar para que o page_source contenha TODAS as partes.
+
+        Sem isso, processos com varios autores/reus (ex.: execucao com 2+
+        executados) saem com so uma parte por polo.
+        """
+        for _ in range(6):  # 1 link por polo; folga para linhas reveladas
+            try:
+                links = [
+                    a for a in self.driver.find_elements(
+                        By.CSS_SELECTOR,
+                        "#tblPartesERepresentantes a[href*='carregarPartes']",
+                    )
+                    if a.is_displayed()
+                ]
+            except Exception:
+                links = []
+            if not links:
+                return
+            try:
+                self.driver.execute_script(
+                    "arguments[0].scrollIntoView({block:'center'});", links[0]
+                )
+                links[0].click()
+            except Exception:
+                return
+            # Espera o(s) AJAX do jQuery terminarem antes do proximo clique.
+            try:
+                WebDriverWait(self.driver, 8).until(
+                    lambda d: d.execute_script(
+                        "return (window.jQuery ? jQuery.active : 0) == 0"
+                    )
+                )
+            except Exception:
+                pass
+            time.sleep(0.3)
 
     # ------------------------------------------------------------------
     # DOCUMENTOS DO PROCESSO

@@ -46,6 +46,19 @@ def test_resolver_auto_desconhecido():
     assert op._resolver_auto("inexistente", None, False) is None
 
 
+def test_resolver_auto_substantivo_passivo_por_numero():
+    # Placeholders mais usados dos modelos: "(réu ou réus)" (~20 modelos),
+    # "(executado ou executados)" (~8), "(devedor ou devedores)". Antes não
+    # eram resolvidos e o texto saía "(réus ou réus)".
+    sing, plur = Contexto(numero_reu="s"), Contexto(numero_reu="p")
+    assert op._resolver_auto("réu ou réus", sing, False) == "réu"
+    assert op._resolver_auto("réu ou réus", plur, False) == "réus"
+    assert op._resolver_auto("executado ou executados", sing, False) == "executado"
+    assert op._resolver_auto("executado ou executados", plur, False) == "executados"
+    assert op._resolver_auto("devedor ou devedores", plur, False) == "devedores"
+    assert op._resolver_auto("empresa ou empresas", plur, False) == "empresas"
+
+
 def test_resolver_auto_conectores_por_numero_de_reus():
     # "(do ou dos)/(da ou das)/(o ou os)" concordam com o nº de réus, não com imóvel.
     assert op._resolver_auto("do ou dos", Contexto(numero_reu="s"), False) == "do"

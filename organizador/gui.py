@@ -14,10 +14,13 @@ from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
-from .config import OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, TJ_SISTEMAS
+from .config import (
+    OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, TJ_SISTEMAS,
+    sugerir_tj_para_uf, uf_efetiva_tj,
+)
 from .flexao import _construir_contexto
 from .models import Processo
-from .organizacao import _autor, _carregar_processos, _reus_joined, organizar_pasta
+from .organizacao import _autor, _carregar_processos, _reus_joined, organizar_pasta, uf_do_cnj
 from .parsing import _municipio_de_comarca, _oab_completa
 from .peticoes import (
     PLACEHOLDERS_AUTO, PLACEHOLDERS_PETICAO,
@@ -34,6 +37,16 @@ _GRUPOS_TEMPLATE: dict[str, list[str]] = {
         "Renajud",
         "Infojud",
     ],
+}
+
+# Modos de debug da busca online (rótulo exibido -> valor passado ao scraper).
+# "pos_login": para após logar, sem pesquisar o processo (inspecionar o painel).
+# "pos_consulta": pesquisa o processo e extrai os dados, mas deixa o navegador
+# aberto e loga um resumo para o usuário validar a extração.
+_DEBUG_MODOS: dict[str, str] = {
+    "Desligado": "off",
+    "Pausar após login (sem pesquisar)": "pos_login",
+    "Pausar após consulta (validar dados)": "pos_consulta",
 }
 
 # Fontes e constantes visuais
@@ -80,9 +93,13 @@ class App(ttk.Window):
         self.var_pesquisa_destino = tk.StringVar(value="")
         self.var_filtro = tk.StringVar(value="")
         self.var_busca_numero = tk.StringVar(value="")
-        self.var_busca_tj = tk.StringVar(value="TJSP — eproc")
+        self.var_busca_tj = tk.StringVar(value="TJSP — eproc (SP)")
         self.var_busca_headless = tk.BooleanVar(value=False)
         self.var_busca_docs = tk.BooleanVar(value=False)  # False → modo_docs "nenhum"; True → "atos"
+        self.var_busca_debug = tk.StringVar(value="Desligado")  # ver _DEBUG_MODOS
+        # Scraper retido em modo debug: mantém o navegador aberto (evita coleta
+        # de lixo) e permite fechá-lo depois pelo botão "Fechar navegador debug".
+        self._debug_scraper: object | None = None
         self.var_secretaria = tk.StringVar(value="")
         self.var_municipio = tk.StringVar(value="")
         self.var_estado = tk.StringVar(value="")
@@ -321,6 +338,19 @@ class App(ttk.Window):
             bootstyle="info", width=16,
         )
         self._btn_buscar.grid(row=1, column=3, sticky="e", pady=(4, 0))
+        # ── Linha 3: modo de debug ─────────────────────────────────────
+        ttk.Label(f_busca, text="Modo debug:", font=_FONT_BASE).grid(
+            row=2, column=0, sticky="e", padx=(0, 6), pady=(4, 0),
+        )
+        ttk.Combobox(
+            f_busca, textvariable=self.var_busca_debug,
+            values=list(_DEBUG_MODOS), state="readonly", font=_FONT_BASE,
+        ).grid(row=2, column=1, columnspan=2, sticky="ew", padx=(0, 6), pady=(4, 0))
+        self._btn_fechar_debug = ttk.Button(
+            f_busca, text="Fechar navegador debug", command=self._fechar_debug,
+            bootstyle="warning-outline", width=22, state="disabled",
+        )
+        self._btn_fechar_debug.grid(row=2, column=3, sticky="e", pady=(4, 0))
 
         # ── Seção: Filtro ──────────────────────────────────────────────
         f_filtro = ttk.Frame(parent)
@@ -396,6 +426,7 @@ class App(ttk.Window):
             bootstyle="default", padding=(12, 8),
         )
         self._detalhes_frame.pack(fill="both", expand=False, pady=(0, 6))
+        self._detalhes_frame.columnconfigure(1, weight=1)
         campos = [
             ("numero", "Nº do processo:"),
             ("tribunal", "Tribunal:"),
@@ -409,17 +440,31 @@ class App(ttk.Window):
             ("ultima_movimentacao", "Última movimentação:"),
             ("proximo_prazo", "Próximo prazo:"),
         ]
+        # Valores em Entry read-only (em vez de Label): o texto fica selecionável
+        # e copiável (Ctrl+C / menu de contexto "Copiar"), mas não editável.
+        # _det_ordem/_det_rotulos preservam a ordem e os rótulos para "Copiar dados".
+        self._det_vars: dict[str, tk.StringVar] = {}
+        self._det_rotulos: dict[str, str] = {atr: rot for atr, rot in campos}
+        self._det_ordem: list[str] = [atr for atr, _ in campos]
+        self._det_menu = self._criar_menu_copiar()
         for i, (atr, rotulo) in enumerate(campos):
             ttk.Label(
                 self._detalhes_frame, text=rotulo, anchor="e", width=18,
                 font=_FONT_BASE,
             ).grid(row=i, column=0, sticky="e", padx=(4, 6), pady=2)
-            lbl = ttk.Label(
-                self._detalhes_frame, text="", anchor="w", wraplength=200,
-                font=_FONT_BASE, bootstyle="info",
+            var = tk.StringVar(value="")
+            self._det_vars[atr] = var
+            entry = ttk.Entry(
+                self._detalhes_frame, textvariable=var, font=_FONT_BASE,
+                state="readonly", bootstyle="info",
             )
-            lbl.grid(row=i, column=1, sticky="w", padx=(0, 4), pady=2)
-            setattr(self, f"_lbl_{atr}", lbl)
+            entry.grid(row=i, column=1, sticky="ew", padx=(0, 4), pady=2)
+            entry.bind("<Button-3>", self._abrir_menu_copiar)
+        # Botão para copiar todos os dados do processo de uma vez.
+        ttk.Button(
+            self._detalhes_frame, text="📋  Copiar dados", command=self._copiar_todos_dados,
+            bootstyle="outline-info", width=16,
+        ).grid(row=len(campos), column=1, sticky="e", padx=(0, 4), pady=(6, 2))
 
         # ── Campos editáveis ───────────────────────────────────────────
         f_edicao = ttk.Labelframe(
@@ -850,12 +895,43 @@ class App(ttk.Window):
         if not numero:
             messagebox.showwarning("Busca online", "Informe o número do processo (CNJ).")
             return
+        tj_label = self.var_busca_tj.get()
+
+        # Sugere trocar de sistema se o número for de outra UF que não a do TJ
+        # selecionado. (Antes de desabilitar o botão: "Cancelar" só faz return.)
+        uf_num = uf_do_cnj(numero)
+        uf_sel = uf_efetiva_tj(tj_label)
+        if uf_num and uf_sel and uf_num != uf_sel:
+            sug = sugerir_tj_para_uf(uf_num)
+            if sug:
+                resp = messagebox.askyesnocancel(
+                    "Estado do processo",
+                    f"O número parece ser de {uf_num}, mas o sistema selecionado é\n"
+                    f"'{tj_label}' ({uf_sel}).\n\n"
+                    f"Deseja trocar para '{sug}'?\n\n"
+                    f"Sim = trocar e buscar    •    Não = buscar assim mesmo    •    "
+                    f"Cancelar = não buscar",
+                )
+                if resp is None:  # Cancelar
+                    return
+                if resp:  # Sim → troca o sistema
+                    self.var_busca_tj.set(sug)
+                    tj_label = sug
+                    self._pesquisa_log_queue.put(
+                        f"Sistema trocado para {sug} (número de {uf_num}).\n"
+                    )
+            # Sem sistema configurado p/ essa UF → segue (aviso no log do scraper).
+
         if self._busca_worker and self._busca_worker.is_alive():
             return
+        # Fecha um navegador de debug remanescente da busca anterior antes de
+        # abrir outro (evita acumular janelas do Chrome).
+        if self._debug_scraper is not None:
+            self._fechar_debug()
         self._btn_buscar.configure(state="disabled")
-        tj_label = self.var_busca_tj.get()
         headless = self.var_busca_headless.get()
         modo_docs = "atos" if self.var_busca_docs.get() else "nenhum"
+        modo_debug = _DEBUG_MODOS.get(self.var_busca_debug.get(), "off")
         self._pesquisa_log_queue.put(f"Buscando {numero} em {tj_label}...\n")
 
         def run() -> None:
@@ -873,6 +949,7 @@ class App(ttk.Window):
                     proc = buscar_processo_online(
                         numero, tj_label, headless,
                         log=self._pesquisa_log_queue.put, modo_docs=modo_docs,
+                        modo_debug=modo_debug, reter_scraper=self._reter_debug_scraper,
                     )
                 self._busca_result_queue.put(("ok", proc))
             except Exception as exc:
@@ -880,6 +957,32 @@ class App(ttk.Window):
 
         self._busca_worker = threading.Thread(target=run, daemon=True)
         self._busca_worker.start()
+
+    def _reter_debug_scraper(self, scraper: object) -> None:
+        """Guarda o scraper aberto em modo debug (chamado da thread worker) e
+        habilita o botão de fechar o navegador na main thread."""
+        self._debug_scraper = scraper
+        # Tkinter só é seguro na main thread; o resto do código já usa
+        # self.after(0, ...) a partir de workers (ver _scan_templates_em_background).
+        self.after(0, lambda: self._btn_fechar_debug.configure(state="normal"))
+
+    def _fechar_debug(self) -> None:
+        """Fecha o navegador retido em modo debug (em thread, pois quit() pode
+        demorar) e desabilita o botão."""
+        scraper = self._debug_scraper
+        self._debug_scraper = None
+        self._btn_fechar_debug.configure(state="disabled")
+        if scraper is None:
+            return
+        self._pesquisa_log_queue.put("Fechando navegador de debug...\n")
+
+        def run() -> None:
+            try:
+                scraper.fechar()
+            except Exception:
+                pass
+
+        threading.Thread(target=run, daemon=True).start()
 
     def _drain_busca_result(self) -> None:
         """Drena resultados da busca online na main thread (Tkinter não é
@@ -962,9 +1065,9 @@ class App(ttk.Window):
             ("proximo_prazo", proc.prazos_abertos[0].fim if proc.prazos_abertos else ""),
         ]
         for atr, val in campos:
-            lbl = getattr(self, f"_lbl_{atr}", None)
-            if lbl:
-                lbl.configure(text=val)
+            var = self._det_vars.get(atr)
+            if var is not None:
+                var.set(val)
 
         auto_map = {
             "valor_causa": proc.valor_causa,
@@ -985,6 +1088,54 @@ class App(ttk.Window):
                 var.set(val)
 
         self._carregar_templates()
+
+    # -- cópia dos dados do processo ---------------------------------------
+    def _criar_menu_copiar(self) -> tk.Menu:
+        """Menu de contexto (botão direito) dos campos de dados do processo."""
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="Copiar", command=self._copiar_campo_atual)
+        menu.add_command(label="Copiar todos os dados", command=self._copiar_todos_dados)
+        return menu
+
+    def _abrir_menu_copiar(self, event: tk.Event) -> None:
+        self._det_menu_alvo = event.widget
+        try:
+            self._det_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._det_menu.grab_release()
+
+    def _copiar_para_clipboard(self, texto: str) -> None:
+        self.clipboard_clear()
+        self.clipboard_append(texto)
+        self.var_status.set("Copiado para a área de transferência.")
+
+    def _copiar_campo_atual(self) -> None:
+        """Copia o trecho selecionado do campo clicado; se nada estiver
+        selecionado, copia o valor inteiro."""
+        alvo = getattr(self, "_det_menu_alvo", None)
+        if alvo is None:
+            return
+        try:
+            texto = alvo.selection_get()  # trecho selecionado
+        except Exception:
+            try:
+                texto = alvo.get()  # valor inteiro do Entry
+            except Exception:
+                texto = ""
+        if texto:
+            self._copiar_para_clipboard(texto)
+
+    def _copiar_todos_dados(self) -> None:
+        """Copia todos os campos como 'Rótulo: valor', um por linha."""
+        linhas = []
+        for atr in self._det_ordem:
+            valor = self._det_vars[atr].get().strip()
+            if valor:
+                linhas.append(f"{self._det_rotulos[atr]} {valor}")
+        if linhas:
+            self._copiar_para_clipboard("\n".join(linhas))
+        else:
+            self.var_status.set("Nenhum dado para copiar — selecione um processo.")
 
     def _carregar_templates(self) -> None:
         for w in self._templates_inner.winfo_children():
