@@ -2,6 +2,9 @@
 __pycache__/
 .pytest_cache/
 .cache_templates_docx/
+build/
+dist/
+*.spec
 config/.env
 config/credenciais.json
 config/*.local.*
