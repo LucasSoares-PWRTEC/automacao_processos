@@ -487,3 +487,46 @@ def test_header_tratamento_judicial_sem_doutor_masculino():
     zonas = op._classificar_paragrafos(doc)
     op._preencher_campos_docx(doc, {}, ctx=ctx, zonas_paragrafos=zonas)
     assert "EXCELENT\u00cdSSIMO SENHOR JUIZ" in doc.paragraphs[0].text
+
+
+# --------------------------------------------------------------------------
+# _deduplicar_oab \u2014 OAB repetida no fecho
+# --------------------------------------------------------------------------
+
+def test_dedup_oab_mesma_uf_mantem_uma():
+    doc = docx.Document()
+    doc.add_paragraph("Pp. Marcelo Candiotto Freire")
+    doc.add_paragraph("OAB/MG 104.784")
+    doc.add_paragraph("OAB/MG 104.784")
+    op._deduplicar_oab(doc)
+    oabs = [p.text for p in doc.paragraphs if "OAB" in p.text]
+    assert oabs == ["OAB/MG 104.784"]
+
+
+def test_dedup_oab_ufs_diferentes_preserva_ambas():
+    doc = docx.Document()
+    doc.add_paragraph("OAB/MG 104.784")
+    doc.add_paragraph("OAB/SP 346.433")
+    op._deduplicar_oab(doc)
+    oabs = [p.text for p in doc.paragraphs if "OAB" in p.text]
+    assert oabs == ["OAB/MG 104.784", "OAB/SP 346.433"]
+
+
+def test_dedup_oab_ignora_pontuacao_e_espacos():
+    doc = docx.Document()
+    doc.add_paragraph("OAB/MG 104.784")
+    doc.add_paragraph("OAB / MG 104784")
+    op._deduplicar_oab(doc)
+    oabs = [p.text for p in doc.paragraphs if "OAB" in p.text]
+    assert oabs == ["OAB/MG 104.784"]
+
+
+def test_dedup_oab_aplicado_no_preenchimento():
+    # Caminho real: literal da casa + placeholder resolvido p/ a mesma OAB.
+    doc = docx.Document()
+    doc.add_paragraph("Pp. Marcelo Candiotto Freire")
+    doc.add_paragraph("OAB/MG 104.784")
+    doc.add_paragraph("(OAB do estado de tramita\u00e7\u00e3o do processo)")
+    op._preencher_campos_docx(doc, {"oab_completa": "OAB/MG 104.784"})
+    oabs = [p.text for p in doc.paragraphs if "OAB" in p.text]
+    assert oabs == ["OAB/MG 104.784"]

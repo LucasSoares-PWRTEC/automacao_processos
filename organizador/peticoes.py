@@ -690,6 +690,43 @@ def _colapsar_paragrafos_vazios(doc: Document) -> None:
             parent.remove(elem)
 
 
+# Linha de assinatura que carrega a OAB (ex.: "OAB/MG 104.784").
+_RX_LINHA_OAB = re.compile(r"\boab\b", re.I)
+
+
+def _chave_oab(texto: str) -> str:
+    """Normaliza uma linha de OAB p/ comparação: sem espaços/pontos/traços,
+    minúscula. 'OAB/MG 104.784' e 'OAB / MG 104784' viram a mesma chave."""
+    return re.sub(r"[\s./-]", "", texto or "").lower()
+
+
+def _deduplicar_oab(doc: Document) -> None:
+    """Remove linhas de OAB repetidas no fecho da petição.
+
+    O modelo traz a OAB da casa como literal ('OAB/MG 104.784') e, logo abaixo,
+    o placeholder '(OAB do estado de tramitação do processo)'. Quando o processo
+    tramita no mesmo estado, o placeholder resolve para o MESMO texto e a OAB
+    aparece duas vezes. Aqui mantemos só a primeira; quando os estados diferem
+    (ex.: OAB/MG + OAB/SP), as duas linhas são preservadas.
+    """
+    vistos: set[str] = set()
+    a_remover: list = []
+    for p in doc.paragraphs:
+        texto = p.text.strip()
+        if not texto or not _RX_LINHA_OAB.search(texto):
+            continue
+        chave = _chave_oab(texto)
+        if chave in vistos:
+            a_remover.append(p)
+        else:
+            vistos.add(chave)
+    for p in a_remover:
+        elem = p._element
+        parent = elem.getparent()
+        if parent is not None:
+            parent.remove(elem)
+
+
 def _preencher_campos_docx(
     doc: Document,
     dados: dict,
@@ -725,6 +762,7 @@ def _preencher_campos_docx(
                     _remover_highlight_amarelo(paragrafo)
                     _padronizar_espacamento(paragrafo)
 
+    _deduplicar_oab(doc)
     _colapsar_paragrafos_vazios(doc)
 
 

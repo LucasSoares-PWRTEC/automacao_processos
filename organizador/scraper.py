@@ -203,10 +203,11 @@ def buscar_processo_online(
             proc = _dict_para_processo(extrair_processo_esaj(html, numero_cnj=numero))
             log("Dados extraídos do e-SAJ "
                 f"({len(proc.partes)} parte(s), {proc.total_eventos} movimentação(ões)).\n")
-        else:
-            proc = Processo(numero=numero, tribunal=tribunal, uf=uf)
-            log("Auto-preenchimento estruturado indisponível para PJe — "
-                "preencha os campos manualmente.\n")
+        else:  # pje
+            from .integracoes.tjsp_scraper.parser_pje import extrair_processo_pje
+            proc = _dict_para_processo(extrair_processo_pje(html, numero_cnj=numero))
+            log("Dados extraídos do PJe "
+                f"({len(proc.partes)} parte(s), {proc.total_eventos} movimentação(ões)).\n")
 
         # Fallback de tribunal/UF quando o parser não os inferiu do CNJ.
         if not proc.tribunal:

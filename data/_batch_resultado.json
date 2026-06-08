@@ -1,0 +1,112 @@
+{
+  "4018574-23.2025.8.26.0100": {
+    "sistema": "eproc SP",
+    "status": "sucesso",
+    "tj_label": "TJSP — eproc (SP)",
+    "classe": "EXECUÇÃO DE TÍTULO EXTRAJUDICIAL",
+    "partes": [
+      "EXEQUENTE: BVEP VILA PARQUE EMPREENDIMENTO IMOBILIARIO SPE LTDA. (16.993.208/0001-99)",
+      "EXECUTADO: ELAINE RODRIGUES DA SILVA (408.961.898-30)",
+      "EXECUTADO: GENESIA RODRIGUES DAS VIRGENS (153.345.528-71)"
+    ],
+    "n_partes": 3,
+    "n_eventos": 84,
+    "pasta": "C:\\Users\\Usuario\\Desktop\\Processos\\4018574-23.2025.8.26.0100"
+  },
+  "1102493-63.2022.8.26.0100": {
+    "sistema": "e-SAJ SP",
+    "status": "sucesso",
+    "tj_label": "TJSP — e-SAJ",
+    "classe": "Execução de Título Extrajudicial",
+    "partes": [
+      "EXEQUENTE: Ns Empreendimento Imobiliário 23 Ltda.",
+      "EXECUTADO: Robson Matos Mascena da Silva",
+      "EXECUTADO: Danielle Oliveira da Silva Matos",
+      "TERCEIRO INTERESSADO: Alelo Instituicao de Pagamento Sa"
+    ],
+    "n_partes": 4,
+    "n_eventos": 107,
+    "pasta": "C:\\Users\\Usuario\\Desktop\\Processos\\1102493-63.2022.8.26.0100"
+  },
+  "5000432-19.2021.8.13.0079": {
+    "sistema": "PJe MG",
+    "status": "sucesso",
+    "tj_label": "TJMG — PJe",
+    "erro": "Scraper não retornou dados para esse número.",
+    "classe": "[CÍVEL] CUMPRIMENTO DE SENTENÇA (156)",
+    "partes": [
+      "REQUERENTE: ANAPU EMPREENDIMENTOS IMOBILIÁRIOS LTDA (10.923.840/0001-80)",
+      "REQUERIDO: LINDIOMAR NASCIMENTO DE JESUS (085.118.676-94)",
+      "REQUERIDO: CARMEN DA SILVA SOUZA (114.120.726-54)"
+    ],
+    "n_partes": 3,
+    "n_eventos": 99,
+    "pasta": "C:\\Users\\Usuario\\Desktop\\Processos\\5000432-19.2021.8.13.0079"
+  },
+  "5014752-74.2021.8.13.0079": {
+    "sistema": "PJe MG",
+    "status": "sucesso",
+    "tj_label": "TJMG — PJe",
+    "classe": "[CÍVEL] EXECUÇÃO DE TÍTULO EXTRAJUDICIAL (12154)",
+    "partes": [
+      "AUTOR: DIRECIONAL ENGENHARIA S.A (16.614.075/0001-00)",
+      "RÉU: LUIZ ALBERTO MARAZZI (745.590.106-25)"
+    ],
+    "n_partes": 2,
+    "n_eventos": 94,
+    "pasta": "C:\\Users\\Usuario\\Desktop\\Processos\\5014752-74.2021.8.13.0079"
+  },
+  "122044-93.2017.8.09.0100": {
+    "sistema": "TJGO Projudi",
+    "status": "nao_suportado",
+    "motivo": "Projudi não implementado no scraper"
+  },
+  "0000262-41.2021.8.19.0023": {
+    "sistema": "TJRJ",
+    "status": "nao_suportado",
+    "motivo": "TJRJ não está em TJ_SISTEMAS (sem rota/URL)"
+  },
+  "0668503-38.2020.8.04.0001": {
+    "sistema": "TJAM e-SAJ",
+    "status": "sucesso",
+    "tj_label": "TJAM — e-SAJ",
+    "classe": "Execução de Título Extrajudicial",
+    "partes": [
+      "REQUERENTE: Portal das Rosas Empreendimentos Imobiliários Ltda",
+      "REQUERIDO: Paulo Cesar Grandes Belido"
+    ],
+    "n_partes": 2,
+    "n_eventos": 105,
+    "pasta": "C:\\Users\\Usuario\\Desktop\\Processos\\0668503-38.2020.8.04.0001"
+  },
+  "0575508-64.2024.8.04.0001": {
+    "sistema": "TJAM Projudi",
+    "status": "nao_suportado",
+    "motivo": "Projudi não implementado no scraper"
+  },
+  "0008537-81.2019.8.06.0064": {
+    "sistema": "TJCE PJe",
+    "status": "nao_suportado",
+    "motivo": "PJe limitado ao TJMG (URL fixa)"
+  },
+  "5036717-94.2022.8.24.0038": {
+    "sistema": "TJSC eproc",
+    "status": "nao_suportado",
+    "motivo": "TJSC eproc não está em TJ_SISTEMAS"
+  },
+  "0821821-97.2025.8.10.0001": {
+    "sistema": "TJMA PJe",
+    "status": "nao_suportado",
+    "motivo": "PJe limitado ao TJMG (URL fixa)"
+  },
+  "0001461-25.2018.8.14.0094": {
+    "sistema": "TJPA PJe",
+    "status": "nao_suportado",
+    "motivo": "PJe limitado ao TJMG (URL fixa)"
+  },
+  "0003730-88.2020.8.17.2420": {
+    "sistema": "TJPE PJe",
+    "status": "nao_suportado",
+    "motivo": "PJe limitado ao TJMG (URL fixa)"
+  }
+}
