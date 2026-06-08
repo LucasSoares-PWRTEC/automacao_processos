@@ -135,8 +135,14 @@ def obter_codigo_2fa_email(
                 continue
 
             ids = dados[0].split()
-            # Do mais recente para o mais antigo
-            for msg_id in reversed(ids):
+            # IMPORTANTE: escolhemos o código do e-mail com o MAIOR `Date`, não
+            # o primeiro por número de sequência IMAP. E-mails ENCAMINHADOS (o
+            # código do e-SAJ chega via Acessos Tribunais) podem chegar fora de
+            # ordem de data — visto na prática: um código antigo com sequência
+            # maior era devolvido na frente do código novo, derrubando o login.
+            melhor_data = None
+            melhor_codigo = None
+            for msg_id in ids:
                 status, raw = conn.fetch(msg_id, "(RFC822)")
                 if status != "OK" or not raw or not raw[0]:
                     continue
@@ -166,8 +172,12 @@ def obter_codigo_2fa_email(
 
                 corpo = _extrair_corpo(msg)
                 m = regex_codigo.search(corpo)
-                if m:
-                    return m.group(1) if m.groups() else m.group(0)
+                if m and (melhor_data is None or data_msg > melhor_data):
+                    melhor_data = data_msg
+                    melhor_codigo = m.group(1) if m.groups() else m.group(0)
+
+            if melhor_codigo is not None:
+                return melhor_codigo
 
             time.sleep(intervalo_seg)
 

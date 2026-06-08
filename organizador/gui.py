@@ -26,7 +26,10 @@ from .peticoes import (
     PLACEHOLDERS_AUTO, PLACEHOLDERS_PETICAO,
     _extrair_placeholders_template, _template_eh_imobiliario, gerar_peticoes,
 )
-from .scraper import _LogWriter, buscar_processo_online
+from .integracoes.tjsp_scraper.credenciais import listar_credenciais, salvar_credenciais
+from .scraper import (
+    CHAVES_2FA, _LogWriter, buscar_processo_online, ler_config_2fa, salvar_config_2fa,
+)
 
 
 # Mapeamento de templates combinados: chave = stem do template combinado,
@@ -157,6 +160,16 @@ class App(ttk.Window):
         self.var_secretaria.trace_add("write", self._espelhar_secretaria_para_vara)
         self.var_vara.trace_add("write", self._espelhar_vara_para_secretaria)
 
+        # Estado da aba Configurações (editor de senhas, persistido entre sessões).
+        # _cred_rows: uma linha por credencial de tribunal; _2fa_rows: um campo por
+        # segredo de 2FA. Os Entry de senha guardam a referência para o toggle de
+        # visibilidade ("Mostrar senhas").
+        self._cred_rows: list[dict] = []
+        self._2fa_rows: dict[str, dict] = {}
+        self._entries_senha: list[ttk.Entry] = []
+        self.var_mostrar_senhas = tk.BooleanVar(value=False)
+        self._frame_cred: ttk.Frame | None = None
+
         self._build_widgets()
         self.after(100, self._drain_ui_queues)
         self.after(100, self._drain_pesquisa_log_queue)
@@ -170,11 +183,14 @@ class App(ttk.Window):
 
         frm_org = ttk.Frame(nb, padding=8)
         frm_pesq = ttk.Frame(nb, padding=8)
+        frm_config = ttk.Frame(nb, padding=8)
         nb.add(frm_org, text="  Organizador  ")
         nb.add(frm_pesq, text="  Pesquisa de Processo  ")
+        nb.add(frm_config, text="  Configurações  ")
 
         self._build_aba_organizador(frm_org)
         self._build_aba_pesquisa(frm_pesq)
+        self._build_aba_config(frm_config)
 
         # Barra de status moderna
         bar = ttk.Frame(self, bootstyle="secondary")
@@ -508,6 +524,8 @@ class App(ttk.Window):
             entry = ttk.Entry(f_edicao, textvariable=var, width=22, font=_FONT_BASE)
             entry.grid(row=row, column=col_ent, sticky="ew", padx=(0, 12), pady=2)
             self._entries_edit[atr] = entry
+            # Ao digitar, remove o destaque de obrigatório-vazio (ver geração).
+            var.trace_add("write", lambda *_a, a=atr: self._limpar_destaque_campo(a))
             if atr in ("valor_causa", "comarca", "vara", "tribunal", "endereco_foro",
                        "juiz", "assunto", "municipio", "estado", "oab_uf", "oab_numero"):
                 self._entries_auto[str(var)] = entry
@@ -655,6 +673,165 @@ class App(ttk.Window):
             highlightcolor="#d0d5dd", highlightbackground="#d0d5dd",
         )
         self.txt_pesquisa.pack(fill="x")
+
+    # -- aba Configurações (editor de senhas) ------------------------------
+    def _build_aba_config(self, parent: ttk.Frame) -> None:
+        """Aba para editar as senhas (credenciais dos tribunais + segredos de
+        2FA). Tudo é gravado em config/credenciais.json e config/.env, então
+        persiste entre sessões."""
+        # Área rolável: o conteúdo pode passar da altura da janela.
+        canvas = tk.Canvas(parent, highlightthickness=0, bg="#f0f2f5")
+        scroll = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview, bootstyle="round")
+        canvas.configure(yscrollcommand=scroll.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        inner = ttk.Frame(canvas, padding=4)
+        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(win, width=e.width))
+        canvas.bind("<Enter>", lambda e: canvas.bind_all(
+            "<MouseWheel>", lambda ev: canvas.yview_scroll(int(-ev.delta / 120), "units")))
+        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        ttk.Label(
+            inner,
+            text="Edite os logins e senhas usados na busca online. As alterações "
+                 "são salvas no computador e mantidas entre sessões.",
+            font=_FONT_BASE, wraplength=900, justify="left", bootstyle="secondary",
+        ).pack(fill="x", pady=(0, 8))
+
+        # ── Seção: Credenciais dos tribunais ───────────────────────────
+        sec_cred = ttk.Labelframe(
+            inner, text="  Credenciais dos tribunais  ", bootstyle="default", padding=(12, 8),
+        )
+        sec_cred.pack(fill="x", pady=(0, 8))
+        self._frame_cred = ttk.Frame(sec_cred)
+        self._frame_cred.pack(fill="x")
+
+        # ── Seção: 2FA ─────────────────────────────────────────────────
+        sec_2fa = ttk.Labelframe(
+            inner, text="  Autenticação em dois fatores (2FA)  ", bootstyle="default", padding=(12, 8),
+        )
+        sec_2fa.pack(fill="x", pady=(0, 8))
+        f2 = ttk.Frame(sec_2fa)
+        f2.pack(fill="x")
+        f2.columnconfigure(1, weight=1)
+        self._2fa_rows.clear()
+        for i, (rotulo, chave) in enumerate(CHAVES_2FA.items()):
+            ttk.Label(f2, text=rotulo + ":", font=_FONT_BASE, anchor="e", width=32).grid(
+                row=i, column=0, sticky="e", padx=(0, 8), pady=3,
+            )
+            var = tk.StringVar(value="")
+            # Tudo que não for o e-mail é segredo → mascarado por padrão.
+            secreto = chave != "IMAP_USER"
+            entry = ttk.Entry(f2, textvariable=var, font=_FONT_BASE)
+            if secreto:
+                entry.configure(show="•")
+                self._entries_senha.append(entry)
+            entry.grid(row=i, column=1, sticky="ew", pady=3)
+            self._2fa_rows[chave] = {"var": var, "entry": entry, "secreto": secreto}
+
+        # ── Ações ──────────────────────────────────────────────────────
+        f_acoes = ttk.Frame(inner)
+        f_acoes.pack(fill="x", pady=(4, 0))
+        ttk.Button(
+            f_acoes, text="💾  Salvar configurações", command=self._salvar_config,
+            bootstyle="success", width=24,
+        ).pack(side="left")
+        ttk.Button(
+            f_acoes, text="Recarregar", command=self._carregar_config_na_ui,
+            bootstyle="outline-secondary", width=14,
+        ).pack(side="left", padx=(8, 0))
+        ttk.Checkbutton(
+            f_acoes, text="Mostrar senhas", variable=self.var_mostrar_senhas,
+            command=self._toggle_mostrar_senhas, bootstyle="info-round-toggle",
+        ).pack(side="left", padx=(16, 0))
+
+        self._carregar_config_na_ui()
+
+    def _carregar_config_na_ui(self) -> None:
+        """(Re)carrega credenciais e segredos de 2FA dos arquivos para a tela."""
+        # Credenciais: reconstrói as linhas a partir do arquivo atual.
+        for w in self._frame_cred.winfo_children():
+            w.destroy()
+        self._cred_rows.clear()
+        # Mantém só os Entry de 2FA na lista de senhas; os de credenciais serão
+        # readicionados abaixo (evita referências a widgets destruídos).
+        self._entries_senha = [
+            r["entry"] for r in self._2fa_rows.values() if r["secreto"]
+        ]
+
+        creds = listar_credenciais()
+        if not creds:
+            ttk.Label(
+                self._frame_cred,
+                text="Nenhuma credencial encontrada em config/credenciais.json.",
+                font=_FONT_BASE, bootstyle="warning",
+            ).grid(row=0, column=0, sticky="w", pady=4)
+        else:
+            self._frame_cred.columnconfigure(1, weight=1)
+            self._frame_cred.columnconfigure(2, weight=1)
+            ttk.Label(self._frame_cred, text="Tribunal/Sistema", font=_FONT_BOLD).grid(
+                row=0, column=0, sticky="w", padx=(0, 8), pady=(0, 4))
+            ttk.Label(self._frame_cred, text="Login", font=_FONT_BOLD).grid(
+                row=0, column=1, sticky="w", padx=(0, 8), pady=(0, 4))
+            ttk.Label(self._frame_cred, text="Senha", font=_FONT_BOLD).grid(
+                row=0, column=2, sticky="w", pady=(0, 4))
+            for i, cred in enumerate(creds, start=1):
+                ttk.Label(
+                    self._frame_cred, text=cred["tj"], font=_FONT_BASE, anchor="w", width=28,
+                ).grid(row=i, column=0, sticky="w", padx=(0, 8), pady=3)
+                var_login = tk.StringVar(value=cred["login"])
+                ttk.Entry(self._frame_cred, textvariable=var_login, font=_FONT_BASE).grid(
+                    row=i, column=1, sticky="ew", padx=(0, 8), pady=3)
+                var_senha = tk.StringVar(value=cred["senha"])
+                entry_senha = ttk.Entry(
+                    self._frame_cred, textvariable=var_senha, font=_FONT_BASE, show="•",
+                )
+                entry_senha.grid(row=i, column=2, sticky="ew", pady=3)
+                self._entries_senha.append(entry_senha)
+                self._cred_rows.append(
+                    {"tj": cred["tj"], "var_login": var_login, "var_senha": var_senha}
+                )
+
+        # 2FA: preenche os campos com os valores do .env.
+        valores_2fa = ler_config_2fa()
+        for chave, row in self._2fa_rows.items():
+            row["var"].set(valores_2fa.get(chave, ""))
+
+        # Reaplica o estado do toggle "Mostrar senhas" aos Entry recriados.
+        self._toggle_mostrar_senhas()
+
+    def _toggle_mostrar_senhas(self) -> None:
+        mostrar = self.var_mostrar_senhas.get()
+        show = "" if mostrar else "•"
+        for entry in self._entries_senha:
+            with contextlib.suppress(Exception):
+                entry.configure(show=show)
+
+    def _salvar_config(self) -> None:
+        """Grava credenciais (credenciais.json) e segredos de 2FA (.env)."""
+        try:
+            itens = [
+                {
+                    "tj": row["tj"],
+                    "login": row["var_login"].get().strip(),
+                    "senha": row["var_senha"].get(),
+                }
+                for row in self._cred_rows
+            ]
+            if itens:
+                salvar_credenciais(itens)
+            valores_2fa = {chave: row["var"].get().strip() for chave, row in self._2fa_rows.items()}
+            salvar_config_2fa(valores_2fa)
+        except Exception as exc:
+            messagebox.showerror("Configurações", f"Não foi possível salvar:\n{exc}")
+            return
+        self.var_status.set("Configurações salvas.")
+        messagebox.showinfo(
+            "Configurações",
+            "Senhas salvas com sucesso. As alterações já valem para as próximas buscas.",
+        )
 
     # -- ações da aba Organizador ------------------------------------------
     def _escolher_origem(self) -> None:
@@ -1315,6 +1492,39 @@ class App(ttk.Window):
                     entry.grid_remove()
         self._n_linhas_visiveis = vis_idx
 
+    def _aplicar_estilo_entry(self, atr: str, entry: ttk.Entry, erro: bool) -> None:
+        """Borda vermelha (erro) ou estilo normal num campo editável."""
+        entry.configure(bootstyle="danger" if erro else "default")
+        # bootstyle redefine o estilo: reaplica o cinza dos campos auto-preenchidos.
+        if not erro and str(getattr(self, f"var_{atr}")) in self._entries_auto:
+            entry.configure(foreground="#868e96")
+
+    def _limpar_destaque_campo(self, atr: str) -> None:
+        """Ao digitar, remove o destaque vermelho de um campo obrigatório vazio."""
+        entry = self._entries_edit.get(atr)
+        var = getattr(self, f"var_{atr}", None)
+        if entry is None or var is None:
+            return
+        if (var.get() or "").strip():
+            self._aplicar_estilo_entry(atr, entry, erro=False)
+
+    def _destacar_campos_faltantes(self) -> list[str]:
+        """Marca em vermelho os campos editáveis obrigatórios ainda vazios e
+        devolve a lista dos que faltam (vazia se tudo preenchido)."""
+        faltantes: list[str] = []
+        for atr in self._ordem_edit:
+            if atr not in self._campos_obrigatorios:
+                continue
+            entry = self._entries_edit.get(atr)
+            var = getattr(self, f"var_{atr}", None)
+            if entry is None or var is None:
+                continue
+            vazio = not (var.get() or "").strip()
+            self._aplicar_estilo_entry(atr, entry, erro=vazio)
+            if vazio:
+                faltantes.append(atr)
+        return faltantes
+
     def _atualizar_campo_imoveis(self) -> None:
         if self._frame_imoveis is None:
             return
@@ -1384,6 +1594,10 @@ class App(ttk.Window):
         if not templates_sel:
             messagebox.showwarning("Aviso", "Selecione ao menos um modelo de petição.")
             return
+
+        # Campos editáveis obrigatórios vazios: apenas destaca em vermelho
+        # (sem bloquear a geração).
+        self._destacar_campos_faltantes()
 
         self._pesquisa_log_queue.put(
             f"Gerando {len(templates_sel)} petição(ões) para {proc.numero} ...\n"

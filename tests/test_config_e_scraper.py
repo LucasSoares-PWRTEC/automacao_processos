@@ -127,6 +127,51 @@ def test_busca_online_usa_scraper_interno_sem_manipular_sys_path(monkeypatch):
     assert any("Dados extraídos com sucesso." in linha for linha in logs)
 
 
+def test_busca_online_esaj_usa_parser_estruturado(monkeypatch):
+    """No e-SAJ a busca deve devolver um Processo estruturado (classe, partes,
+    movimentações), não mais um Processo mínimo."""
+    mod = importlib.import_module("organizador.scraper")
+    esaj_parser = importlib.import_module(
+        "organizador.integracoes.tjsp_scraper.parser_esaj"
+    )
+
+    class FakeScraper:
+        def login(self) -> None:
+            return None
+
+        def consultar_processo(self, numero: str) -> str:  # e-SAJ não recebe modo_docs
+            return "<html>esaj</html>"
+
+        def fechar(self) -> None:
+            return None
+
+    _fake_dotenv(monkeypatch)
+    monkeypatch.setattr(mod, "criar_scraper", lambda **kwargs: FakeScraper())
+    monkeypatch.setattr(mod, "extrair_penhora_bloqueio_tribunais", lambda html: [])
+    monkeypatch.setattr(
+        esaj_parser, "extrair_processo_esaj",
+        lambda html, numero_cnj: {
+            "numero": numero_cnj,
+            "classe": "Execução de Título Extrajudicial",
+            "partes": [{"papel": "EXEQUENTE", "nome": "Fulano", "advogados": []}],
+            "eventos": [{"data": "08/05/2026", "descricao": "Conclusos"}],
+            "total_eventos": 1,
+        },
+    )
+
+    logs: list[str] = []
+    proc = mod.buscar_processo_online(
+        "1102493-63.2022.8.26.0100", "TJSP — e-SAJ", True, logs.append,
+    )
+
+    assert proc.numero == "1102493-63.2022.8.26.0100"
+    assert proc.classe == "Execução de Título Extrajudicial"
+    assert [p.nome for p in proc.partes] == ["Fulano"]
+    assert proc.total_eventos == 1
+    assert proc.tribunal == "TJSP" and proc.uf == "SP"  # fallback do config
+    assert any("Dados extraídos do e-SAJ" in linha for linha in logs)
+
+
 def test_busca_online_sinaliza_processo_nao_encontrado(monkeypatch):
     """Página de 'Processo não encontrado' deve virar erro claro, não um
     registro vazio (eproc devolve a página, não None)."""
@@ -260,6 +305,24 @@ def test_preparar_env_local_copia_legado(monkeypatch, tmp_path):
 
     assert env_destino.exists()
     assert env_destino.read_text(encoding="utf-8") == "IMAP_USER=abc\n"
+
+
+def test_opcoes_esaj_multitribunal():
+    """e-SAJ de AM/MS entram nas opções, resolvem UF e derivam a chave de
+    credencial correta a partir do host."""
+    from organizador.config import TJ_SISTEMAS, _ESTADO_TJ_UF, uf_efetiva_tj
+    from organizador.integracoes.tjsp_scraper.scrapers.esaj import _derivar_login_e_chave
+
+    for label, uf, chave in [
+        ("TJSP — e-SAJ", "SP", "TJSP - Esaj"),
+        ("TJAM — e-SAJ", "AM", "TJAM - Esaj"),
+        ("TJMS — e-SAJ", "MS", "TJMS - Esaj"),
+    ]:
+        site, estado, url, _perfil = TJ_SISTEMAS[label]
+        assert site == "esaj"
+        assert estado in _ESTADO_TJ_UF
+        assert uf_efetiva_tj(label) == uf
+        assert _derivar_login_e_chave(url)[1] == chave
 
 
 def test_uf_efetiva_tj_usa_perfil_ou_estado():

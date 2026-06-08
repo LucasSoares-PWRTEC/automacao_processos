@@ -32,10 +32,11 @@ LEGACY_SCRAPER_DIR = _RAIZ.parent / "TJSP-Scraper"
 LEGACY_ENV_PATH = LEGACY_SCRAPER_DIR / ".env"
 LEGACY_SENHAS_XLSX_PATH = LEGACY_SCRAPER_DIR / "data" / "senhas.xlsx"
 
-# Rótulo do seletor de TJ/Sistema -> (site, estado, url, perfil). e-SAJ e PJe têm
-# a URL de login fixa dentro da própria classe do scraper (ignoram a url passada);
-# só o eproc usa a url. Apenas o eproc tem extrator estruturado (auto-preenche a
-# petição); e-SAJ/PJe entram com Processo mínimo + palavras-chave de penhora.
+# Rótulo do seletor de TJ/Sistema -> (site, estado, url, perfil). O e-SAJ deriva
+# a URL de login (sajcas) e a chave de credencial do host da `url` do cpopg, então
+# a url IMPORTA para o e-SAJ (e atende vários estados); o PJe ainda usa url fixa na
+# classe. e-SAJ e eproc têm extrator estruturado (auto-preenchem a petição); o PJe
+# entra com Processo mínimo + palavras-chave de penhora.
 #
 # `perfil` (4º elemento, só eproc): sigla da OAB a selecionar na tela "Seleção de
 # perfil". A conta do TJSP eproc dá acesso a 6 perfis de OAB do mesmo advogado
@@ -48,11 +49,18 @@ TJ_SISTEMAS = {
     "TJSP — eproc (PR)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "PR"),
     "TJSP — eproc (RN)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "RN"),
     "TJSP — eproc (GO)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "GO"),
-    "TJSP — e-SAJ": ("esaj",  "SAO PAULO",    "https://esaj.tjsp.jus.br/cpopg/open.do", None),
+    "TJSP — e-SAJ": ("esaj",  "SAO PAULO",          "https://esaj.tjsp.jus.br/cpopg/open.do", None),
+    "TJAM — e-SAJ": ("esaj",  "AMAZONAS",           "https://consultasaj.tjam.jus.br/cpopg/open.do", None),
+    "TJMS — e-SAJ": ("esaj",  "MATO GROSSO DO SUL", "https://esaj.tjms.jus.br/cpopg/open.do", None),
     "TJMG — eproc": ("eproc", "MINAS GERAIS", "https://eproc1g.tjmg.jus.br/eproc/", None),
     "TJMG — PJe":   ("pje",   "MINAS GERAIS", "https://pje.tjmg.jus.br/pje/", None),
 }
-_ESTADO_TJ_UF = {"SAO PAULO": ("TJSP", "SP"), "MINAS GERAIS": ("TJMG", "MG")}
+_ESTADO_TJ_UF = {
+    "SAO PAULO": ("TJSP", "SP"),
+    "MINAS GERAIS": ("TJMG", "MG"),
+    "AMAZONAS": ("TJAM", "AM"),
+    "MATO GROSSO DO SUL": ("TJMS", "MS"),
+}
 
 
 def uf_efetiva_tj(tj_label: str) -> str:

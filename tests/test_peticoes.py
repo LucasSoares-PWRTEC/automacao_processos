@@ -340,6 +340,65 @@ def test_remover_highlight_amarelo():
     assert run.font.highlight_color is None
 
 
+# --------------------------------------------------------------------------
+# Ponto 1: marcações em vermelho (preenchimento manual) permanecem vermelhas
+# --------------------------------------------------------------------------
+
+def _cor_hex(run):
+    cor = run.font.color
+    return str(cor.rgb) if cor is not None and cor.rgb is not None else None
+
+
+def test_run_vermelho_permanece_vermelho_apos_substituicao():
+    from docx.shared import RGBColor
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    p.add_run("Localizou (município ou regional) ")
+    instr = p.add_run("inserir o nome do réu")
+    instr.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+    p.add_run(", conforme matrícula.")
+
+    op._substituir_paragrafo(p, {"municipio": "Belo Horizonte"})
+
+    assert p.text == "Localizou Belo Horizonte inserir o nome do réu, conforme matrícula."
+    vermelhos = [r for r in p.runs if r.text and op._eh_run_vermelho(r)]
+    assert [r.text for r in vermelhos] == ["inserir o nome do réu"]
+    # O texto substituído (não-vermelho) não herdou o vermelho.
+    assert not any(op._eh_run_vermelho(r) and "Belo" in r.text for r in p.runs)
+
+
+def test_run_vermelho_intacto_quando_flexao_alteraria_o_texto():
+    from docx.shared import RGBColor
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    instr = p.add_run("que é(são) passível(is)")
+    instr.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+    p.add_run(" de penhora.")
+
+    op._substituir_paragrafo(p, {}, ctx=Contexto(numero_reu="s"), zona="BODY")
+
+    # O trecho vermelho é mascarado: passa pela flexão intacto e segue vermelho.
+    assert "que é(são) passível(is)" in p.text
+    vermelhos = [r for r in p.runs if r.text and op._eh_run_vermelho(r)]
+    assert vermelhos and vermelhos[0].text == "que é(são) passível(is)"
+
+
+# --------------------------------------------------------------------------
+# Ponto 2: "De <origem> para <destino>" colapsa quando origem == destino
+# --------------------------------------------------------------------------
+
+def test_colapsar_local_duplicado_quando_igual():
+    out = op._colapsar_local_duplicado(
+        "De Belo Horizonte/MG para Belo Horizonte/MG, 5 de junho de 2026"
+    )
+    assert out == "De Belo Horizonte/MG, 5 de junho de 2026"
+
+
+def test_colapsar_local_duplicado_preserva_quando_diferente():
+    txt = "De Belo Horizonte/MG para São Paulo/SP, 5 de junho de 2026"
+    assert op._colapsar_local_duplicado(txt) == txt
+
+
 def test_colapsar_paragrafos_vazios():
     doc = docx.Document()
     doc.add_paragraph("")          # vazio inicial -> removido

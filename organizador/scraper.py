@@ -67,6 +67,44 @@ def _preparar_env_local() -> None:
         shutil.copy2(CONFIG_ENV_EXAMPLE_PATH, CONFIG_ENV_PATH)
 
 
+# Segredos de 2FA editáveis na aba Configurações (rótulo amigável -> chave .env).
+# Os valores ficam em config/.env; ``ler_config_2fa``/``salvar_config_2fa`` cuidam
+# da leitura/escrita preservando as demais chaves do arquivo.
+CHAVES_2FA: dict[str, str] = {
+    "E-mail do 2FA (IMAP_USER)": "IMAP_USER",
+    "Senha do e-mail do 2FA (IMAP_PASS)": "IMAP_PASS",
+    "TOTP PJe (TOTP_PDPJ)": "TOTP_PDPJ",
+    "TOTP eproc TJMG (TOTP_EPROC_TJMG)": "TOTP_EPROC_TJMG",
+    "TOTP eproc TJSP (TOTP_EPROC_TJSP)": "TOTP_EPROC_TJSP",
+}
+
+
+def ler_config_2fa() -> dict[str, str]:
+    """Lê os segredos de 2FA do config/.env como ``{chave_env: valor}``."""
+    from dotenv import dotenv_values
+    _preparar_env_local()
+    valores = dotenv_values(CONFIG_ENV_PATH)
+    return {chave: (valores.get(chave) or "") for chave in CHAVES_2FA.values()}
+
+
+def salvar_config_2fa(valores: dict[str, str]) -> None:
+    """Grava os segredos de 2FA no config/.env preservando as outras chaves.
+
+    Também atualiza ``os.environ`` para que as mudanças valham já na sessão
+    atual (``load_dotenv`` não sobrescreve variáveis já carregadas)."""
+    import os
+
+    from dotenv import set_key
+    _preparar_env_local()
+    chaves_validas = set(CHAVES_2FA.values())
+    for chave, valor in valores.items():
+        if chave not in chaves_validas:
+            continue
+        valor = valor or ""
+        set_key(str(CONFIG_ENV_PATH), chave, valor)
+        os.environ[chave] = valor
+
+
 def buscar_processo_online(
     numero: str, tj_label: str, headless: bool, log: Callable[[str], None],
     modo_docs: str = "nenhum",
@@ -160,10 +198,21 @@ def buscar_processo_online(
                 extrair_processo(html, _extrair_blocos_com_origem(html), numero_cnj=numero)
             )
             log("Dados extraídos com sucesso.\n")
+        elif site == "esaj":
+            from .integracoes.tjsp_scraper.parser_esaj import extrair_processo_esaj
+            proc = _dict_para_processo(extrair_processo_esaj(html, numero_cnj=numero))
+            log("Dados extraídos do e-SAJ "
+                f"({len(proc.partes)} parte(s), {proc.total_eventos} movimentação(ões)).\n")
         else:
             proc = Processo(numero=numero, tribunal=tribunal, uf=uf)
-            log("Auto-preenchimento estruturado indisponível para e-SAJ/PJe — "
+            log("Auto-preenchimento estruturado indisponível para PJe — "
                 "preencha os campos manualmente.\n")
+
+        # Fallback de tribunal/UF quando o parser não os inferiu do CNJ.
+        if not proc.tribunal:
+            proc.tribunal = tribunal
+        if not proc.uf:
+            proc.uf = uf
 
         if not proc.numero:
             proc.numero = numero

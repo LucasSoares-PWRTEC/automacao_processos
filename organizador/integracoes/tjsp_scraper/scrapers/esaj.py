@@ -15,11 +15,13 @@ confirmados via F12 — uso os ids padrão históricos do e-SAJ com
 fallbacks. Validar no primeiro teste real (há screenshot em falha).
 """
 
+import os
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit, quote
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -29,24 +31,38 @@ from .base import TribunalScraper, criar_chrome_driver
 from ..credenciais import obter_credenciais, cpf_formatado
 from ..two_factor import obter_codigo_2fa_email
 
-# Linha correspondente na planilha senhas.xlsx
-TJ_CHAVE = "TJSP - Esaj"
-
 # 2FA por email
-REMETENTE_2FA = "csc01@candiottovalle.com"
-ASSUNTO_2FA = None  # filtra só por remetente + regex de 6 dígitos
+# O código do e-SAJ chega encaminhado pelo Acessos Tribunais (mcsarc), NÃO
+# do csc01. O mesmo remetente envia "Andamento Processual"/"Movimentações"
+# (que também têm números de 6 dígitos), então filtramos TAMBÉM pelo assunto
+# "Validação de identificação" para não pegar um código errado. O assunto é o
+# padrão da plataforma SAJ — vale para o e-SAJ de qualquer estado.
+REMETENTE_2FA = "acesso.tribunais@mcsarc.com.br"
+ASSUNTO_2FA = "Validação de identificação"
 # 6 min — cobre rate-limit/atraso de email do TJSP. Em corrida noturna
 # (2026-05-21→22), 3 logins seguidos estouraram o limite de 240s e
-# derrubaram o bloco SP/esaj sem gravar nada.
-TIMEOUT_2FA_SEG = 360
+# derrubaram o bloco SP/esaj sem gravar nada. Pode ser encurtado via env
+# (ESAJ_2FA_TIMEOUT_SEG) em testes exploratórios para não pagar 6 min por falha.
+TIMEOUT_2FA_SEG = int(os.getenv("ESAJ_2FA_TIMEOUT_SEG", "360"))
 
-# URL de login do e-SAJ (sajcas) já apontando o service para o cpopg
-LOGIN_URL = (
-    "https://esaj.tjsp.jus.br/sajcas/login"
-    "?service=https%3A%2F%2Fesaj.tjsp.jus.br%2Fcpopg%2Fopen.do"
-)
+# CNJ genérico: separa "NNNNNNN-DD.AAAA" (campo numeroDigitoAnoUnificado) do
+# foro "OOOO" (foroNumeroUnificado), para QUALQUER J.TR — o e-SAJ existe em
+# vários estados (TJSP .8.26, TJAL .8.02, TJAM .8.04, TJCE .8.06, TJMS .8.12…),
+# não só no TJSP.
+RX_CNJ = re.compile(r"(\d{7}-\d{2}\.\d{4})\.\d\.\d{2}\.(\d{4})")
 
-RX_CNJ = re.compile(r"(\d{7}-\d{2}\.\d{4})\.8\.26\.(\d{4})")
+
+def _derivar_login_e_chave(url: str) -> tuple[str, str]:
+    """Do `url` do cpopg (ex.: https://esaj.tjce.jus.br/cpopg/open.do) deriva:
+      - a URL de login do sajcas com `service` apontando de volta ao cpopg;
+      - a chave de credencial ("TJCE - Esaj") a partir do host tjXX.jus.br.
+    Para o TJSP isso reproduz exatamente a URL/chave usadas historicamente."""
+    parts = urlsplit(url)
+    base = f"{parts.scheme}://{parts.netloc}"
+    login_url = f"{base}/sajcas/login?service={quote(url, safe='')}"
+    m = re.search(r"tj([a-z]{2})\.jus\.br", parts.netloc.lower())
+    tj_chave = f"TJ{m.group(1).upper()} - Esaj" if m else "TJSP - Esaj"
+    return login_url, tj_chave
 
 _DEBUG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "_debug"
 
@@ -55,6 +71,7 @@ class ESAJScraper(TribunalScraper):
 
     def __init__(self, estado: str, url: str, headless: bool = False):
         super().__init__(estado=estado, url=url, headless=headless)
+        self._login_url, self._tj_chave = _derivar_login_e_chave(url)
         self.driver = criar_chrome_driver(headless=headless)
         self.wait = WebDriverWait(self.driver, 20)
 
@@ -133,11 +150,11 @@ class ESAJScraper(TribunalScraper):
         if self._logado:
             return
 
-        login_raw, senha = obter_credenciais(TJ_CHAVE)
+        login_raw, senha = obter_credenciais(self._tj_chave)
         cpf = cpf_formatado(login_raw)
-        print(f"🔐 e-SAJ: logando com CPF {cpf} ...")
+        print(f"🔐 e-SAJ [{self._tj_chave}]: logando com CPF {cpf} ...")
 
-        self.driver.get(LOGIN_URL)
+        self.driver.get(self._login_url)
 
         # e-SAJ é um SPA (Angular): o form de login demora a renderizar.
         # Espera explicitamente o campo de senha ficar VISÍVEL antes de
@@ -162,8 +179,13 @@ class ESAJScraper(TribunalScraper):
         campo_pass.send_keys(senha)
 
         # Marca o instante ANTES de submeter — o leitor de email só
-        # considera códigos que chegarem depois daqui.
-        desde = datetime.now(timezone.utc)
+        # considera códigos que chegarem depois daqui. Recuamos uma margem
+        # porque o Date do email do TJSP costuma ficar ~1 min "antes" deste
+        # instante (latência da SPA + relógio do servidor de email), o que
+        # fazia o leitor descartar o código legítimo e estourar o timeout.
+        # O leitor retorna o email MAIS RECENTE que casa remetente+assunto,
+        # então a janela folgada não pega código antigo — pega o mais novo.
+        desde = datetime.now(timezone.utc) - timedelta(seconds=180)
 
         botao_entrar = self._first(
             [
@@ -188,10 +210,18 @@ class ESAJScraper(TribunalScraper):
             )
         except Exception:
             # Pode ter logado sem pedir 2FA (sessão lembrada) — confere
-            if self._parece_logado():
+            if self._confirmar_sessao():
                 self._logado = True
                 print("✅ e-SAJ: logado sem 2FA (sessão lembrada).")
                 return
+            # Senha expirada é comum em contas pouco usadas: o SAJ não pede
+            # 2FA, mostra "Senha expirada" e manda redefinir por e-mail.
+            if "senha expirada" in (self.driver.page_source or "").lower():
+                self._screenshot("login_senha_expirada")
+                raise RuntimeError(
+                    f"e-SAJ [{self._tj_chave}]: senha expirada — redefina a senha "
+                    "pelo e-mail do tribunal antes de usar este e-SAJ."
+                )
             self._screenshot("2fa_campo_codigo_nao_encontrado")
             raise RuntimeError("e-SAJ: tela de 2FA não reconhecida.")
 
@@ -225,12 +255,11 @@ class ESAJScraper(TribunalScraper):
             raise RuntimeError("e-SAJ: botão 'Enviar' do 2FA não encontrado.")
         botao_enviar.click()
 
-        # Confirma que entrou (redireciona para o cpopg)
-        try:
-            WebDriverWait(self.driver, 20).until(
-                lambda d: self._parece_logado()
-            )
-        except Exception:
+        # Confirma que entrou. Atenção: alguns e-SAJ (ex.: TJMS) redirecionam
+        # ao portal "Bem-vindo" após o 2FA, NÃO direto ao cpopg — por isso a
+        # confirmação navega ao cpopg e checa o campo de busca (teste real da
+        # sessão), em vez de depender da página de aterrissagem.
+        if not self._confirmar_sessao():
             self._screenshot("pos_2fa_sem_confirmacao")
             raise RuntimeError(
                 "e-SAJ: não confirmei o login após enviar o código 2FA."
@@ -240,7 +269,7 @@ class ESAJScraper(TribunalScraper):
         print("✅ e-SAJ: login concluído.")
 
     def _parece_logado(self) -> bool:
-        """Heurística: campo de busca presente OU URL já no cpopg."""
+        """Heurística rápida: campo de busca presente OU URL já no cpopg."""
         try:
             url = (self.driver.current_url or "").lower()
             if "cpopg" in url and "sajcas" not in url:
@@ -248,6 +277,37 @@ class ESAJScraper(TribunalScraper):
             return bool(
                 self.driver.find_elements(By.ID, "numeroDigitoAnoUnificado")
             )
+        except Exception:
+            return False
+
+    def _confirmar_sessao(self) -> bool:
+        """Confirma sessão autenticada. Primeiro tenta abrir o cpopg e ver o
+        campo de busca; se o e-SAJ aterrissar no portal "Bem-vindo" (ex.: TJMS)
+        e o cpopg demorar, aceita o sinal de portal autenticado (ausência do
+        botão "Identificar-se" fora do sajcas). A consulta valida o campo de
+        busca de novo antes de pesquisar, então isto não mascara sessão morta."""
+        if self._parece_logado():
+            return True
+        try:
+            self.driver.get(self.url)
+            WebDriverWait(self.driver, 15).until(
+                EC.presence_of_element_located((By.ID, "numeroDigitoAnoUnificado"))
+            )
+            return True
+        except Exception:
+            return self._autenticado_no_portal()
+
+    def _autenticado_no_portal(self) -> bool:
+        """Logado quando saímos do sajcas e o botão 'Identificar-se' some
+        (o topo passa a exibir o nome do usuário)."""
+        try:
+            url = (self.driver.current_url or "").lower()
+            if "sajcas" in url:
+                return False
+            ident = self.driver.find_elements(
+                By.XPATH, "//*[normalize-space(text())='Identificar-se']"
+            )
+            return not any(e.is_displayed() for e in ident)
         except Exception:
             return False
 

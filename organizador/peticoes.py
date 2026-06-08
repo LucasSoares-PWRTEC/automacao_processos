@@ -236,6 +236,9 @@ def _gerar_peticao_consolidada(
             novas_zonas.append("BODY")
 
     # 3) CLOSING do 1º template que tenha (ou injeta fechamento default).
+    # Emite TODOS os parágrafos de fechamento desse template (fórmula + local/
+    # data + assinatura + OAB), não só o primeiro — o estado CLOSING engloba o
+    # bloco inteiro até o fim do documento.
     closing_emitido = False
     for _, d, zonas in docs:
         if closing_emitido:
@@ -245,7 +248,6 @@ def _gerar_peticao_consolidada(
                 _append(p._element)
                 novas_zonas.append("CLOSING")
                 closing_emitido = True
-                break
     if not closing_emitido:
         para = destino_doc.add_paragraph("Termos em que pede deferimento.")
         # add_paragraph adiciona ao fim — após sectPr. Se sectPr existir, move antes.
@@ -433,6 +435,134 @@ def _aplicar_substituicoes(
     return RE_PLACEHOLDER_TEMPLATE.sub(_repl, resultado)
 
 
+def _cobertura_resolvivel(
+    texto: str,
+    dados: dict,
+    ctx: "Contexto | None" = None,
+    multiplos_imoveis: bool = False,
+) -> list[bool]:
+    """Marca quais caracteres de `texto` pertencem a um placeholder que será de
+    fato substituído.
+
+    Usado para resgatar placeholders escritos em vermelho (ex.:
+    "(do ou dos) (executado ou executados)" nos modelos de penhora). Sem isto, o
+    vermelho inteiro seria tratado como preenchimento manual e o placeholder
+    ficaria literal. Só o vermelho SEM placeholder resolvível é mascarado.
+    """
+    coberto = [False] * len(texto)
+
+    def _marcar(ini: int, fim: int) -> None:
+        for i in range(ini, fim):
+            coberto[i] = True
+
+    # Placeholders mapeados a dados (case-insensitive: cobre "(Executado ou Executados)").
+    for placeholder, chave in PLACEHOLDERS_PETICAO.items():
+        if not (dados.get(chave) or "").strip():
+            continue
+        padrao = re.compile(r"\(" + re.escape(placeholder) + r"\)", re.IGNORECASE)
+        for m in padrao.finditer(texto):
+            _marcar(m.start(), m.end())
+
+    # Placeholders de concordância "(X ou Y)" e demais campos preenchidos por
+    # `dados`. Restringe o auto-resgate às disjunções ("X ou Y"): formas avulsas
+    # como "(são)"/"(é)" colidem com parentéticas de preenchimento manual
+    # (ex.: "passível(is)") e NÃO devem ser resgatadas do vermelho.
+    for m in RE_PLACEHOLDER_TEMPLATE.finditer(texto):
+        nome = m.group(1).strip().lower()
+        if " ou " in nome and _resolver_auto(nome, ctx, multiplos_imoveis) is not None:
+            _marcar(m.start(), m.end())
+        elif str(dados.get(nome) or "").strip():
+            _marcar(m.start(), m.end())
+
+    return coberto
+
+
+# "De <origem> para <destino>, <data>" — quando a comarca de destino coincide
+# com a origem (sede do escritório, "Belo Horizonte/MG"), o "para <destino>"
+# vira redundante: mantemos só o primeiro local.
+_RE_LOCAL_DUPLICADO = re.compile(r"(?i)\bDe\s+(.+?)\s+para\s+(.+?)(\s*,)")
+
+
+def _colapsar_local_duplicado(texto: str) -> str:
+    def _repl(m: re.Match) -> str:
+        origem = m.group(1).strip()
+        destino = m.group(2).strip()
+        if _strip_accents(origem).casefold() == _strip_accents(destino).casefold():
+            return f"De {origem}{m.group(3)}"
+        return m.group(0)
+
+    return _RE_LOCAL_DUPLICADO.sub(_repl, texto)
+
+
+def _eh_run_vermelho(run) -> bool:
+    """O run usa fonte vermelha? (texto de preenchimento manual nos modelos)."""
+    cor = run.font.color
+    if cor is None or cor.type is None or cor.rgb is None:
+        return False
+    try:
+        r, g, b = cor.rgb
+    except (TypeError, ValueError):
+        return False
+    return r >= 0x80 and g <= 0x60 and b <= 0x60
+
+
+def _aplicar_formato_base(destino_run, base_run) -> None:
+    """Copia formatação de caractere do run base (sem highlight nem cor)."""
+    destino_run.bold = base_run.bold
+    destino_run.italic = base_run.italic
+    destino_run.underline = base_run.underline
+    if base_run.font.size is not None:
+        destino_run.font.size = base_run.font.size
+    if base_run.font.name is not None:
+        destino_run.font.name = base_run.font.name
+
+
+# Sentinelas em área de uso privado do Unicode: mascaram os trechos vermelhos
+# (preenchimento manual) durante substituição/flexão para que passem intactos —
+# nem o regex de placeholders nem a flexão os tocam — e voltem verbatim depois.
+_RE_SENTINELA = re.compile("(\\d+)")
+
+
+def _reescrever_runs(
+    paragrafo,
+    texto_mascarado: str,
+    vermelhos: list[tuple[str, object]],
+) -> None:
+    """Reescreve o parágrafo a partir do texto (ainda com sentinelas), trocando
+    cada sentinela pelo trecho vermelho original e mantendo-o em vermelho."""
+    # Usa um run não-vermelho como base de formatação (cor padrão do corpo).
+    base = next(
+        (r for r in paragrafo.runs if not _eh_run_vermelho(r)),
+        paragrafo.runs[0],
+    )
+
+    pedacos: list[tuple[str, object]] = []
+    pos = 0
+    for m in _RE_SENTINELA.finditer(texto_mascarado):
+        if m.start() > pos:
+            pedacos.append((texto_mascarado[pos:m.start()], None))
+        txt, rgb = vermelhos[int(m.group(1))]
+        pedacos.append((txt, rgb))
+        pos = m.end()
+    if pos < len(texto_mascarado):
+        pedacos.append((texto_mascarado[pos:], None))
+    if not pedacos:
+        pedacos.append((texto_mascarado, None))
+
+    for run in paragrafo.runs:
+        run.text = ""
+    base.text = pedacos[0][0]
+    base.font.highlight_color = None
+    if pedacos[0][1] is not None:
+        base.font.color.rgb = pedacos[0][1]
+    for texto_pedaco, rgb in pedacos[1:]:
+        novo = paragrafo.add_run(texto_pedaco)
+        _aplicar_formato_base(novo, base)
+        novo.font.highlight_color = None
+        if rgb is not None:
+            novo.font.color.rgb = rgb
+
+
 def _substituir_paragrafo(
     paragrafo,
     dados: dict,
@@ -443,8 +573,52 @@ def _substituir_paragrafo(
     if not paragrafo.runs:
         return
     texto_original = paragrafo.text
-    texto_novo = _aplicar_substituicoes(
+
+    # Mascara os runs vermelhos (instruções de preenchimento manual) com
+    # sentinelas, para que a substituição/flexão não os altere.
+    coberto = _cobertura_resolvivel(
         texto_original, dados, ctx=ctx, multiplos_imoveis=multiplos_imoveis,
+    )
+    vermelhos: list[tuple[str, object]] = []
+    partes: list[str] = []
+    seg_chars: list[str] = []
+    seg_rgb: object = None
+
+    def _flush_segmento() -> None:
+        nonlocal seg_rgb
+        if not seg_chars:
+            return
+        segmento = "".join(seg_chars)
+        # Segmento só de espaços não vira sentinela: evita colar o dígito da
+        # sentinela ao placeholder resolvido vizinho.
+        if segmento.strip():
+            partes.append(f"{len(vermelhos)}")
+            vermelhos.append((segmento, seg_rgb))
+        else:
+            partes.append(segmento)
+        seg_chars.clear()
+        seg_rgb = None
+
+    pos = 0
+    for run in paragrafo.runs:
+        vermelho = _eh_run_vermelho(run)
+        rgb = run.font.color.rgb if vermelho else None
+        for ch in run.text:
+            # Vermelho coberto por placeholder resolvível passa intacto (literal),
+            # para ser substituído normalmente; o resto do vermelho é mascarado.
+            if vermelho and not coberto[pos]:
+                if not seg_chars:
+                    seg_rgb = rgb
+                seg_chars.append(ch)
+            else:
+                _flush_segmento()
+                partes.append(ch)
+            pos += 1
+    _flush_segmento()
+    texto_mascarado = "".join(partes)
+
+    texto_novo = _aplicar_substituicoes(
+        texto_mascarado, dados, ctx=ctx, multiplos_imoveis=multiplos_imoveis,
     )
     # Flexão só em BODY e CLOSING (HEADER vai virar UPPERCASE).
     if ctx is not None and zona in ("BODY", "CLOSING"):
@@ -452,11 +626,19 @@ def _substituir_paragrafo(
     if zona == "HEADER":
         texto_novo = _flex_judicial_treatment(texto_novo, ctx)
         texto_novo = texto_novo.upper()
-    if texto_novo == texto_original:
+    texto_novo = _colapsar_local_duplicado(texto_novo)
+
+    # Texto final desmascarado, para comparação e para o caminho sem vermelho.
+    texto_final = _RE_SENTINELA.sub(lambda m: vermelhos[int(m.group(1))][0], texto_novo)
+    if texto_final == texto_original:
+        # Nada mudou: preserva os runs originais (e suas cores) intactos.
         return
-    paragrafo.runs[0].text = texto_novo
-    for run in paragrafo.runs[1:]:
-        run.text = ""
+    if not vermelhos:
+        paragrafo.runs[0].text = texto_final
+        for run in paragrafo.runs[1:]:
+            run.text = ""
+        return
+    _reescrever_runs(paragrafo, texto_novo, vermelhos)
 
 
 def _remover_highlight_amarelo(paragrafo) -> None:

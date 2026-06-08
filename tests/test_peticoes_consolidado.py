@@ -61,6 +61,34 @@ def test_gerar_peticao_consolidada_preserva_tabela_e_deduplica_body(tmp_path):
     assert "4004459-04.2026.8.26.0248" in doc.tables[0].cell(0, 0).text
 
 
+def test_gerar_peticao_consolidada_preserva_bloco_de_fechamento_inteiro(tmp_path):
+    # O fechamento real tem vários parágrafos (fórmula + local/data + assinatura
+    # + OAB). O consolidado deve emiti-los todos, não só o primeiro.
+    t1 = tmp_path / "a.docx"
+    doc = docx.Document()
+    doc.add_paragraph("EXCELENTÍSSIMO(A) SENHOR(A) JUIZ(A)")
+    doc.add_paragraph("")
+    doc.add_paragraph("Corpo comprido o suficiente para não ser descartado pela dedup.")
+    doc.add_paragraph("Nesses termos, pede deferimento.")
+    doc.add_paragraph("De Belo Horizonte/MG para São Paulo/SP, data.")
+    doc.add_paragraph("Pp. Fulano de Tal")
+    doc.add_paragraph("OAB/MG 104.784")
+    doc.save(str(t1))
+
+    t2 = tmp_path / "b.docx"
+    _criar_template(t2, "CABECALHO", ["Outro corpo comprido o suficiente aqui dentro."])
+
+    saida = op._gerar_peticao_consolidada([t1, t2], tmp_path, {}, Contexto(genero_juiz="m"))
+    textos = [p.text for p in docx.Document(str(saida)).paragraphs]
+    for esperado in (
+        "Nesses termos, pede deferimento.",
+        "De Belo Horizonte/MG para São Paulo/SP, data.",
+        "Pp. Fulano de Tal",
+        "OAB/MG 104.784",
+    ):
+        assert esperado in textos, f"fechamento perdeu: {esperado!r}"
+
+
 def test_gerar_peticao_consolidada_injeta_closing_default(tmp_path):
     t1 = tmp_path / "a.docx"
     _criar_template(t1, "EXCELENTÍSSIMO(A) SENHOR(A) JUIZ(A)", ["Corpo sem fechamento suficiente e comprido."])

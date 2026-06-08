@@ -128,6 +128,46 @@ def obter_credenciais(tj_chave: str) -> tuple[str, str]:
     return linha["login"], linha["senha"]
 
 
+def listar_credenciais() -> list[dict[str, str]]:
+    """Lista as credenciais (tj, login, senha) para edição na GUI.
+
+    Diferente de ``_carregar_credenciais``, não levanta se o arquivo ainda não
+    existe: nesse caso devolve uma lista vazia (a tela mostra um aviso).
+    """
+    try:
+        itens = _carregar_credenciais()
+    except FileNotFoundError:
+        return []
+    return [
+        {"tj": item["tj"], "login": item["login"], "senha": item["senha"]}
+        for item in itens
+    ]
+
+
+def salvar_credenciais(itens: list[dict[str, str]]) -> None:
+    """Persiste a lista de credenciais em ``config/credenciais.json``.
+
+    Grava no formato canônico (``{"credenciais": [...]}``) e invalida o cache de
+    ``_carregar_credenciais`` para que a próxima busca já use os novos valores.
+    """
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "credenciais": [
+            {
+                "tj": _to_str(item.get("tj")),
+                "login": _to_str(item.get("login")),
+                "senha": _to_str(item.get("senha")),
+            }
+            for item in itens
+            if _to_str(item.get("tj"))
+        ]
+    }
+    CREDENCIAIS_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    _carregar_credenciais.cache_clear()
+
+
 def cpf_formatado(login: str) -> str:
     """Formata CPF quando o login vier apenas com dígitos."""
     d = re.sub(r"\D", "", str(login or "")).zfill(11)
