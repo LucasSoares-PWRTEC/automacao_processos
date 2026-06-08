@@ -36,11 +36,11 @@ PROCESSOS: list[tuple[str, str, str | None, str]] = [
     ("0000262-41.2021.8.19.0023", "TJRJ",         None, "TJRJ não está em TJ_SISTEMAS (sem rota/URL)"),
     ("0668503-38.2020.8.04.0001", "TJAM e-SAJ",   "TJAM — e-SAJ",      ""),
     ("0575508-64.2024.8.04.0001", "TJAM Projudi", None, "Projudi não implementado no scraper"),
-    ("0008537-81.2019.8.06.0064", "TJCE PJe",     None, "PJe limitado ao TJMG (URL fixa)"),
-    ("5036717-94.2022.8.24.0038", "TJSC eproc",   None, "TJSC eproc não está em TJ_SISTEMAS"),
-    ("0821821-97.2025.8.10.0001", "TJMA PJe",     None, "PJe limitado ao TJMG (URL fixa)"),
-    ("0001461-25.2018.8.14.0094", "TJPA PJe",     None, "PJe limitado ao TJMG (URL fixa)"),
-    ("0003730-88.2020.8.17.2420", "TJPE PJe",     None, "PJe limitado ao TJMG (URL fixa)"),
+    ("0008537-81.2019.8.06.0064", "TJCE PJe",     "TJCE — PJe", ""),
+    ("5036717-94.2022.8.24.0038", "TJSC eproc",   "TJSC — eproc", ""),
+    ("0821821-97.2025.8.10.0001", "TJMA PJe",     "TJMA — PJe", ""),
+    ("0001461-25.2018.8.14.0094", "TJPA PJe",     "TJPA — PJe", ""),
+    ("0003730-88.2020.8.17.2420", "TJPE PJe",     "TJPE — PJe", ""),
 ]
 
 RESULT_FILE = _RAIZ / "data" / "_batch_resultado.json"
@@ -115,8 +115,19 @@ def cmd_run(numero: str) -> None:
         proc = buscar_processo_online(
             numero, tj_label, headless=False, log=lambda s: logs.append(s),
         )
-        pasta = _salvar_no_app(proc)
         partes = _partes_resumo(proc)
+        # Login pode dar certo mas a extração vir vazia (ex.: versão diferente
+        # do PJe, cujo DOM da timeline não bate com os seletores do TJMG).
+        # 0 partes = não trouxe as pessoas → falha honesta, não salva no app.
+        if not proc.partes:
+            _registrar(
+                numero, status="falha", tj_label=tj_label,
+                erro="login OK, mas extração vazia (0 partes) — provável versão "
+                     "diferente do PJe (DOM da timeline incompatível com o TJMG)",
+            )
+            print(f"❌ {numero}: login OK, mas 0 partes extraídas (versão diferente do PJe?)")
+            return
+        pasta = _salvar_no_app(proc)
         _registrar(
             numero, status="sucesso", tj_label=tj_label,
             classe=proc.classe, partes=partes, n_partes=len(proc.partes),

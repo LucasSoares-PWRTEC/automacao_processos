@@ -77,6 +77,17 @@ _CONFIG_POR_ESTADO = {
         "totp_input_id":  "otp",
         "totp_submit_id": "kc-login",
     },
+    "SANTA CATARINA": {
+        # eproc clássico do TJSC (origem do eproc, login interno como o MG).
+        "tj_chave": "TJSC - Eproc 1º Grau",
+        "totp_env": "TOTP_EPROC_TJSC",
+        "sigla":    "SC",
+        "login_user_id":   "txtUsuario",
+        "login_pass_id":   "pwdSenha",
+        "login_submit_id": "sbmEntrar",
+        "totp_input_id":  "txtAcessoCodigo",
+        "totp_submit_id": "btnValidar",
+    },
 }
 
 _DEBUG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "_debug"

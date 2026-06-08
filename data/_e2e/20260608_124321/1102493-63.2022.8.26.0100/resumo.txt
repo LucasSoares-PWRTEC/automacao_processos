@@ -1,0 +1,150 @@
+RESUMO DO PROCESSO
+======================================================================
+Nº do processo : 1102493-63.2022.8.26.0100
+Tribunal       : TJSP  (SP)
+Classe         : Execução de Título Extrajudicial
+Assunto        : Confissão/Composição de Dívida
+Competência    : Cível
+Data autuação  : 15/12/2022 às 09:04 - Livre
+Situação       : 
+Órgão Julgador : 1ª Vara Cível — Foro Regional VI - Penha de França
+Comarca        : Foro Regional VI - Penha de França
+Vara           : 1ª Vara Cível
+Juiz(a)        : José Luiz de Jesus Vieira
+Valor da causa : R$ 77.508,14
+Chave consulta : 
+Tags           : Bloqueio, Penhora
+Total eventos  : 107
+1ª movimentação: 21/09/2022
+Última mov.    : 08/05/2026 — Conclusos para Despacho
+Arquivos       : —
+
+PRAZOS ABERTOS
+----------------------------------------------------------------------
+  (nenhum prazo aberto identificado)
+
+PARTES
+----------------------------------------------------------------------
+  [EXEQUENTE] Ns Empreendimento Imobiliário 23 Ltda.
+           Advogado(s): Marcelo Candiotto Freire ()
+  [EXECUTADO] Robson Matos Mascena da Silva
+  [EXECUTADO] Danielle Oliveira da Silva Matos
+  [TERCEIRO INTERESSADO] Alelo Instituicao de Pagamento Sa
+           Advogado(s): Lucas Menicelli Lagonegro ()
+
+ÚLTIMAS MOVIMENTAÇÕES (10)
+----------------------------------------------------------------------
+  #  08/05/2026   Conclusos para Despacho
+  #  08/05/2026   Certidão de Cartório Expedida Certifico e dou fé que decorreu o prazo legal para apresentação de resposta, sem manifesta...
+  #  07/05/2026   Petição Juntada Nº Protocolo: WPEN.26.70053567-0 Tipo da Petição: Petição Intermediária Data: 07/05/2026 14:54
+  #  19/02/2026   AR Positivo Juntado Juntada de AR : AA821165293TJ Situação : Cumprido Modelo : Processo Digital - Carta - Intimação - Pe...
+  #  19/02/2026   AR Positivo Juntado Juntada de AR : AA821165302TJ Situação : Cumprido Modelo : Processo Digital - Carta - Intimação - Pe...
+  #  06/02/2026   Certidão Juntada Certidão de Carta Recebida Pelos Correios
+  #  06/02/2026   Certidão Juntada Certidão de Carta Recebida Pelos Correios
+  #  05/02/2026   Carta de Intimação Expedida Processo Digital - Carta - Intimação - Penhora - Art. 513, caput e 917, § 1º do CPC
+  #  05/02/2026   Carta de Intimação Expedida Processo Digital - Carta - Intimação - Penhora - Art. 513, caput e 917, § 1º do CPC
+  #  17/11/2025   Certidão de Publicação Expedida Relação: 2001/2025 Data da Publicação: 18/11/2025
+
+HISTÓRICO COMPLETO DE EVENTOS
+----------------------------------------------------------------------
+  #  08/05/2026 
+        Conclusos para Despacho
+  #  08/05/2026 
+        Certidão de Cartório Expedida Certifico e dou fé que decorreu o prazo legal para apresentação de resposta, sem manifestação. Nada Mais.
+  #  07/05/2026 
+        Petição Juntada Nº Protocolo: WPEN.26.70053567-0 Tipo da Petição: Petição Intermediária Data: 07/05/2026 14:54
+  #  19/02/2026 
+        AR Positivo Juntado Juntada de AR : AA821165293TJ Situação : Cumprido Modelo : Processo Digital - Carta - Intimação - Penhora - Art. 513, caput e 917, § 1º do CPC Destinatário : Danielle Oliveira da Silva Matos Diligência : 11/02/2026
+  #  19/02/2026 
+        AR Positivo Juntado Juntada de AR : AA821165302TJ Situação : Cumprido Modelo : Processo Digital - Carta - Intimação - Penhora - Art. 513, caput e 917, § 1º do CPC Destinatário : Robson Matos Mascena da Silva Diligência : 11/02/2026
+  #  06/02/2026 
+        Certidão Juntada Certidão de Carta Recebida Pelos Correios
+  #  06/02/2026 
+        Certidão Juntada Certidão de Carta Recebida Pelos Correios
+  #  05/02/2026 
+        Carta de Intimação Expedida Processo Digital - Carta - Intimação - Penhora - Art. 513, caput e 917, § 1º do CPC
+  #  05/02/2026 
+        Carta de Intimação Expedida Processo Digital - Carta - Intimação - Penhora - Art. 513, caput e 917, § 1º do CPC
+  #  17/11/2025 
+        Certidão de Publicação Expedida Relação: 2001/2025 Data da Publicação: 18/11/2025
+  #  14/11/2025 
+        Remetido ao DJE Relação: 2001/2025 Teor do ato: Vistos. 1. Fls. 201/209 e 210: Ciente. Inclua-se a peticionante no cadastro processual como terceira interessada. 2. Cumpra-se a decisão de fls. 193, conforme encaminhamento de fls. 200. Int. Advogados(s): Lucas Menicelli Lagonegro (OAB 390309/SP), Marcelo Candiotto Freire (OAB 104784/MG)
+  #  14/11/2025 
+        Proferidas Outras Decisões não Especificadas Vistos. 1. Fls. 201/209 e 210: Ciente. Inclua-se a peticionante no cadastro processual como terceira interessada. 2. Cumpra-se a decisão de fls. 193, conforme encaminhamento de fls. 200. Int.
+  #  14/11/2025 
+        Conclusos para Decisão
+  #  25/09/2025 
+        Petição Juntada Nº Protocolo: WPEN.25.70177791-0 Tipo da Petição: Petição Intermediária Data: 25/09/2025 23:19
+  #  12/09/2025 
+        Conclusos para Despacho
+  #  11/09/2025 
+        Petição Juntada Nº Protocolo: WPEN.25.70168105-0 Tipo da Petição: Petições Diversas Data: 11/09/2025 17:06
+  #  11/08/2025 
+        Ato Ordinatório - Intimação - Portal Certifico e dou fé que os presentes autos foram encaminhados nesta data à fila de expedição de cartas, segundo a ordem cronológica de entrada, nos termos do artigo 153 do CPC. Nada Mais.
+  #  08/08/2025 
+        Petição Juntada Nº Protocolo: WPEN.25.70146186-6 Tipo da Petição: Petição Intermediária Data: 08/08/2025 14:45
+  #  05/08/2025 
+        Certidão de Publicação Expedida Relação: 1014/2025 Data da Publicação: 06/08/2025
+  #  04/08/2025 
+        Remetido ao DJE Relação: 1014/2025 Teor do ato: Vistos. Tornados indisponíveis os ativos financeiros, conforme detalhamento de bloqueio de valores, intime-se a parte executada, pessoalmente, por carta, para querendo, apresentar impugnação, no prazo de 05 (cinco) dias, nos termos do art. 854, §§ 2º e 3º, do Código de Processo Civil. Para tanto, recolha a parte exequente as custas relativas à taxa de Serviço de Carta com AR Digital, fixadas de acordo com o Provimento CSM nº 2.788/2025, de 13/06/2025, no valor de R$ 34,35 para cada carta a ser expedida. Recolhidas as custas postais, expeça-se carta de intimação. Int. Advogados(s): Marcelo Candiotto Freire (OAB 104784/MG), Marcelo Candiotto Freire (OAB 104784/MG)
+  #  04/08/2025 
+        Proferidas Outras Decisões não Especificadas Vistos. Tornados indisponíveis os ativos financeiros, conforme detalhamento de bloqueio de valores, intime-se a parte executada, pessoalmente, por carta, para querendo, apresentar impugnação, no prazo de 05 (cinco) dias, nos termos do art. 854, §§ 2º e 3º, do Código de Processo Civil. Para tanto, recolha a parte exequente as custas relativas à taxa de Serviço de Carta com AR Digital, fixadas de acordo com o Provimento CSM nº 2.788/2025, de 13/06/2025, no valor de R$ 34,35 para cada carta a ser expedida. Recolhidas as custas postais, expeça-se carta de intimação. Int.
+  #  01/08/2025 
+        Conclusos para Decisão
+  #  28/07/2025 
+        Petição Juntada Nº Protocolo: WPEN.25.70137731-8 Tipo da Petição: Petição Intermediária Data: 28/07/2025 12:54
+  #  23/07/2025 
+        Certidão de Publicação Expedida Relação: 0881/2025 Data da Publicação: 24/07/2025
+  #  22/07/2025 
+        Remetido ao DJE Relação: 0881/2025 Teor do ato: Manifeste-se a parte exequente a respeito do Recibo de Protocolamento de bloqueio de valores pelo Sistema Sisbajud (positivo) de fls. 177/188, no prazo de cinco dias. A correta classificação do documento quando do peticionamento eletrônico confere mais agilidade ao processamento, cabendo ao advogado cadastrar a petição com o código apropriado: 7766 - Transferência - Bloqueio/Penhora On line (Novo). Advogados(s): Marcelo Candiotto Freire (OAB 104784/MG)
+  #  22/07/2025 
+        Ato Ordinatório - Intimação - DJE Manifeste-se a parte exequente a respeito do Recibo de Protocolamento de bloqueio de valores pelo Sistema Sisbajud (positivo) de fls. 177/188, no prazo de cinco dias. A correta classificação do documento quando do peticionamento eletrônico confere mais agilidade ao processamento, cabendo ao advogado cadastrar a petição com o código apropriado: 7766 - Transferência - Bloqueio/Penhora On line (Novo).
+  #  22/07/2025 
+        Bloqueio/Penhora on line - Positivo Juntado
+  #  22/07/2025 
+        Bloqueio/Penhora on line - Positivo Juntado
+  #  15/05/2025 
+        Petição Juntada Nº Protocolo: WPEN.25.70087573-0 Tipo da Petição: Petição Intermediária Data: 15/05/2025 13:47
+  #  09/05/2025 
+        Certidão de Publicação Expedida Relação: 0357/2025 Data da Publicação: 12/05/2025 Número do Diário: 4198
+  #  08/05/2025 
+        Remetido ao DJE Relação: 0357/2025 Teor do ato: Sim, em termos (prazo/suspensão/sobrestamento do feito por 5 dias). Advogados(s): Marcelo Candiotto Freire (OAB 104784/MG)
+  #  07/05/2025 
+        Ato Ordinatório - Intimação - DJE Sim, em termos (prazo/suspensão/sobrestamento do feito por 5 dias).
+  #  07/03/2025 
+        Petição Juntada Nº Protocolo: WPEN.25.70039106-6 Tipo da Petição: Petição Intermediária Data: 06/03/2025 22:37
+  #  25/02/2025 
+        Certidão de Publicação Expedida Relação: 0147/2025 Data da Publicação: 26/02/2025 Número do Diário: 4152
+  #  24/02/2025 
+        Remetido ao DJE Relação: 0147/2025 Teor do ato: Vistos. Buscando evitar diligências inúteis e, ainda, visando dar maior efetividade ao desenvolvimento do processo e celeridade na prestação jurisdicional, observo que o Juízo, utilizando-se dos Sistemas disponíveis através dos convênios do Tribunal de Justiça, tomará as seguintes providências: a) Reiteração automática pelo sistema Sisbajud, para viabilizar a penhora permanente de ativos financeiros (teimosinha), informando nos autos. Para tanto, apresente a planilha atualizada do débito e recolham-se as custas devidas, nos termos do Provimento CSM nº 2.684/2023, de 31/03/2023, no valor de R$ 111,06 para cada CPF/CNPJ a ser pesquisado. b) Caso a providência reste infrutífera, obtenção das declarações de renda do executado, via on line pelo Sistema Infojud, informando-as nos autos. Para tanto, recolham-se as custas devidas, nos termos do Provimento CSM nº 2.684/2023, de 31/03/2023, no valor de R$ 37,02 para cada CPF/CNPJ a ser pesquisado. c) Caso as providências supra restem infrutíferas, pesquisa de veículos pelo Sistema Renajud, informando-as nos autos. Para tanto, recolham-se as custas devidas, nos termos do Provimento CSM nº 2.684/2023, de 31/03/2023, no valor de R$ 37,02 para cada CPF/CNPJ a ser pesquisado. d) Deverá o exequente buscar bens por meio do site www.arisp.com.br, ou em qualquer dos Registros de Imóveis da Capital, mediante o pagamento dos emolumentos respectivos. Int. Advogados(s): Marcelo Candiotto Freire (OAB 104784/MG)
+  #  21/02/2025 
+        Proferidas Outras Decisões não Especificadas Vistos. Buscando evitar diligências inúteis e, ainda, visando dar maior efetividade ao desenvolvimento do processo e celeridade na prestação jurisdicional, observo que o Juízo, utilizando-se dos Sistemas disponíveis através dos convênios do Tribunal de Justiça, tomará as seguintes providências: a) Reiteração automática pelo sistema Sisbajud, para viabilizar a penhora permanente de ativos financeiros (teimosinha), informando nos autos. Para tanto, apresente a planilha atualizada do débito e recolham-se as custas devidas, nos termos do Provimento CSM nº 2.684/2023, de 31/03/2023, no valor de R$ 111,06 para cada CPF/CNPJ a ser pesquisado. b) Caso a providência reste infrutífera, obtenção das declarações de renda do executado, via on line pelo Sistema Infojud, informando-as nos autos. Para tanto, recolham-se as custas devidas, nos termos do Provimento CSM nº 2.684/2023, de 31/03/2023, no valor de R$ 37,02 para cada CPF/CNPJ a ser pesquisado. c) Caso as providências supra restem infrutíferas, pesquisa de veículos pelo Sistema Renajud, informando-as nos autos. Para tanto, recolham-se as custas devidas, nos termos do Provimento CSM nº 2.684/2023, de 31/03/2023, no valor de R$ 37,02 para cada CPF/CNPJ a ser pesquisado. d) Deverá o exequente buscar bens por meio do site www.arisp.com.br, ou em qualquer dos Registros de Imóveis da Capital, mediante o pagamento dos emolumentos respectivos. Int.
+  #  21/02/2025 
+        Conclusos para Decisão
+  #  17/01/2025 
+        Petição Juntada Nº Protocolo: WPEN.25.70004652-0 Tipo da Petição: Petição Intermediária Data: 17/01/2025 10:50
+  #  08/01/2025 
+        Certidão de Publicação Expedida Relação: 0004/2025 Data da Publicação: 21/01/2025 Número do Diário: 4118
+  #  07/01/2025 
+        Remetido ao DJE Relação: 0004/2025 Teor do ato: Vistos. Ante o decurso do prazo para pagamento do débito ou oferecimento de embargos sem manifestação, requeira a parte exequente o que de direito. No silêncio, ao arquivo. Int. Advogados(s): Marcelo Candiotto Freire (OAB 104784/MG)
+  #  07/01/2025 
+        Decretada a Revelia Vistos. Ante o decurso do prazo para pagamento do débito ou oferecimento de embargos sem manifestação, requeira a parte exequente o que de direito. No silêncio, ao arquivo. Int.
+  #  07/01/2025 
+        Conclusos para Decisão
+  #  07/01/2025 
+        Certidão de Cartório Expedida Certifico e dou fé que decorreu o prazo para pagamento do valor reclamado ou oferecimento de embargos, sem manifestação nos autos.
+  #  19/11/2024 
+        AR Positivo Juntado Juntada de AR : AA722959853TJ Situação : Cumprido Modelo : Processo Digital - Carta - Citação - Título Executivo Extrajudicial - Cível - NOVO CPC Destinatário : Danielle Oliveira da Silva Matos Diligência : 11/11/2024
+  #  19/11/2024 
+        AR Positivo Juntado Juntada de AR : AA722959840TJ Situação : Cumprido Modelo : Processo Digital - Carta - Citação - Título Executivo Extrajudicial - Cível - NOVO CPC Destinatário : Robson Matos Mascena da Silva Diligência : 11/11/2024
+  #  07/11/2024 
+        Certidão de Publicação Expedida Relação: 0842/2024 Data da Publicação: 08/11/2024 Número do Diário: 4088
+  #  06/11/2024 
+        Certidão Juntada Certidão de Carta Recebida Pelos Correios
+  #  06/11/2024 
+        Certidão Juntada Certidão de Carta Recebida Pelos Correios
+  #  06/11/2024 
+        Remetido ao DJE Relação: 0842/2024 Teor do ato: Vistos. 1. Fls. 99/100: Expeçam-se cartas de citação, conforme determinado às fls. 92. 2. Fls. 128/135: Cumpra-se o V. Acórdão. Int. Advogados(s): Marcelo Candiotto Freire (OAB 104784/MG)
+  #  05/11/2024 
+        Carta Expedida Processo Digital - Carta - Citação - Título Executivo Extrajudicial - Cível - NOVO CPC
+  ... e mais 57 evento(s) (total: 107)

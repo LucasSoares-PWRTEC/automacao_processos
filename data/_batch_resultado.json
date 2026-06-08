@@ -1,7 +1,7 @@
 {
   "4018574-23.2025.8.26.0100": {
     "sistema": "eproc SP",
-    "status": "sucesso",
+    "status": "ja_no_app",
     "tj_label": "TJSP — eproc (SP)",
     "classe": "EXECUÇÃO DE TÍTULO EXTRAJUDICIAL",
     "partes": [
@@ -15,7 +15,7 @@
   },
   "1102493-63.2022.8.26.0100": {
     "sistema": "e-SAJ SP",
-    "status": "sucesso",
+    "status": "ja_no_app",
     "tj_label": "TJSP — e-SAJ",
     "classe": "Execução de Título Extrajudicial",
     "partes": [
@@ -30,7 +30,7 @@
   },
   "5000432-19.2021.8.13.0079": {
     "sistema": "PJe MG",
-    "status": "sucesso",
+    "status": "ja_no_app",
     "tj_label": "TJMG — PJe",
     "erro": "Scraper não retornou dados para esse número.",
     "classe": "[CÍVEL] CUMPRIMENTO DE SENTENÇA (156)",
@@ -45,7 +45,7 @@
   },
   "5014752-74.2021.8.13.0079": {
     "sistema": "PJe MG",
-    "status": "sucesso",
+    "status": "ja_no_app",
     "tj_label": "TJMG — PJe",
     "classe": "[CÍVEL] EXECUÇÃO DE TÍTULO EXTRAJUDICIAL (12154)",
     "partes": [
@@ -68,7 +68,7 @@
   },
   "0668503-38.2020.8.04.0001": {
     "sistema": "TJAM e-SAJ",
-    "status": "sucesso",
+    "status": "ja_no_app",
     "tj_label": "TJAM — e-SAJ",
     "classe": "Execução de Título Extrajudicial",
     "partes": [
@@ -86,27 +86,42 @@
   },
   "0008537-81.2019.8.06.0064": {
     "sistema": "TJCE PJe",
-    "status": "nao_suportado",
-    "motivo": "PJe limitado ao TJMG (URL fixa)"
+    "status": "falha",
+    "motivo": "PJe limitado ao TJMG (URL fixa)",
+    "tj_label": "TJCE — PJe",
+    "classe": "",
+    "partes": [],
+    "n_partes": 0,
+    "n_eventos": 118,
+    "pasta": "C:\\Users\\Usuario\\Desktop\\Processos\\0008537-81.2019.8.06.0064",
+    "erro": "login+timeline OK (148 docs, 26 gatilhos); docs via PDF.js viewer; partes não extraídas (cabeçalho em PDF / formato fora do regex)"
   },
   "5036717-94.2022.8.24.0038": {
     "sistema": "TJSC eproc",
-    "status": "nao_suportado",
-    "motivo": "TJSC eproc não está em TJ_SISTEMAS"
+    "status": "falha",
+    "motivo": "TJSC eproc não está em TJ_SISTEMAS",
+    "tj_label": "TJSC — eproc",
+    "erro": "login OK no scraper, mas a tela de login do TJSC usa IDs diferentes do eproc MG (#txtUsuario ausente) — provável login via SSO/IdServer próprio. Precisa de RE do form de login do TJSC."
   },
   "0821821-97.2025.8.10.0001": {
     "sistema": "TJMA PJe",
-    "status": "nao_suportado",
-    "motivo": "PJe limitado ao TJMG (URL fixa)"
+    "status": "falha",
+    "motivo": "PJe limitado ao TJMG (URL fixa)",
+    "tj_label": "TJMA — PJe",
+    "erro": "login+timeline+doc HTML OK; processo é CARTA PRECATÓRIA (partes citadas em prosa, sem bloco REQUERENTE/REQUERIDO estruturado)"
   },
   "0001461-25.2018.8.14.0094": {
     "sistema": "TJPA PJe",
-    "status": "nao_suportado",
-    "motivo": "PJe limitado ao TJMG (URL fixa)"
+    "status": "falha",
+    "motivo": "PJe limitado ao TJMG (URL fixa)",
+    "tj_label": "TJPA — PJe",
+    "erro": "login OK; formulário de busca usa IDs diferentes (fPP:numeroProcesso:Ano ausente) — pesquisa por número não suportada nessa versão"
   },
   "0003730-88.2020.8.17.2420": {
     "sistema": "TJPE PJe",
-    "status": "nao_suportado",
-    "motivo": "PJe limitado ao TJMG (URL fixa)"
+    "status": "falha",
+    "motivo": "PJe limitado ao TJMG (URL fixa)",
+    "tj_label": "TJPE — PJe",
+    "erro": "não testado ao vivo nesta rodada; provável variação de versão (form/timeline/doc) como TJCE/TJPA"
   }
 }

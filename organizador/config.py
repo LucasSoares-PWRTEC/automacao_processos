@@ -4,10 +4,25 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
-# Raiz do projeto = pasta que contém o pacote organizador/.
-_RAIZ = Path(__file__).resolve().parent.parent
+
+def _raiz_app() -> Path:
+    """Raiz onde ficam os dados do app (config/, Petições/).
+
+    - Em execução normal: a pasta que contém o pacote ``organizador/``.
+    - Empacotado com PyInstaller (onefile): ``sys._MEIPASS`` (pasta temporária
+      onde o exe extrai os dados embutidos). Assim o exe acha config/.env,
+      credenciais.json e os modelos de petição embutidos, sem instalação.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    return Path(__file__).resolve().parent.parent
+
+
+# Raiz do projeto = pasta que contém o pacote organizador/ (ou o bundle).
+_RAIZ = _raiz_app()
 
 def _resolver_pasta_padrao() -> str:
     env = os.getenv("ORGANIZADOR_PASTA_PADRAO")
@@ -54,12 +69,25 @@ TJ_SISTEMAS = {
     "TJMS — e-SAJ": ("esaj",  "MATO GROSSO DO SUL", "https://esaj.tjms.jus.br/cpopg/open.do", None),
     "TJMG — eproc": ("eproc", "MINAS GERAIS", "https://eproc1g.tjmg.jus.br/eproc/", None),
     "TJMG — PJe":   ("pje",   "MINAS GERAIS", "https://pje.tjmg.jus.br/pje/", None),
+    # PJe é nacional (login único via PDPJ): o scraper deriva login.seam e a
+    # busca interna da URL base abaixo (cada tribunal tem seu host/path: /pje/,
+    # /pje1grau/, /1g/...). O TOTP é o mesmo (TOTP_PDPJ) em todos.
+    "TJCE — PJe":   ("pje",   "CEARA",       "https://pje.tjce.jus.br/pje1grau/", None),
+    "TJMA — PJe":   ("pje",   "MARANHAO",    "https://pje.tjma.jus.br/pje/", None),
+    "TJPA — PJe":   ("pje",   "PARA",        "https://pje.tjpa.jus.br/pje/", None),
+    "TJPE — PJe":   ("pje",   "PERNAMBUCO",  "https://pje.cloud.tjpe.jus.br/1g/", None),
+    "TJSC — eproc": ("eproc", "SANTA CATARINA", "https://eproc1g.tjsc.jus.br/eproc/", "SC"),
 }
 _ESTADO_TJ_UF = {
     "SAO PAULO": ("TJSP", "SP"),
     "MINAS GERAIS": ("TJMG", "MG"),
     "AMAZONAS": ("TJAM", "AM"),
     "MATO GROSSO DO SUL": ("TJMS", "MS"),
+    "CEARA": ("TJCE", "CE"),
+    "MARANHAO": ("TJMA", "MA"),
+    "PARA": ("TJPA", "PA"),
+    "PERNAMBUCO": ("TJPE", "PE"),
+    "SANTA CATARINA": ("TJSC", "SC"),
 }
 
 

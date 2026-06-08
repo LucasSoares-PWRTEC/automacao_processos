@@ -22,6 +22,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urljoin, urlparse
 
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -64,9 +65,24 @@ TRIGGER_DOC = re.compile(
     r"ALVARA|LEVANTAMENTO|PENHORA|BLOQUEIO)\b"
 )
 
-TJ_CHAVE = "TJMG - PJE"
+# PJe é nacional (login único via PDPJ/Keycloak em sso.cloud.pje.jus.br): o
+# código do app autenticador (TOTP) é o MESMO em todos os tribunais — muda só
+# a URL base do PJe e a chave de credencial. Por isso o TOTP fica fixo aqui e
+# a URL/credencial são parametrizadas por estado (ver _CRED_POR_ESTADO e a URL
+# vinda de TJ_SISTEMAS, repassada ao __init__).
 TOTP_ENV = "TOTP_PDPJ"
 
+# estado (forma usada em TJ_SISTEMAS) -> chave de credencial em credenciais.json.
+# Sem entrada aqui, cai no TJMG (compatibilidade).
+_CRED_POR_ESTADO = {
+    "MINAS GERAIS": "TJMG - PJE",
+    "CEARA":        "TJCE - PJE - 1º Grau",
+    "MARANHAO":     "TJMA – PJE – 1º Grau",
+    "PARA":         "TJPA - PJE – 1º Grau",
+    "PERNAMBUCO":   "TJPE - PJE – 1º Grau",
+}
+
+# Defaults TJMG (fallback quando a url não é informada).
 LOGIN_URL = "https://pje.tjmg.jus.br/pje/login.seam"
 BUSCA_URL = "https://pje.tjmg.jus.br/pje/Processo/ConsultaProcesso/listView.seam"
 
@@ -80,6 +96,15 @@ class PJEScraper(TribunalScraper):
 
     def __init__(self, estado: str, url: str, headless: bool = False):
         super().__init__(estado=estado, url=url, headless=headless)
+        # Deriva as URLs do PJe a partir da base vinda de TJ_SISTEMAS
+        # (ex.: "https://pje.tjmg.jus.br/pje/"). Sem url, usa o TJMG.
+        base = url or "https://pje.tjmg.jus.br/pje/"
+        if not base.endswith("/"):
+            base += "/"
+        self.login_url = urljoin(base, "login.seam")
+        self.busca_url = urljoin(base, "Processo/ConsultaProcesso/listView.seam")
+        self.host = urlparse(base).netloc  # ex.: "pje.tjmg.jus.br"
+        self.tj_chave = _CRED_POR_ESTADO.get(estado, "TJMG - PJE")
         self.driver = criar_chrome_driver(headless=headless)
         self.wait = WebDriverWait(self.driver, 30)
 
@@ -142,11 +167,11 @@ class PJEScraper(TribunalScraper):
         if self._logado:
             return
 
-        login_raw, senha = obter_credenciais(TJ_CHAVE)
+        login_raw, senha = obter_credenciais(self.tj_chave)
         cpf = self._cpf_digits(login_raw)
-        print(f"🔐 PJe TJMG: logando (CPF {cpf}) ...")
+        print(f"🔐 PJe ({self.host}): logando (CPF {cpf}) ...")
 
-        self.driver.get(LOGIN_URL)
+        self.driver.get(self.login_url)
 
         # Keycloak — ids CONFIRMADOS por diagnóstico
         try:
@@ -214,7 +239,7 @@ class PJEScraper(TribunalScraper):
     def _parece_logado(self) -> bool:
         try:
             url = (self.driver.current_url or "").lower()
-            if "pje.tjmg.jus.br" in url and "sso.cloud.pje.jus.br" not in url:
+            if self.host.lower() in url and "sso.cloud.pje.jus.br" not in url:
                 return True
             # nome do usuário no topo após login
             return bool(
@@ -277,7 +302,7 @@ class PJEScraper(TribunalScraper):
         MAX_TENTATIVAS_RELOGIN = 3  # 1 tentativa normal + até 2 retries
         form_pronto = False
         for tentativa in range(MAX_TENTATIVAS_RELOGIN):
-            self.driver.get(BUSCA_URL)
+            self.driver.get(self.busca_url)
             time.sleep(0.4)  # folga p/ eventual redirect Keycloak
 
             if self._sessao_expirada():
@@ -400,11 +425,44 @@ class PJEScraper(TribunalScraper):
     _ID_NAV_PROXIMO = "detalheDocumento:proximoDocumento"
     MAX_DOCS = 400  # trava de segurança
 
+    # Elementos clicáveis de documento da timeline, por VERSÃO do PJe:
+    #   antigo (TJMG): <span id$=":idDocumentoTimeLine"> com texto "ID - Tipo"
+    #   novo (TJMA/TJCE/TJPA/TJPE): <a id^="divTimeLine:"> com texto "ID - Tipo"
+    # Em ambos o texto é "NNNNN - Tipo (descrição)" e o documento abre via AJAX
+    # no mesmo iframe (frameHtml). Por isso o resto da coleta é o mesmo.
+    _SEL_DOC_SPAN = 'span[id$=":idDocumentoTimeLine"]'
+    _SEL_DOC_ANCHOR = '#divTimeLine\\:divEventosTimeLine a[id^="divTimeLine:"]'
+
+    def _doc_elements(self) -> list:
+        """Elementos de documento da timeline (span antigo OU âncora nova),
+        filtrando só os cujo texto casa 'NNNNN - Tipo'."""
+        spans = [
+            e for e in self.driver.find_elements(By.CSS_SELECTOR, self._SEL_DOC_SPAN)
+            if RX_ID_DOC_PJE.search(e.text or "")
+        ]
+        if spans:
+            return spans
+        return [
+            a for a in self.driver.find_elements(By.CSS_SELECTOR, self._SEL_DOC_ANCHOR)
+            if RX_ID_DOC_PJE.search(a.text or "")
+        ]
+
+    def _iframe_doc_el(self):
+        """Iframe do visualizador (frameHtml no TJMG; fallback p/ o 1º iframe
+        em versões que usem outro id)."""
+        try:
+            return self.driver.find_element(By.ID, self._ID_IFRAME_DOC)
+        except Exception:
+            iframes = self.driver.find_elements(By.TAG_NAME, "iframe")
+            return iframes[0] if iframes else None
+
     def _ler_iframe_documento(self) -> str:
-        """Lê o texto do documento atual (iframe frameHtml). '' se for
+        """Lê o texto do documento atual (iframe do visualizador). '' se for
         PDF/imagem sem camada de texto (limitação aceita pelo usuário)."""
         try:
-            fr = self.driver.find_element(By.ID, self._ID_IFRAME_DOC)
+            fr = self._iframe_doc_el()
+            if fr is None:
+                return ""
             self.driver.switch_to.frame(fr)
             txt = self.driver.find_element(By.TAG_NAME, "body").text or ""
         except Exception:
@@ -415,6 +473,42 @@ class PJEScraper(TribunalScraper):
             except Exception:
                 pass
         return txt
+
+    def _ler_doc_via_http(self) -> str:
+        """Fallback p/ o PJe novo (TJMA/TJCE/TJPA/TJPE): nessas versões o
+        documento abre no iframe via AJAX e o switch_to.frame falha (o frame é
+        recriado). Aqui baixamos o doc direto da URL do iframe usando os
+        cookies da sessão e extraímos o texto (HTML via BeautifulSoup, PDF via
+        pypdf). Não afeta o TJMG, onde a leitura via iframe já funciona."""
+        fr = self._iframe_doc_el()
+        src = (fr.get_attribute("src") if fr is not None else "") or ""
+        if not src:
+            return ""
+        try:
+            import io
+            from urllib.parse import parse_qs, unquote, urljoin, urlparse
+
+            import requests
+            from bs4 import BeautifulSoup
+            from pypdf import PdfReader
+
+            # Alguns tribunais (ex.: TJCE) renderizam o doc num PDF.js viewer:
+            # o src é o viewer e o PDF real fica no parâmetro ?file=. Resolve.
+            q = parse_qs(urlparse(src).query)
+            if q.get("file"):
+                src = urljoin(src, unquote(q["file"][0]))
+
+            sess = requests.Session()
+            for c in self.driver.get_cookies():
+                sess.cookies.set(c["name"], c["value"], domain=c.get("domain"))
+            r = sess.get(src, timeout=60, headers={"Referer": self.driver.current_url})
+            ct = (r.headers.get("Content-Type") or "").lower()
+            if "pdf" in ct or r.content[:5] == b"%PDF-":
+                reader = PdfReader(io.BytesIO(r.content), strict=False)
+                return "\n".join((p.extract_text() or "") for p in reader.pages)
+            return BeautifulSoup(r.text, "html.parser").get_text(" ", strip=True)
+        except Exception:
+            return ""
 
     def _proximo_desabilitado(self) -> bool:
         try:
@@ -456,9 +550,7 @@ class PJEScraper(TribunalScraper):
         for tentativa in range(60):
             self.driver.execute_script(scroll_js, self._ID_TIMELINE)
             time.sleep(0.7)
-            spans_agora = len(self.driver.find_elements(
-                By.CSS_SELECTOR, 'span[id$=":idDocumentoTimeLine"]'
-            ))
+            spans_agora = len(self._doc_elements())
             if spans_agora == spans_anterior:
                 estaveis += 1
                 if estaveis >= 3:  # 3 ciclos sem crescer = chegou ao fim
@@ -474,12 +566,10 @@ class PJEScraper(TribunalScraper):
         ]
 
         # Snapshot dos docs da timeline — agora com (id, texto, doc_id, data).
-        # doc_id (ex.: '10554398891') vem por regex no texto do span.
+        # doc_id (ex.: '10554398891') vem por regex no texto do elemento.
         # data (ex.: '06 out 2025') vem do header .media.data IMEDIATAMENTE
-        # antes do .media.interno do span (JS _JS_DATA_GRUPO).
-        spans = self.driver.find_elements(
-            By.CSS_SELECTOR, 'span[id$=":idDocumentoTimeLine"]'
-        )
+        # antes do .media.interno do elemento (JS _JS_DATA_GRUPO).
+        spans = self._doc_elements()
         candidatos = []
         for s in spans:
             try:
@@ -512,14 +602,10 @@ class PJEScraper(TribunalScraper):
 
         for cand in candidatos:
             sid = cand["sid"]
-            try:
-                src_old = self.driver.find_element(
-                    By.ID, self._ID_IFRAME_DOC
-                ).get_attribute("src")
-            except Exception:
-                src_old = None
+            fr = self._iframe_doc_el()
+            src_old = fr.get_attribute("src") if fr is not None else None
 
-            # Re-busca o span por ID a cada iteração (evita stale)
+            # Re-busca o elemento por ID a cada iteração (evita stale)
             try:
                 span = self.driver.find_element(By.ID, sid)
                 self.driver.execute_script(
@@ -531,14 +617,19 @@ class PJEScraper(TribunalScraper):
 
             try:
                 WebDriverWait(self.driver, 10).until(
-                    lambda d: d.find_element(
-                        By.ID, self._ID_IFRAME_DOC
-                    ).get_attribute("src") != src_old
+                    lambda d: (
+                        (self._iframe_doc_el() or None)
+                        and self._iframe_doc_el().get_attribute("src") != src_old
+                    )
                 )
             except Exception:
                 time.sleep(0.6)
 
             texto_doc = self._ler_iframe_documento()
+            if not texto_doc:
+                # PJe novo: iframe via AJAX não é legível por switch_to.frame;
+                # baixa o doc pela URL com os cookies da sessão.
+                texto_doc = self._ler_doc_via_http()
             if not texto_doc:
                 continue
 

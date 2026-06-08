@@ -97,7 +97,7 @@ class App(ttk.Window):
         self.var_filtro = tk.StringVar(value="")
         self.var_busca_numero = tk.StringVar(value="")
         self.var_busca_tj = tk.StringVar(value="TJSP — eproc (SP)")
-        self.var_busca_headless = tk.BooleanVar(value=False)
+        self.var_busca_headless = tk.BooleanVar(value=True)
         self.var_busca_docs = tk.BooleanVar(value=False)  # False → modo_docs "nenhum"; True → "atos"
         self.var_busca_debug = tk.StringVar(value="Desligado")  # ver _DEBUG_MODOS
         # Scraper retido em modo debug: mantém o navegador aberto (evita coleta

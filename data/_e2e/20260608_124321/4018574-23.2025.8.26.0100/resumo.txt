@@ -1,0 +1,226 @@
+RESUMO DO PROCESSO
+======================================================================
+Nº do processo : 4018574-23.2025.8.26.0100
+Tribunal       : TJSP  (SP)
+Classe         : EXECUÇÃO DE TÍTULO EXTRAJUDICIAL
+Assunto        : Confissão/Composição de Dívida (Direito Civil), Confissão/Composição de Dívida, Espécies de contratos, Obrigações, DIREITO CIVIL
+Competência    : Cível
+Data autuação  : 28/08/2025 12:29:55
+Situação       : MOVIMENTO
+Órgão Julgador : Juízo Titular II - 2ª Vara Cível - Regional IV - Lapa
+Comarca        : 
+Vara           : Juízo Titular II - 2ª Vara Cível - Regional IV - Lapa
+Juiz(a)        : SEUNG CHUL KIM
+Valor da causa : 
+Chave consulta : 
+Total eventos  : 84
+1ª movimentação: 28/08/2025
+Última mov.    : 01/05/2026 — Decorrido prazo - Refer. aos Eventos: 76, 77 e 78
+Arquivos       : —
+
+PRAZOS ABERTOS
+----------------------------------------------------------------------
+  (nenhum prazo aberto identificado)
+
+PARTES
+----------------------------------------------------------------------
+  [EXEQUENTE] BVEP VILA PARQUE EMPREENDIMENTO IMOBILIARIO SPE LTDA.  (16.993.208/0001-99) - Pessoa Jurídica
+           Advogado(s): MARCELO CANDIOTTO FREIRE (MG104784)
+  [EXECUTADO] ELAINE RODRIGUES DA SILVA  (408.961.898-30) - Pessoa Física
+           Advogado(s): MARCIO CANUTO VIEIRA JUNIOR (SP242634)
+  [EXECUTADO] GENESIA RODRIGUES DAS VIRGENS  (153.345.528-71) - Pessoa Física
+           Advogado(s): MARCIO CANUTO VIEIRA JUNIOR (SP242634)
+
+ÚLTIMAS MOVIMENTAÇÕES (10)
+----------------------------------------------------------------------
+  #86  01/05/2026 01:21:18  Decorrido prazo - Refer. aos Eventos: 76, 77 e 78
+  #85  24/04/2026 09:56:09  PETIÇÃO
+  #84  11/04/2026 01:50:27  Decorrido prazo - Refer. ao Evento: 65
+  #83  09/04/2026 01:44:06  Decorrido prazo - Refer. aos Eventos: 58, 59 e 60
+  #82  08/04/2026 13:02:33  Comunicação eletrônica recebida - decisão proferida em Agravo de Instrumento Número: 4034327-92.2026.8.26.0000/TJSP
+  #81  07/04/2026 03:56:45  Publicado no DJ Eletrônico - no dia 07/04/2026 - Refer. aos Eventos: 76, 77, 78
+  #80  06/04/2026 09:57:40  Comunicação eletrônica recebida - distribuído Agravo de Instrumento Número: 4034327-92.2026.8.26.0000/TJSP
+  #79  06/04/2026 03:18:07  Disponibilizado no DJ Eletrônico - no dia 06/04/2026 - Refer. aos Eventos: 76, 77, 78
+  #78  31/03/2026 19:27:54  Expedida/certificada a intimação eletrônica Refer. ao Evento 75 ( EXECUTADO - GENESIA RODRIGUES DAS VIRGENS) Prazo: 15 d...
+  #77  31/03/2026 19:27:54  Expedida/certificada a intimação eletrônica Refer. ao Evento 75 ( EXECUTADO - ELAINE RODRIGUES DA SILVA) Prazo: 15 dias ...
+
+HISTÓRICO COMPLETO DE EVENTOS
+----------------------------------------------------------------------
+  #86  01/05/2026 01:21:18
+        Decorrido prazo - Refer. aos Eventos: 76, 77 e 78
+        Usuário: SECFP
+  #85  24/04/2026 09:56:09
+        PETIÇÃO
+        Usuário: MG104784
+  #84  11/04/2026 01:50:27
+        Decorrido prazo - Refer. ao Evento: 65
+        Refer. ao evento: 65
+        Usuário: SECFP
+  #83  09/04/2026 01:44:06
+        Decorrido prazo - Refer. aos Eventos: 58, 59 e 60
+        Usuário: SECFP
+  #82  08/04/2026 13:02:33
+        Comunicação eletrônica recebida - decisão proferida em Agravo de Instrumento Número: 4034327-92.2026.8.26.0000/TJSP
+        Usuário: D11477
+  #81  07/04/2026 03:56:45
+        Publicado no DJ Eletrônico - no dia 07/04/2026 - Refer. aos Eventos: 76, 77, 78
+        Usuário: secde
+  #80  06/04/2026 09:57:40
+        Comunicação eletrônica recebida - distribuído Agravo de Instrumento Número: 4034327-92.2026.8.26.0000/TJSP
+        Usuário: SP242634
+  #79  06/04/2026 03:18:07
+        Disponibilizado no DJ Eletrônico - no dia 06/04/2026 - Refer. aos Eventos: 76, 77, 78
+        Usuário: secde
+  #78  31/03/2026 19:27:54
+        Expedida/certificada a intimação eletrônica Refer. ao Evento 75 ( EXECUTADO - GENESIA RODRIGUES DAS VIRGENS) Prazo: 15 dias Status:FECHADO ( 86 - Decorrido prazo ) Data inicial da contagem do prazo: 08/04/2026 00:00:00 Data final: 30/04/2026 23:59:59
+        Prazo: 15 dia(s) — FECHADO (08/04/2026 00:00:00 a 30/04/2026 23:59:59)
+        Usuário: J13495
+  #77  31/03/2026 19:27:54
+        Expedida/certificada a intimação eletrônica Refer. ao Evento 75 ( EXECUTADO - ELAINE RODRIGUES DA SILVA) Prazo: 15 dias Status:FECHADO ( 86 - Decorrido prazo ) Data inicial da contagem do prazo: 08/04/2026 00:00:00 Data final: 30/04/2026 23:59:59
+        Prazo: 15 dia(s) — FECHADO (08/04/2026 00:00:00 a 30/04/2026 23:59:59)
+        Usuário: J13495
+  #76  31/03/2026 19:27:54
+        Expedida/certificada a intimação eletrônica Refer. ao Evento 75 ( EXEQUENTE - BVEP VILA PARQUE EMPREENDIMENTO IMOBILIARIO SPE LTDA.) Prazo: 15 dias Status:FECHADO ( 86 - Decorrido prazo ) Data inicial da contagem do prazo: 08/04/2026 00:00:00 Data final: 30/04/2026 23:59:59
+        Prazo: 15 dia(s) — FECHADO (08/04/2026 00:00:00 a 30/04/2026 23:59:59)
+        Usuário: J13495
+  #75  31/03/2026 19:27:53
+        Decisão interlocutória
+        Usuário: J13495
+        Documentos: DESPADEC1
+  #74  31/03/2026 19:07:06
+        Juntada de Ordem Cumprida - (GENESIA RODRIGUES DAS VIRGENS)
+        Usuário: M373758
+  #73  31/03/2026 19:07:05
+        Juntada de Ordem Cumprida - (ELAINE RODRIGUES DA SILVA)
+        Usuário: M373758
+  #72  31/03/2026 12:22:11
+        Conclusos para decisão
+        Usuário: M373758
+  #71  31/03/2026 11:44:01
+        PETIÇÃO
+        Usuário: MG104784
+  #70  25/03/2026 04:32:05
+        Publicado no DJ Eletrônico - no dia 25/03/2026 - Refer. ao Evento: 65
+        Refer. ao evento: 65
+        Usuário: secde
+  #69  24/03/2026 03:59:14
+        Disponibilizado no DJ Eletrônico - no dia 24/03/2026 - Refer. ao Evento: 65
+        Refer. ao evento: 65
+        Usuário: secde
+  #68  23/03/2026 21:47:20
+        Juntado(a) - ofício expedido nos autos 4007306-66.2025.8.26.0004/SP referente ao evento 46
+        Usuário: J13495
+  #67  23/03/2026 21:47:20
+        Comunicação eletrônica recebida - Sentença Embargos à Execução Número: 4007306-66.2025.8.26.0004/SP
+        Usuário: J13495
+  #66  23/03/2026 17:02:42
+        Ato ordinatório praticado - Documento encaminhado à disponibilização no Diário Eletrônico - no dia 24/03/2026 - Refer. ao Evento: 65
+        Refer. ao evento: 65
+        Usuário: SECJE
+        Documentos: ATOORD1
+  #65  23/03/2026 14:46:16
+        Expedida/certificada a intimação eletrônica Refer. ao Evento 64 ( EXEQUENTE - BVEP VILA PARQUE EMPREENDIMENTO IMOBILIARIO SPE LTDA.) Prazo: 10 dias Status:FECHADO ( 84 - Decorrido prazo ) Data inicial da contagem do prazo: 26/03/2026 00:00:00 Data final: 10/04/2026 23:59:59
+        Prazo: 10 dia(s) — FECHADO (26/03/2026 00:00:00 a 10/04/2026 23:59:59)
+        Usuário: M373758
+  #64  23/03/2026 10:10:07
+        PEDIDO DE DESBLOQUEIO - EXCESSO DE SISBAJUD
+        Usuário: SP242634
+  #63  16/03/2026 03:38:13
+        Publicado no DJ Eletrônico - no dia 16/03/2026 - Refer. aos Eventos: 58, 59, 60
+        Usuário: secde
+  #62  13/03/2026 02:10:47
+        Disponibilizado no DJ Eletrônico - no dia 13/03/2026 - Refer. aos Eventos: 58, 59, 60
+        Usuário: secde
+  #61  12/03/2026 01:52:12
+        Decorrido prazo - Refer. ao Evento: 50
+        Refer. ao evento: 50
+        Usuário: SECFP
+  #60  11/03/2026 20:56:59
+        Expedida/certificada a intimação eletrônica Refer. ao Evento 57 ( EXECUTADO - GENESIA RODRIGUES DAS VIRGENS) Prazo: 15 dias Status:FECHADO ( 83 - Decorrido prazo ) Data inicial da contagem do prazo: 17/03/2026 00:00:00 Data final: 08/04/2026 23:59:59
+        Prazo: 15 dia(s) — FECHADO (17/03/2026 00:00:00 a 08/04/2026 23:59:59)
+        Usuário: J13495
+  #59  11/03/2026 20:56:59
+        Expedida/certificada a intimação eletrônica Refer. ao Evento 57 ( EXECUTADO - ELAINE RODRIGUES DA SILVA) Prazo: 15 dias Status:FECHADO ( 83 - Decorrido prazo ) Data inicial da contagem do prazo: 17/03/2026 00:00:00 Data final: 08/04/2026 23:59:59
+        Prazo: 15 dia(s) — FECHADO (17/03/2026 00:00:00 a 08/04/2026 23:59:59)
+        Usuário: J13495
+  #58  11/03/2026 20:56:59
+        Expedida/certificada a intimação eletrônica Refer. ao Evento 57 ( EXEQUENTE - BVEP VILA PARQUE EMPREENDIMENTO IMOBILIARIO SPE LTDA.) Prazo: 15 dias Status:FECHADO ( 83 - Decorrido prazo ) Data inicial da contagem do prazo: 17/03/2026 00:00:00 Data final: 08/04/2026 23:59:59
+        Prazo: 15 dia(s) — FECHADO (17/03/2026 00:00:00 a 08/04/2026 23:59:59)
+        Usuário: J13495
+  #57  11/03/2026 20:56:58
+        Decisão interlocutória
+        Usuário: J13495
+        Documentos: DESPADEC1
+  #56  11/03/2026 14:59:09
+        Conclusos para decisão
+        Usuário: M373758
+  #55  11/03/2026 12:46:09
+        PETIÇÃO
+        Usuário: MG104784
+  #54  07/03/2026 01:23:52
+        Decorrido prazo - Refer. ao Evento: 39
+        Refer. ao evento: 39
+        Usuário: SECFP
+  #53  04/03/2026 03:58:41
+        Publicado no DJ Eletrônico - no dia 04/03/2026 - Refer. ao Evento: 50
+        Refer. ao evento: 50
+        Usuário: secde
+  #52  03/03/2026 02:49:38
+        Disponibilizado no DJ Eletrônico - no dia 03/03/2026 - Refer. ao Evento: 50
+        Refer. ao evento: 50
+        Usuário: secde
+  #51  02/03/2026 14:34:34
+        Ato ordinatório praticado - Documento encaminhado à disponibilização no Diário Eletrônico - no dia 03/03/2026 - Refer. ao Evento: 50
+        Refer. ao evento: 50
+        Usuário: SECJE
+        Documentos: ATOORD1
+  #50  02/03/2026 13:58:04
+        Expedida/certificada a intimação eletrônica Refer. ao Evento 49 ( EXEQUENTE - BVEP VILA PARQUE EMPREENDIMENTO IMOBILIARIO SPE LTDA.) Prazo: 5 dias Status:FECHADO ( 61 - Decorrido prazo ) Data inicial da contagem do prazo: 05/03/2026 00:00:00 Data final: 11/03/2026 23:59:59
+        Prazo: 5 dia(s) — FECHADO (05/03/2026 00:00:00 a 11/03/2026 23:59:59)
+        Usuário: M373758
+  #49  02/03/2026 09:45:12
+        PEDIDO DE DESBLOQUEIO - EXCESSO DE SISBAJUD
+        Usuário: SP242634
+  #48  19/02/2026 19:54:54
+        Decisão interlocutória
+        Usuário: J13495
+        Documentos: DESPADEC1
+  #47  19/02/2026 15:38:31
+        Conclusos para decisão
+        Usuário: M373758
+  #46  19/02/2026 12:41:54
+        PETIÇÃO
+        Usuário: MG104784
+  #45  18/02/2026 12:57:19
+        Juntada - Registro de pagamento - Guia 482890753, Subguia 483589399 - Boleto pago (1/1) Baixado - R$ 384,20
+        Usuário: SECJE
+  #44  13/02/2026 09:36:24
+        Decorrido prazo - Refer. ao Evento: 34
+        Refer. ao evento: 34
+        Usuário: SECFP
+  #43  12/02/2026 14:23:09
+        Link para pagamento - Guia: 482890753, subguia: 483589399
+        Usuário: MG104784
+  #42  12/02/2026 14:23:03
+        Juntada - Guia Gerada - BVEP VILA PARQUE EMPREENDIMENTO IMOBILIARIO SPE LTDA. - Guia 482890753 - R$ 384,20
+        Usuário: MG104784
+  #41  11/02/2026 03:59:29
+        Publicado no DJ Eletrônico - no dia 11/02/2026 - Refer. ao Evento: 39
+        Refer. ao evento: 39
+        Usuário: secde
+  #40  10/02/2026 02:49:20
+        Disponibilizado no DJ Eletrônico - no dia 10/02/2026 - Refer. ao Evento: 39
+        Refer. ao evento: 39
+        Usuário: secde
+  #39  09/02/2026 14:36:00
+        Expedida/certificada a intimação eletrônica Refer. ao Evento 38 ( EXEQUENTE - BVEP VILA PARQUE EMPREENDIMENTO IMOBILIARIO SPE LTDA.) Prazo: 15 dias Status:FECHADO ( 54 - Decorrido prazo ) Data inicial da contagem do prazo: 12/02/2026 00:00:00 Data final: 06/03/2026 23:59:59
+        Prazo: 15 dia(s) — FECHADO (12/02/2026 00:00:00 a 06/03/2026 23:59:59)
+        Usuário: M373758
+  #38  09/02/2026 14:36:00
+        Ato ordinatório praticado
+        Usuário: M373758
+        Documentos: ATOORD1
+  #37  09/02/2026 13:42:16
+        PETIÇÃO
+        Usuário: MG104784
+  ... e mais 34 evento(s) (total: 84)
