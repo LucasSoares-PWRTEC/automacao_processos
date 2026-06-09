@@ -40,6 +40,13 @@ def _inferir_tribunal(numero_cnj: str) -> tuple[str, str]:
     return MAPA_TRIBUNAL_CNJ.get(chave, ""), MAPA_UF_CNJ.get(chave, "")
 
 
+def _uf_de_numero_cnj(numero: str) -> str:
+    """UF inferida do número CNJ (segmento .J.TR.). Fallback para quando a
+    comarca/UF não veio do processo — vazio se não for justiça estadual."""
+    _, uf = _inferir_tribunal(numero)
+    return uf
+
+
 def _municipio_de_comarca(comarca: str) -> str:
     """Extrai o nome do município de uma string tipo 'Comarca de Carapicuíba'."""
     if not comarca:

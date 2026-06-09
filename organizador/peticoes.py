@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import difflib
 import re
 from copy import deepcopy
+from datetime import date as _date
 from pathlib import Path
 from typing import Callable
 
@@ -33,6 +35,35 @@ RE_PLACEHOLDER_TEMPLATE = re.compile(
 _PLACEHOLDERS_IGNORADOS = {
     "assinado eletronicamente",
 }
+
+
+# Campo editável dos modelos novos: "(Campo editável no sistema - <descrição>)".
+# Ex.: "(Campo editável no sistema - adicionar o novo endereço localizado)".
+# Diferente dos placeholders normais (tem maiúscula, hífen e passa de 40 chars),
+# então precisa de regex própria. A <descrição> vira um campo na GUI; ao gerar,
+# o valor digitado entra em NEGRITO no lugar da tag (ou a tag é removida se vazio).
+RE_CAMPO_EDITAVEL = re.compile(
+    r"\(\s*campo\s+edit[áa]vel(?:\s+no\s+sistema)?\s*[-–—:]\s*(.+?)\s*\)",
+    re.IGNORECASE,
+)
+
+# Verbo+artigo de instrução no início da descrição ("adicionar o ...", "informar
+# a ..."), removidos para o rótulo ficar limpo ("novo endereço localizado").
+_RE_VERBO_INSTRUCAO = re.compile(
+    r"^(?:adicionar|inserir|informar|preencher|incluir|colocar|digitar)\s+"
+    r"(?:o|a|os|as|um|uma)\s+",
+    re.IGNORECASE,
+)
+
+
+def _campo_editavel_rotulo(descricao: str) -> str:
+    """Descrição da tag → rótulo/chave estável do campo (ex.: 'adicionar o novo
+    endereço localizado' → 'novo endereço localizado'). É a chave usada tanto na
+    GUI quanto no dict `dados`; por ser determinística, extração e substituição
+    sempre coincidem."""
+    base = re.sub(r"\s+", " ", descricao or "").strip()
+    limpo = _RE_VERBO_INSTRUCAO.sub("", base).strip()
+    return limpo or base
 
 
 def _obter_docx_cacheado(template_path: Path) -> Path:
@@ -73,6 +104,10 @@ def _extrair_placeholders_template(template_path: Path) -> set[str]:
                 if anterior and anterior[-1].isdigit():
                     continue
             encontrados.add(ph)
+        # Campos editáveis "(Campo editável no sistema - X)" viram um campo na GUI
+        # cujo rótulo/chave é a descrição limpa.
+        for m in RE_CAMPO_EDITAVEL.finditer(texto):
+            encontrados.add(_campo_editavel_rotulo(m.group(1)))
 
     for p in doc.paragraphs:
         _scan(p.text)
@@ -494,6 +529,31 @@ def _colapsar_local_duplicado(texto: str) -> str:
     return _RE_LOCAL_DUPLICADO.sub(_repl, texto)
 
 
+_MESES = (
+    "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+)
+
+# Data por extenso ao fim da linha de fechamento "De <local> para <local>, DATA".
+# Ancorada no "De ... ," para NÃO tocar datas do corpo da petição.
+_RE_DATA_FECHAMENTO = re.compile(
+    r"(?i)(\bDe\s+.+?,\s*)\d{1,2}\s+de\s+(?:" + "|".join(_MESES) + r")\s+de\s+\d{4}\.?"
+)
+
+
+def _data_por_extenso(data: "_date | None" = None) -> str:
+    """Data no formato brasileiro 'D de mês de AAAA' (sem zero à esquerda)."""
+    d = data or _date.today()
+    return f"{d.day} de {_MESES[d.month - 1]} de {d.year}"
+
+
+def _atualizar_data_fechamento(texto: str, data: "_date | None" = None) -> str:
+    """Troca a data fixa da linha de fechamento pela data de emissão (hoje)."""
+    return _RE_DATA_FECHAMENTO.sub(
+        lambda m: f"{m.group(1)}{_data_por_extenso(data)}", texto
+    )
+
+
 def _eh_run_vermelho(run) -> bool:
     """O run usa fonte vermelha? (texto de preenchimento manual nos modelos)."""
     cor = run.font.color
@@ -515,6 +575,78 @@ def _aplicar_formato_base(destino_run, base_run) -> None:
         destino_run.font.size = base_run.font.size
     if base_run.font.name is not None:
         destino_run.font.name = base_run.font.name
+
+
+def _fmt_basico(run) -> tuple:
+    """Formatação de caractere relevante do run (sem cor: a cor é inerente ao
+    run reaproveitado ou herdada do estilo nos runs novos)."""
+    return (run.bold, run.italic, run.underline, run.font.size, run.font.name)
+
+
+def _aplicar_fmt(run, fmt: tuple) -> None:
+    bold, italic, underline, size, name = fmt
+    run.bold = bold
+    run.italic = italic
+    run.underline = underline
+    if size is not None:
+        run.font.size = size
+    if name is not None:
+        run.font.name = name
+    run.font.highlight_color = None
+
+
+def _reescrever_preservando_formato(paragrafo, texto_original: str, texto_final: str) -> None:
+    """Reescreve o parágrafo preservando a formatação de caractere do modelo.
+
+    Diferente do colapso ingênuo (que jogava tudo no 1º run e fazia o parágrafo
+    inteiro herdar o negrito de um placeholder como "(autor)"), aqui alinhamos o
+    texto original ao final: trechos inalterados mantêm seu formato original e o
+    valor que substitui um placeholder herda o formato do placeholder substituído
+    (negrito continua negrito; corpo continua corpo).
+    """
+    fmts_orig: list[tuple] = []
+    for run in paragrafo.runs:
+        fmts_orig.extend([_fmt_basico(run)] * len(run.text))
+    default = fmts_orig[0] if fmts_orig else (None, None, None, None, None)
+
+    sm = difflib.SequenceMatcher(None, texto_original, texto_final, autojunk=False)
+    fmts_final: list[tuple] = [default] * len(texto_final)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            for k in range(j2 - j1):
+                fmts_final[j1 + k] = fmts_orig[i1 + k]
+        elif tag in ("replace", "insert"):
+            # Valor inserido/substituído herda o formato do início da região
+            # original correspondente (o do placeholder, quando é uma troca).
+            if i1 < len(fmts_orig):
+                ref = fmts_orig[i1]
+            elif fmts_orig:
+                ref = fmts_orig[-1]
+            else:
+                ref = default
+            for j in range(j1, j2):
+                fmts_final[j] = ref
+        # "delete": nada a inserir.
+
+    # Agrupa caracteres consecutivos de mesmo formato em pedaços.
+    pedacos: list[list] = []
+    for ch, f in zip(texto_final, fmts_final):
+        if pedacos and pedacos[-1][1] == f:
+            pedacos[-1][0].append(ch)
+        else:
+            pedacos.append([[ch], f])
+    if not pedacos:
+        pedacos = [[[], default]]
+
+    runs = paragrafo.runs
+    base = runs[0]
+    base.text = "".join(pedacos[0][0])
+    _aplicar_fmt(base, pedacos[0][1])
+    for run in runs[1:]:
+        run.text = ""
+    for chars, f in pedacos[1:]:
+        novo = paragrafo.add_run("".join(chars))
+        _aplicar_fmt(novo, f)
 
 
 # Sentinelas em área de uso privado do Unicode: mascaram os trechos vermelhos
@@ -563,6 +695,62 @@ def _reescrever_runs(
             novo.font.color.rgb = rgb
 
 
+def _aplicar_campo_editavel(paragrafo, dados: dict) -> None:
+    """Substitui as tags "(Campo editável no sistema - X)" do parágrafo.
+
+    O valor digitado pelo usuário entra em NEGRITO (só a variável — o texto fixo
+    ao redor mantém o formato do modelo). Sem valor, a tag é removida; se o
+    parágrafo ficar vazio, `_colapsar_paragrafos_vazios` o descarta depois.
+    """
+    texto = paragrafo.text
+    if not paragrafo.runs:
+        return
+    # Run-base para herdar tamanho/fonte; ignora vermelhos (preenchimento manual).
+    base = next(
+        (r for r in paragrafo.runs if not _eh_run_vermelho(r)),
+        paragrafo.runs[0],
+    )
+    base_bold = base.bold
+    base_italic = base.italic
+    base_underline = base.underline
+    base_size = base.font.size
+    base_name = base.font.name
+
+    # Pedaços (texto, é_variável?). Texto fixo entre/fora das tags mantém o
+    # negrito do modelo; só o valor preenchido é forçado a negrito.
+    pedacos: list[tuple[str, bool]] = []
+    pos = 0
+    for m in RE_CAMPO_EDITAVEL.finditer(texto):
+        if m.start() > pos:
+            pedacos.append((texto[pos:m.start()], False))
+        valor = (dados.get(_campo_editavel_rotulo(m.group(1))) or "").strip()
+        if valor:
+            pedacos.append((valor, True))
+        pos = m.end()
+    if pos < len(texto):
+        pedacos.append((texto[pos:], False))
+    if not pedacos:
+        pedacos = [("", False)]
+
+    def _fmt(run, variavel: bool) -> None:
+        run.bold = True if variavel else base_bold
+        run.italic = base_italic
+        run.underline = base_underline
+        if base_size is not None:
+            run.font.size = base_size
+        if base_name is not None:
+            run.font.name = base_name
+        run.font.highlight_color = None
+
+    for run in paragrafo.runs:
+        run.text = ""
+    base.text = pedacos[0][0]
+    _fmt(base, pedacos[0][1])
+    for texto_pedaco, variavel in pedacos[1:]:
+        novo = paragrafo.add_run(texto_pedaco)
+        _fmt(novo, variavel)
+
+
 def _substituir_paragrafo(
     paragrafo,
     dados: dict,
@@ -571,6 +759,12 @@ def _substituir_paragrafo(
     multiplos_imoveis: bool = False,
 ) -> None:
     if not paragrafo.runs:
+        return
+    # Campo editável "(Campo editável no sistema - X)": tratado à parte porque o
+    # texto não casa o regex genérico de placeholders nem é vermelho, e porque só
+    # a variável deve ficar em negrito (o mecanismo de runs abaixo não faz isso).
+    if RE_CAMPO_EDITAVEL.search(paragrafo.text):
+        _aplicar_campo_editavel(paragrafo, dados)
         return
     texto_original = paragrafo.text
 
@@ -627,6 +821,7 @@ def _substituir_paragrafo(
         texto_novo = _flex_judicial_treatment(texto_novo, ctx)
         texto_novo = texto_novo.upper()
     texto_novo = _colapsar_local_duplicado(texto_novo)
+    texto_novo = _atualizar_data_fechamento(texto_novo)
 
     # Texto final desmascarado, para comparação e para o caminho sem vermelho.
     texto_final = _RE_SENTINELA.sub(lambda m: vermelhos[int(m.group(1))][0], texto_novo)
@@ -634,9 +829,11 @@ def _substituir_paragrafo(
         # Nada mudou: preserva os runs originais (e suas cores) intactos.
         return
     if not vermelhos:
-        paragrafo.runs[0].text = texto_final
-        for run in paragrafo.runs[1:]:
-            run.text = ""
+        # Reescreve preservando o formato de caractere do modelo: o valor que
+        # substitui um placeholder bold (ex.: "(autor)") continua bold, e o corpo
+        # ao redor continua sem negrito — sem o parágrafo inteiro herdar o
+        # negrito do 1º run.
+        _reescrever_preservando_formato(paragrafo, texto_original, texto_final)
         return
     _reescrever_runs(paragrafo, texto_novo, vermelhos)
 

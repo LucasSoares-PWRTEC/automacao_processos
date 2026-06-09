@@ -21,7 +21,7 @@ from .config import (
 from .flexao import _construir_contexto
 from .models import Processo
 from .organizacao import _autor, _carregar_processos, _reus_joined, organizar_pasta, uf_do_cnj
-from .parsing import _municipio_de_comarca, _oab_completa
+from .parsing import _municipio_de_comarca, _oab_completa, _uf_de_numero_cnj
 from .peticoes import (
     PLACEHOLDERS_AUTO, PLACEHOLDERS_PETICAO,
     _extrair_placeholders_template, _template_eh_imobiliario, gerar_peticoes,
@@ -1255,9 +1255,11 @@ class App(ttk.Window):
             "juiz": proc.juiz,
             "assunto": proc.assunto,
             "municipio": _municipio_de_comarca(proc.comarca),
-            "estado": proc.uf,
-            "oab_uf": proc.uf,
-            "oab_numero": OAB_ESCRITORIO_POR_UF.get((proc.uf or "").upper(), ""),
+            "estado": proc.uf or _uf_de_numero_cnj(proc.numero),
+            "oab_uf": proc.uf or _uf_de_numero_cnj(proc.numero),
+            "oab_numero": OAB_ESCRITORIO_POR_UF.get(
+                (proc.uf or _uf_de_numero_cnj(proc.numero) or "").upper(), ""
+            ),
         }
         for atr, val in auto_map.items():
             var = getattr(self, f"var_{atr}", None)
@@ -1605,6 +1607,8 @@ class App(ttk.Window):
 
         # Secretaria e Vara são espelhadas — o mesmo valor alimenta ambos placeholders.
         vara_val = self.var_vara.get() or proc.vara
+        # UF de fallback pelo número CNJ quando o processo não trouxe a UF.
+        uf_cnj = proc.uf or _uf_de_numero_cnj(proc.numero)
         dados = {
             "numero": proc.numero,
             "classe": proc.classe,
@@ -1619,12 +1623,12 @@ class App(ttk.Window):
             "valor_causa": self.var_valor_causa.get() or proc.valor_causa,
             "secretaria": vara_val,
             "municipio": self.var_municipio.get() or _municipio_de_comarca(proc.comarca),
-            "estado": self.var_estado.get() or proc.uf,
-            "oab_uf": self.var_oab_uf.get() or proc.uf,
-            "oab_numero": self.var_oab_numero.get() or OAB_ESCRITORIO_POR_UF.get((proc.uf or "").upper(), ""),
+            "estado": self.var_estado.get() or uf_cnj,
+            "oab_uf": self.var_oab_uf.get() or uf_cnj,
+            "oab_numero": self.var_oab_numero.get() or OAB_ESCRITORIO_POR_UF.get(uf_cnj.upper(), ""),
             "oab_completa": _oab_completa(
-                self.var_oab_uf.get() or proc.uf,
-                self.var_oab_numero.get() or OAB_ESCRITORIO_POR_UF.get((proc.uf or "").upper(), ""),
+                self.var_oab_uf.get() or uf_cnj,
+                self.var_oab_numero.get() or OAB_ESCRITORIO_POR_UF.get(uf_cnj.upper(), ""),
             ),
             "endereco_reu": self.var_endereco_reu.get(),
             "vara_edit": vara_val,

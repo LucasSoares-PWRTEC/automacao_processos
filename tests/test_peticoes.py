@@ -294,6 +294,40 @@ def test_substituir_paragrafo_limpa_runs_excedentes():
     assert p.runs[1].text == ""
 
 
+def test_substituir_paragrafo_negrito_do_placeholder_nao_vaza_para_corpo():
+    # Nos modelos, um placeholder como "(autor)" vem em negrito num run próprio,
+    # com o corpo ao redor em texto normal. O valor substituído deve herdar o
+    # negrito do placeholder, mas o corpo NÃO pode ficar negrito.
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    ph = p.add_run("(autor)")
+    ph.bold = True
+    corpo = p.add_run(", já qualificada nos autos.")
+    corpo.bold = None
+    op._substituir_paragrafo(p, {"autor": "BVEP VILA PARQUE SPE LTDA."})
+    assert p.text == "BVEP VILA PARQUE SPE LTDA., já qualificada nos autos."
+    negritos = [r.text for r in p.runs if r.text and r.bold]
+    nao_negritos = [r.text for r in p.runs if r.text and not r.bold]
+    # O valor do placeholder permanece em negrito (formato do modelo).
+    assert "".join(negritos) == "BVEP VILA PARQUE SPE LTDA."
+    # O corpo não herda o negrito.
+    assert "".join(nao_negritos) == ", já qualificada nos autos."
+
+
+def test_substituir_paragrafo_tudo_negrito_preserva_negrito():
+    # Parágrafo genuinamente todo em negrito: sem run não-negrito, o negrito
+    # deve ser preservado (fallback para runs[0]).
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    r1 = p.add_run("(autor)")
+    r1.bold = True
+    r2 = p.add_run(", devidamente qualificado.")
+    r2.bold = True
+    op._substituir_paragrafo(p, {"autor": "FULANO"})
+    assert p.text == "FULANO, devidamente qualificado."
+    assert all(r.bold for r in p.runs if r.text)
+
+
 def test_preencher_campos_docx_substitui_placeholders_em_tabela():
     doc = docx.Document()
     tabela = doc.add_table(rows=1, cols=1)
@@ -530,3 +564,91 @@ def test_dedup_oab_aplicado_no_preenchimento():
     op._preencher_campos_docx(doc, {"oab_completa": "OAB/MG 104.784"})
     oabs = [p.text for p in doc.paragraphs if "OAB" in p.text]
     assert oabs == ["OAB/MG 104.784"]
+
+
+# --------------------------------------------------------------------------
+# Campo editável "(Campo editável no sistema - X)" dos modelos novos
+# --------------------------------------------------------------------------
+
+def test_campo_editavel_rotulo_limpa_verbo_de_instrucao():
+    assert op._campo_editavel_rotulo("adicionar o novo endereço localizado") == "novo endereço localizado"
+    assert op._campo_editavel_rotulo("informar a observação") == "observação"
+    # Sem verbo de instrução, mantém a descrição como está.
+    assert op._campo_editavel_rotulo("novo endereço localizado") == "novo endereço localizado"
+
+
+def test_extrair_placeholders_detecta_campo_editavel():
+    doc = docx.Document()
+    doc.add_paragraph("(Campo editável no sistema - adicionar o novo endereço localizado)")
+    import io
+    buf = io.BytesIO()
+    doc.save(buf)
+    from pathlib import Path
+    import tempfile
+    p = Path(tempfile.mkdtemp()) / "m.docx"
+    p.write_bytes(buf.getvalue())
+    phs = op._extrair_placeholders_template(p)
+    assert "novo endereço localizado" in phs
+
+
+def test_campo_editavel_valor_entra_em_negrito_e_tag_some():
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    run = p.add_run("(Campo editável no sistema - adicionar o novo endereço localizado)")
+    run.bold = False
+    op._substituir_paragrafo(p, {"novo endereço localizado": "Rua X, 10, Centro"})
+    assert p.text == "Rua X, 10, Centro"
+    assert "Campo editável" not in p.text
+    # Só a variável é negrito.
+    assert all(r.bold for r in p.runs if r.text)
+
+
+def test_campo_editavel_sem_valor_remove_a_tag():
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    p.add_run("(Campo editável no sistema - adicionar o novo endereço localizado)")
+    op._substituir_paragrafo(p, {})
+    assert p.text == ""
+    assert "Campo editável" not in p.text
+
+
+def test_campo_editavel_texto_fixo_ao_redor_nao_fica_negrito():
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    fixo1 = p.add_run("Endereço: ")
+    fixo1.bold = False
+    p.add_run("(Campo editável no sistema - novo endereço localizado)")
+    op._substituir_paragrafo(p, {"novo endereço localizado": "Rua Y, 20"})
+    assert p.text == "Endereço: Rua Y, 20"
+    # O texto fixo não herda negrito; só o valor preenchido fica em negrito.
+    negritos = [r.text for r in p.runs if r.text and r.bold]
+    assert negritos == ["Rua Y, 20"]
+
+
+# --------------------------------------------------------------------------
+# Data de emissão na linha de fechamento "De <local> para <local>, DATA"
+# --------------------------------------------------------------------------
+
+def test_data_fechamento_troca_pela_data_de_emissao():
+    import datetime
+    t = "De Belo Horizonte/MG para Indaiatuba/SP, 5 de junho de 2026"
+    out = op._atualizar_data_fechamento(t, datetime.date(2026, 6, 8))
+    assert out == "De Belo Horizonte/MG para Indaiatuba/SP, 8 de junho de 2026"
+
+
+def test_data_fechamento_aceita_ponto_e_zero_a_esquerda():
+    import datetime
+    t = "De Belo Horizonte/MG, 09 de abril de 2025."
+    assert op._atualizar_data_fechamento(t, datetime.date(2026, 12, 1)) == \
+        "De Belo Horizonte/MG, 1 de dezembro de 2026"
+
+
+def test_data_no_corpo_nao_e_alterada():
+    import datetime
+    corpo = "O contrato firmado em 10 de janeiro de 2020 segue vigente."
+    assert op._atualizar_data_fechamento(corpo, datetime.date(2026, 6, 8)) == corpo
+
+
+def test_data_por_extenso_formato_brasileiro():
+    import datetime
+    assert op._data_por_extenso(datetime.date(2026, 3, 8)) == "8 de março de 2026"
