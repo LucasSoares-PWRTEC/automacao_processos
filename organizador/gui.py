@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import queue
 import threading
@@ -15,13 +16,41 @@ import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
 from .config import (
-    OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, TJ_SISTEMAS,
-    sugerir_tj_para_uf, uf_efetiva_tj,
+    OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, PROCESSOS_ONLINE_DIR,
+    TJ_SISTEMAS, UI_STATE_PATH, sugerir_tj_para_uf, uf_efetiva_tj,
 )
+
+
+def _carregar_ui_state() -> dict:
+    """Estado da UI (pastas da aba Pesquisa) lembrado entre execuções."""
+    try:
+        dados = json.loads(UI_STATE_PATH.read_text(encoding="utf-8"))
+        return dados if isinstance(dados, dict) else {}
+    except Exception:
+        return {}
+
+
+def _salvar_ui_state(**campos) -> None:
+    """Mescla `campos` no estado persistido da UI (ignora valores vazios)."""
+    estado = _carregar_ui_state()
+    estado.update({k: v for k, v in campos.items() if v})
+    try:
+        UI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        UI_STATE_PATH.write_text(
+            json.dumps(estado, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
 from .flexao import _construir_contexto
 from .models import Processo
-from .organizacao import _autor, _carregar_processos, _reus_joined, organizar_pasta, uf_do_cnj
-from .parsing import _municipio_de_comarca, _oab_completa, _uf_de_numero_cnj
+from .organizacao import (
+    _autor, _carregar_processos, _reus_joined, organizar_pasta,
+    salvar_processo_metadados, uf_do_cnj,
+)
+from .parsing import (
+    _municipio_de_processo, _oab_completa, _uf_de_numero_cnj,
+    aprender_comarcas, aprender_municipio,
+)
 from .peticoes import (
     PLACEHOLDERS_AUTO, PLACEHOLDERS_PETICAO,
     _extrair_placeholders_template, _template_eh_imobiliario, gerar_peticoes,
@@ -91,9 +120,11 @@ class App(ttk.Window):
         self._progress_var = tk.IntVar(value=0)
         self._progress_max = tk.IntVar(value=100)
 
-        # Estado da aba Pesquisa de Processo
-        self.var_pesquisa_base = tk.StringVar(value=PASTA_PADRAO)
-        self.var_pesquisa_destino = tk.StringVar(value="")
+        # Estado da aba Pesquisa de Processo. Restaura as pastas usadas na última
+        # sessão (para pré-carregar os processos já trabalhados ao reabrir).
+        _ui_state = _carregar_ui_state()
+        self.var_pesquisa_base = tk.StringVar(value=_ui_state.get("pesquisa_base") or PASTA_PADRAO)
+        self.var_pesquisa_destino = tk.StringVar(value=_ui_state.get("pesquisa_destino") or "")
         self.var_filtro = tk.StringVar(value="")
         self.var_busca_numero = tk.StringVar(value="")
         self.var_busca_tj = tk.StringVar(value="TJSP — eproc (SP)")
@@ -148,6 +179,9 @@ class App(ttk.Window):
         self._rotulos_edit: dict[str, str] = {}
         self._dinamicos: dict[str, tuple[ttk.Label, ttk.Entry, tk.StringVar]] = {}
         self._frame_dinamicos: ttk.Labelframe | None = None
+        # Seção "Gerar petições" — referência para manter os campos dinâmicos
+        # ACIMA dela (o botão de gerar fica sempre por último).
+        self._section_gen: ttk.Labelframe | None = None
         self._frame_imoveis: ttk.Frame | None = None
         self._chk_imoveis: ttk.Checkbutton | None = None
         self._scan_tpls_thread: threading.Thread | None = None
@@ -176,6 +210,9 @@ class App(ttk.Window):
         self.after(150, self._drain_busca_result)
         self.after(150, self._atualizar_progresso_pesquisa)
         self.after(200, self._drain_notify_queue)
+        # Pré-carrega os processos já trabalhados (pasta base lembrada), para
+        # adicionar novas petições a um processo existente sem recarregar à mão.
+        self.after(300, self._carregar_pesquisa_inicial)
 
     def _build_widgets(self) -> None:
         nb = ttk.Notebook(self, bootstyle="primary")
@@ -450,11 +487,9 @@ class App(ttk.Window):
             ("orgao_julgador", "Órgão Julgador:"),
             ("juiz", "Juiz(a):"),
             ("valor_causa", "Valor da causa:"),
-            ("tags", "Tags:"),
             ("autor", "Autor:"),
             ("reu", "Réu(s):"),
             ("ultima_movimentacao", "Última movimentação:"),
-            ("proximo_prazo", "Próximo prazo:"),
         ]
         # Valores em Entry read-only (em vez de Label): o texto fica selecionável
         # e copiável (Ctrl+C / menu de contexto "Copiar"), mas não editável.
@@ -462,12 +497,15 @@ class App(ttk.Window):
         self._det_vars: dict[str, tk.StringVar] = {}
         self._det_rotulos: dict[str, str] = {atr: rot for atr, rot in campos}
         self._det_ordem: list[str] = [atr for atr, _ in campos]
+        # Label+entry de cada linha, para poder ocultar (ex.: valor da causa vazio).
+        self._det_widgets: dict[str, tuple[ttk.Label, ttk.Entry]] = {}
         self._det_menu = self._criar_menu_copiar()
         for i, (atr, rotulo) in enumerate(campos):
-            ttk.Label(
+            lbl = ttk.Label(
                 self._detalhes_frame, text=rotulo, anchor="e", width=18,
                 font=_FONT_BASE,
-            ).grid(row=i, column=0, sticky="e", padx=(4, 6), pady=2)
+            )
+            lbl.grid(row=i, column=0, sticky="e", padx=(4, 6), pady=2)
             var = tk.StringVar(value="")
             self._det_vars[atr] = var
             entry = ttk.Entry(
@@ -476,6 +514,7 @@ class App(ttk.Window):
             )
             entry.grid(row=i, column=1, sticky="ew", padx=(0, 4), pady=2)
             entry.bind("<Button-3>", self._abrir_menu_copiar)
+            self._det_widgets[atr] = (lbl, entry)
         # Botão para copiar todos os dados do processo de uma vez.
         ttk.Button(
             self._detalhes_frame, text="📋  Copiar dados", command=self._copiar_todos_dados,
@@ -526,6 +565,9 @@ class App(ttk.Window):
             self._entries_edit[atr] = entry
             # Ao digitar, remove o destaque de obrigatório-vazio (ver geração).
             var.trace_add("write", lambda *_a, a=atr: self._limpar_destaque_campo(a))
+            # Município: ao sair do campo, memoriza o valor para o foro do CNJ.
+            if atr == "municipio":
+                entry.bind("<FocusOut>", self._memorizar_municipio)
             if atr in ("valor_causa", "comarca", "vara", "tribunal", "endereco_foro",
                        "juiz", "assunto", "municipio", "estado", "oab_uf", "oab_numero"):
                 self._entries_auto[str(var)] = entry
@@ -607,6 +649,7 @@ class App(ttk.Window):
             f_detalhes, text="  Gerar petições  ",
             bootstyle="default", padding=(12, 8),
         )
+        self._section_gen = section_gen
         section_gen.pack(fill="x")
         f_gerar = ttk.Frame(section_gen)
         f_gerar.pack(fill="x")
@@ -1057,13 +1100,40 @@ class App(ttk.Window):
         path = filedialog.askdirectory(initialdir=self.var_pesquisa_base.get() or PASTA_PADRAO)
         if path:
             self.var_pesquisa_base.set(path)
+            _salvar_ui_state(pesquisa_base=path)
+
+    def _listar_processos(self) -> list[Processo]:
+        """Processos da pasta base + os buscados online (persistidos), sem
+        duplicar por número (a pasta base, curada, tem prioridade)."""
+        pasta = Path(self.var_pesquisa_base.get()).expanduser()
+        procs = _carregar_processos(pasta) if pasta.is_dir() else []
+        vistos = {p.numero for p in procs}
+        for p in _carregar_processos(PROCESSOS_ONLINE_DIR):
+            if p.numero and p.numero not in vistos:
+                procs.append(p)
+                vistos.add(p.numero)
+        return procs
+
+    def _carregar_pesquisa_inicial(self) -> None:
+        """Carga silenciosa no startup: popula a lista (base + buscados online),
+        sem popup de erro quando a pasta base ainda não foi escolhida."""
+        procs = self._listar_processos()
+        if procs:
+            self._processos_carregados = procs
+            aprender_comarcas(procs)
+            self._preencher_tree(procs)
 
     def _recarregar_pesquisa(self) -> None:
         pasta = Path(self.var_pesquisa_base.get()).expanduser()
         if not pasta.is_dir():
             messagebox.showerror("Erro", f"Pasta não existe:\n{pasta}")
             return
-        self._processos_carregados = _carregar_processos(pasta)
+        _salvar_ui_state(pesquisa_base=str(pasta))
+        # Pasta base + processos buscados online (lembrados entre execuções).
+        self._processos_carregados = self._listar_processos()
+        # Aprende código-de-origem CNJ → comarca destes processos (fallback de
+        # município para processos futuros sem comarca explícita).
+        aprender_comarcas(self._processos_carregados)
         self._preencher_tree(self._processos_carregados)
 
     def _buscar_online(self) -> None:
@@ -1173,6 +1243,9 @@ class App(ttk.Window):
                         p for p in self._processos_carregados if p.numero != proc.numero
                     ]
                     self._processos_carregados.append(proc)
+                    aprender_comarcas([proc])
+                    # Persiste o processo buscado online para reaparecer ao reabrir.
+                    salvar_processo_metadados(proc, PROCESSOS_ONLINE_DIR)
                     self._preencher_tree(self._processos_carregados)
                     if proc.numero and self.tree.exists(proc.numero):
                         self.tree.selection_set(proc.numero)
@@ -1219,6 +1292,27 @@ class App(ttk.Window):
         ]
         self._preencher_tree(filtrados)
 
+    def _mostrar_linha_detalhe(self, atr: str, visivel: bool) -> None:
+        """Mostra/oculta uma linha (rótulo+valor) dos dados do processo. Linha
+        oculta colapsa no grid (sem buraco)."""
+        widgets = self._det_widgets.get(atr)
+        if not widgets:
+            return
+        lbl, entry = widgets
+        if visivel:
+            lbl.grid()
+            entry.grid()
+        else:
+            lbl.grid_remove()
+            entry.grid_remove()
+
+    def _memorizar_municipio(self, event: tk.Event | None = None) -> None:
+        """Ao sair do campo Município, memoriza o valor para o foro do processo
+        selecionado (auto-preenche processos futuros do mesmo foro)."""
+        proc = self._proc_selecionado
+        if proc is not None:
+            aprender_municipio(proc.numero, self.var_municipio.get())
+
     def _on_select_processo(self, event: tk.Event) -> None:
         sel = self.tree.selection()
         if not sel:
@@ -1235,16 +1329,16 @@ class App(ttk.Window):
             ("orgao_julgador", proc.orgao_julgador or ""),
             ("juiz", proc.juiz or ""),
             ("valor_causa", proc.valor_causa or ""),
-            ("tags", ", ".join(proc.tags) if proc.tags else ""),
             ("autor", _autor(proc)),
             ("reu", _reus_joined(proc)),
             ("ultima_movimentacao", proc.ultima_movimentacao or ""),
-            ("proximo_prazo", proc.prazos_abertos[0].fim if proc.prazos_abertos else ""),
         ]
         for atr, val in campos:
             var = self._det_vars.get(atr)
             if var is not None:
                 var.set(val)
+        # Sem valor da causa: oculta a linha inteira (colapsa no grid).
+        self._mostrar_linha_detalhe("valor_causa", bool((proc.valor_causa or "").strip()))
 
         auto_map = {
             "valor_causa": proc.valor_causa,
@@ -1254,7 +1348,7 @@ class App(ttk.Window):
             "endereco_foro": proc.foro_endereco,
             "juiz": proc.juiz,
             "assunto": proc.assunto,
-            "municipio": _municipio_de_comarca(proc.comarca),
+            "municipio": _municipio_de_processo(proc),
             "estado": proc.uf or _uf_de_numero_cnj(proc.numero),
             "oab_uf": proc.uf or _uf_de_numero_cnj(proc.numero),
             "oab_numero": OAB_ESCRITORIO_POR_UF.get(
@@ -1572,7 +1666,11 @@ class App(ttk.Window):
 
         empacotado = self._frame_dinamicos.winfo_manager() == "pack"
         if qualquer_visivel and not empacotado:
-            self._frame_dinamicos.pack(fill="x", pady=(0, 6))
+            # Acima do "Gerar petições" para o botão de gerar ficar sempre por último.
+            if self._section_gen is not None:
+                self._frame_dinamicos.pack(fill="x", pady=(0, 6), before=self._section_gen)
+            else:
+                self._frame_dinamicos.pack(fill="x", pady=(0, 6))
         elif not qualquer_visivel and empacotado:
             self._frame_dinamicos.pack_forget()
 
@@ -1580,6 +1678,7 @@ class App(ttk.Window):
         path = filedialog.askdirectory(initialdir=self.var_pesquisa_destino.get() or ".")
         if path:
             self.var_pesquisa_destino.set(path)
+            _salvar_ui_state(pesquisa_destino=path)
 
     def _gerar_peticoes(self) -> None:
         if self._gen_worker and self._gen_worker.is_alive():
@@ -1592,6 +1691,7 @@ class App(ttk.Window):
         if not destino:
             messagebox.showwarning("Aviso", "Escolha uma pasta de destino para as petições.")
             return
+        _salvar_ui_state(pesquisa_destino=str(destino))
         templates_sel = [p for p, v in self._templates_vars.items() if v.get()]
         if not templates_sel:
             messagebox.showwarning("Aviso", "Selecione ao menos um modelo de petição.")
@@ -1622,7 +1722,7 @@ class App(ttk.Window):
             "reu": _reus_joined(proc),
             "valor_causa": self.var_valor_causa.get() or proc.valor_causa,
             "secretaria": vara_val,
-            "municipio": self.var_municipio.get() or _municipio_de_comarca(proc.comarca),
+            "municipio": self.var_municipio.get() or _municipio_de_processo(proc),
             "estado": self.var_estado.get() or uf_cnj,
             "oab_uf": self.var_oab_uf.get() or uf_cnj,
             "oab_numero": self.var_oab_numero.get() or OAB_ESCRITORIO_POR_UF.get(uf_cnj.upper(), ""),
@@ -1643,6 +1743,10 @@ class App(ttk.Window):
             val = var.get().strip()
             if val:
                 dados[ph] = val
+
+        # Memoriza o município (digitado ou derivado) para o código de origem do
+        # CNJ — processos futuros do mesmo foro auto-preenchem o campo.
+        aprender_municipio(proc.numero, dados.get("municipio", ""))
 
         documento_unico = self.var_documento_unico.get()
         ctx = _construir_contexto(proc)

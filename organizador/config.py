@@ -37,6 +37,20 @@ def _resolver_pasta_padrao() -> str:
 PASTA_PADRAO = _resolver_pasta_padrao()
 PASTA_NAO_IDENTIFICADOS = "_nao_identificados"
 CACHE_DIR = ".cache_texto"
+
+# Dados aprendidos do app, persistidos em local estável do usuário (NÃO no
+# bundle/_MEIPASS, que é temporário no exe). Hoje guarda só o cache de
+# código-de-origem CNJ → comarca, aprendido dos processos já vistos.
+APP_DATA_DIR = Path(
+    os.getenv("ORGANIZADOR_APP_DATA") or (Path.home() / ".automacao_processos")
+)
+COMARCAS_CACHE_PATH = APP_DATA_DIR / "comarcas_por_origem.json"
+# Estado da UI lembrado entre execuções (pastas base/destino da aba Pesquisa),
+# para pré-carregar os processos já trabalhados ao reabrir o app.
+UI_STATE_PATH = APP_DATA_DIR / "ui_state.json"
+# Processos trazidos pela busca online são persistidos aqui (um
+# <numero>/metadados.json por processo) para reaparecerem na lista ao reabrir.
+PROCESSOS_ONLINE_DIR = APP_DATA_DIR / "processos_online"
 PASTA_PETICOES = _RAIZ / "Petições"
 CONFIG_DIR = _RAIZ / "config"
 CONFIG_ENV_PATH = CONFIG_DIR / ".env"

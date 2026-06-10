@@ -51,6 +51,84 @@ def test_municipio_de_comarca():
     assert op._municipio_de_comarca("Foro Regional de Pinheiros") == "Pinheiros"
     assert op._municipio_de_comarca("São Paulo") == "São Paulo"
     assert op._municipio_de_comarca("") == ""
+    # Formato do e-SAJ: "Foro Regional <id> - <Nome>" → nome da regional.
+    assert op._municipio_de_comarca("Foro Regional VI - Penha de França") == "Penha de França"
+    assert op._municipio_de_comarca("Foro de Indaiatuba") == "Indaiatuba"
+
+
+def test_municipio_de_processo_fallback_orgao_julgador():
+    from organizador.models import Processo
+    # Comarca explícita.
+    assert op._municipio_de_processo(Processo(comarca="Comarca de Contagem")) == "Contagem"
+    # Sem comarca: deriva do órgão julgador.
+    p = Processo(comarca="", orgao_julgador="2ª Vara Cível da Comarca de Carapicuíba")
+    assert op._municipio_de_processo(p) == "Carapicuíba"
+    # Sem nenhuma fonte (e sem cache): vazio (campo fica manual na GUI).
+    assert op._municipio_de_processo(Processo(comarca="", orgao_julgador="")) == ""
+
+
+def test_origem_cnj_extrai_justica_tribunal_foro():
+    from organizador import parsing
+    assert parsing._origem_cnj("4004459-04.2026.8.26.0248") == "8.26.0248"
+    assert parsing._origem_cnj("sem número") == ""
+
+
+def _isola_cache(monkeypatch, tmp_path):
+    """Aponta o cache de comarcas para um arquivo temporário e zera o estado."""
+    from organizador import parsing
+    monkeypatch.setattr(parsing, "COMARCAS_CACHE_PATH", tmp_path / "comarcas.json")
+    monkeypatch.setattr(parsing, "_cache_comarcas", None)
+
+
+def test_cache_comarcas_aprende_persiste_e_deriva(monkeypatch, tmp_path):
+    from organizador import parsing
+    from organizador.models import Processo
+    _isola_cache(monkeypatch, tmp_path)
+
+    hist = [
+        Processo(numero="1102493-63.2022.8.26.0100", comarca="Foro Regional VI - Penha de França"),
+        Processo(numero="4004459-04.2026.8.26.0248", comarca="Comarca de Carapicuíba"),
+    ]
+    assert parsing.aprender_comarcas(hist) == 2
+    assert (tmp_path / "comarcas.json").exists()  # persistiu
+
+    # Processo NOVO, mesmo foro (0248), SEM comarca → resolve pelo número.
+    novo = Processo(numero="5005000-00.2027.8.26.0248", comarca="", orgao_julgador="")
+    assert parsing._municipio_de_processo(novo) == "Carapicuíba"
+    # Foro desconhecido → vazio.
+    outro = Processo(numero="9009000-00.2027.8.26.9999", comarca="", orgao_julgador="")
+    assert parsing._municipio_de_processo(outro) == ""
+    # Reaprender o mesmo histórico não grava de novo (idempotente).
+    assert parsing.aprender_comarcas(hist) == 0
+
+
+def test_aprender_municipio_digitado_memoriza_por_foro(monkeypatch, tmp_path):
+    from organizador import parsing
+    from organizador.models import Processo
+    _isola_cache(monkeypatch, tmp_path)
+
+    # Usuário digita o município de um processo sem comarca (e gera).
+    assert parsing.aprender_municipio("4004459-04.2026.8.26.0248", "Indaiatuba") is True
+    # Outro processo do MESMO foro (0248), sem comarca → auto-preenche.
+    novo = Processo(numero="5005000-00.2027.8.26.0248", comarca="", orgao_julgador="")
+    assert parsing._municipio_de_processo(novo) == "Indaiatuba"
+    # Manual VENCE até a comarca parseada de um processo futuro do mesmo foro.
+    com_comarca = Processo(numero="6006000-00.2027.8.26.0248", comarca="Comarca de Outra")
+    assert parsing._municipio_de_processo(com_comarca) == "Indaiatuba"
+    # Correção do usuário sobrescreve; vazio e repetido não gravam.
+    assert parsing.aprender_municipio("4004459-04.2026.8.26.0248", "Itu") is True
+    assert parsing._municipio_de_processo(novo) == "Itu"
+    assert parsing.aprender_municipio("4004459-04.2026.8.26.0248", "") is False
+    assert parsing.aprender_municipio("4004459-04.2026.8.26.0248", "Itu") is False
+
+
+def test_cache_comarcas_nao_aprende_sem_comarca(monkeypatch, tmp_path):
+    from organizador import parsing
+    from organizador.models import Processo
+    _isola_cache(monkeypatch, tmp_path)
+    # Processo sem comarca não polui o cache.
+    assert parsing.aprender_comarcas([Processo(numero="5005000-00.2027.8.26.0248", comarca="")]) == 0
+    assert parsing._carregar_cache_comarcas()["comarcas"] == {}
 
 
 def test_parse_orgao_julgador():

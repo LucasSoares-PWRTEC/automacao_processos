@@ -497,6 +497,22 @@ def _dict_para_processo(dados: dict) -> Processo:
     return proc
 
 
+def salvar_processo_metadados(proc: Processo, base: Path) -> None:
+    """Persiste o Processo como ``<base>/<numero>/metadados.json`` (mesmo formato
+    lido por _carregar_processos). Usado p/ lembrar processos buscados online."""
+    numero = (proc.numero or "").strip()
+    if not numero:
+        return
+    try:
+        pasta = base / numero
+        pasta.mkdir(parents=True, exist_ok=True)
+        (pasta / "metadados.json").write_text(
+            json.dumps(asdict(proc), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+    except Exception:
+        pass
+
+
 def _carregar_processos(pasta: Path) -> list[Processo]:
     """Varre subpastas de `pasta` por metadados.json e devolve lista de Processo."""
     resultados: list[Processo] = []

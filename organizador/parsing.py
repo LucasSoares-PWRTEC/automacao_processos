@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import date, datetime
 from pathlib import Path
 
+from .config import COMARCAS_CACHE_PATH
 from .models import Advogado, AtoDocumento, Evento, Parte, Prazo, Processo
 from .padroes import (
     CAMPOS_CABECALHO, MAPA_TRIBUNAL_CNJ, MAPA_UF_CNJ, PAPEIS_ATIVO, PAPEIS_PASSIVO,
@@ -48,14 +50,153 @@ def _uf_de_numero_cnj(numero: str) -> str:
 
 
 def _municipio_de_comarca(comarca: str) -> str:
-    """Extrai o nome do município de uma string tipo 'Comarca de Carapicuíba'."""
+    """Extrai o município/regional de uma string de comarca/foro.
+
+    Cobre 'Comarca de X', 'Foro Regional de X', 'Foro de X' e o formato do
+    e-SAJ 'Foro Regional VI - Penha de França' (devolve o nome da regional —
+    aceito no placeholder '(município ou regional)')."""
     if not comarca:
         return ""
     s = comarca.strip()
-    for prefixo in ("Comarca de ", "Foro Regional de ", "Foro de "):
+    # e-SAJ: "Foro Regional <id> - <Nome>" (id romano/numérico) → "<Nome>".
+    m = re.match(r"(?i)^Foro\s+Regional\s+[\wªºIVXLC]+\s*[-–—]\s*(.+)$", s)
+    if m:
+        return m.group(1).strip()
+    for prefixo in ("Comarca de ", "Foro Regional de ", "Foro Regional ", "Foro de "):
         if s.lower().startswith(prefixo.lower()):
             return s[len(prefixo):].strip()
     return s
+
+
+# --- Cache aprendido: código de origem CNJ (J.TR.OOOO) → comarca --------------
+# Os 4 últimos dígitos do CNJ (OOOO) identificam o foro de origem e são FIXOS por
+# foro dentro de um tribunal (ex.: TJSP 0248 = sempre Carapicuíba). O app aprende
+# esse mapa dos processos que já têm número + comarca e o usa como fallback para
+# processos futuros sem comarca — sem nenhuma tabela adivinhada.
+# Cache em disco com DOIS espaços, por código de origem (J.TR.OOOO):
+#   "manuais"  : município DIGITADO pelo usuário — prioridade máxima.
+#   "comarcas" : comarca aprendida automaticamente do parsing — fallback tardio.
+_cache_comarcas: dict[str, dict[str, str]] | None = None
+
+
+def _origem_cnj(numero: str) -> str:
+    """Chave 'J.TR.OOOO' (justiça+tribunal+foro) do CNJ. Vazio se não casar."""
+    m = RE_NUMERO_CNJ.search(numero or "")
+    if not m:
+        return ""
+    # NNNNNNN-DD.AAAA.J.TR.OOOO → partes[2:5] = J, TR, OOOO.
+    partes = m.group(0).split(".")
+    if len(partes) >= 5:
+        return f"{partes[2]}.{partes[3]}.{partes[4]}"
+    return ""
+
+
+def _carregar_cache_comarcas() -> dict[str, dict[str, str]]:
+    """Cache {'manuais': {...}, 'comarcas': {...}}, lido do disco 1x por sessão.
+
+    Migra o formato antigo (mapa plano código→comarca) para o espaço 'comarcas'."""
+    global _cache_comarcas
+    if _cache_comarcas is None:
+        try:
+            dados = json.loads(COMARCAS_CACHE_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            dados = {}
+        if not isinstance(dados, dict):
+            dados = {}
+        # Formato antigo (sem os espaços) = só auto-aprendidos de comarca.
+        if "manuais" not in dados and "comarcas" not in dados:
+            dados = {"comarcas": dados}
+        manuais = dados.get("manuais")
+        comarcas = dados.get("comarcas")
+        _cache_comarcas = {
+            "manuais": manuais if isinstance(manuais, dict) else {},
+            "comarcas": comarcas if isinstance(comarcas, dict) else {},
+        }
+    return _cache_comarcas
+
+
+def _salvar_cache_comarcas(cache: dict[str, dict[str, str]]) -> None:
+    try:
+        COMARCAS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        COMARCAS_CACHE_PATH.write_text(
+            json.dumps(cache, ensure_ascii=False, indent=2, sort_keys=True),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+def aprender_comarcas(processos) -> int:
+    """Aprende código-de-origem CNJ → comarca dos processos que têm ambos.
+
+    Persiste o cache e devolve quantas entradas novas/atualizadas foram gravadas.
+    Chamado ao carregar a lista de processos na GUI."""
+    cache = _carregar_cache_comarcas()
+    comarcas = cache["comarcas"]
+    novos = 0
+    for proc in processos:
+        chave = _origem_cnj(getattr(proc, "numero", ""))
+        comarca = (getattr(proc, "comarca", "") or "").strip()
+        if not chave or not comarca:
+            continue
+        if comarcas.get(chave) != comarca:
+            comarcas[chave] = comarca
+            novos += 1
+    if novos:
+        _salvar_cache_comarcas(cache)
+    return novos
+
+
+def aprender_municipio(numero: str, municipio: str) -> bool:
+    """Memoriza um município DIGITADO manualmente para o código de origem do CNJ.
+
+    Fica no espaço 'manuais' (prioridade máxima): em processos futuros do mesmo
+    foro, vence até a comarca parseada. Devolve True se gravou algo novo."""
+    chave = _origem_cnj(numero)
+    municipio = (municipio or "").strip()
+    if not chave or not municipio:
+        return False
+    cache = _carregar_cache_comarcas()
+    if cache["manuais"].get(chave) == municipio:
+        return False
+    cache["manuais"][chave] = municipio
+    _salvar_cache_comarcas(cache)
+    return True
+
+
+def _municipio_manual_por_numero(numero: str) -> str:
+    """Município digitado pelo usuário para o foro do CNJ (verbatim). Vazio se não há."""
+    chave = _origem_cnj(numero)
+    return _carregar_cache_comarcas()["manuais"].get(chave, "") if chave else ""
+
+
+def _municipio_por_numero(numero: str) -> str:
+    """Município/regional inferido do código de origem CNJ via comarca aprendida."""
+    chave = _origem_cnj(numero)
+    if not chave:
+        return ""
+    comarca = _carregar_cache_comarcas()["comarcas"].get(chave, "")
+    return _municipio_de_comarca(comarca) if comarca else ""
+
+
+def _municipio_de_processo(proc) -> str:
+    """Município/regional para a linha de fechamento da petição.
+
+    Ordem: município DIGITADO p/ o foro (sempre vence) → comarca do processo →
+    órgão julgador → comarca aprendida pelo código de origem. Vazio só quando
+    nada resolve (campo fica manual na GUI)."""
+    manual = _municipio_manual_por_numero(getattr(proc, "numero", ""))
+    if manual:
+        return manual
+    muni = _municipio_de_comarca(proc.comarca)
+    if muni:
+        return muni
+    if getattr(proc, "orgao_julgador", ""):
+        _, comarca = _parse_orgao_julgador(proc.orgao_julgador)
+        muni = _municipio_de_comarca(comarca)
+        if muni:
+            return muni
+    return _municipio_por_numero(getattr(proc, "numero", ""))
 
 
 def _oab_completa(uf: str, numero: str) -> str:

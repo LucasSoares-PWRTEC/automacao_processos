@@ -71,6 +71,24 @@ def test_carregar_processos_pasta_inexistente(tmp_path):
     assert op._carregar_processos(tmp_path / "nao_existe") == []
 
 
+def test_salvar_processo_metadados_roundtrip(tmp_path):
+    from organizador.models import Processo
+    proc = Processo(numero="1102493-63.2022.8.26.0100", comarca="Comarca de Contagem", classe="Execução")
+    op.salvar_processo_metadados(proc, tmp_path)
+    assert (tmp_path / proc.numero / "metadados.json").exists()
+    # Recarrega pelo mesmo loader usado no startup.
+    recarregados = op._carregar_processos(tmp_path)
+    assert len(recarregados) == 1
+    assert recarregados[0].numero == proc.numero
+    assert recarregados[0].comarca == "Comarca de Contagem"
+
+
+def test_salvar_processo_metadados_sem_numero_nao_grava(tmp_path):
+    from organizador.models import Processo
+    op.salvar_processo_metadados(Processo(numero=""), tmp_path)
+    assert op._carregar_processos(tmp_path) == []
+
+
 # --------------------------------------------------------------------------
 # gerar_indice_csv
 # --------------------------------------------------------------------------
