@@ -148,3 +148,123 @@ def test_blob_vazio_nao_quebra():
     assert d["atos"] == []
     assert d["numero"] == "5000432-19.2021.8.13.0079"
     assert d["tribunal"] == "TJMG"
+
+
+# --------------------------------------------------------------------------
+# Parada antecipada da coleta de documentos (PJe): _cabecalho_suficiente
+# --------------------------------------------------------------------------
+
+def test_pje_cabecalho_suficiente_para_na_classe():
+    from organizador.integracoes.tjsp_scraper.scrapers.pje import _cabecalho_suficiente
+
+    # Só timeline (movimentações), sem "CLASSE:" — segue abrindo documentos.
+    assert _cabecalho_suficiente("06 out 2025\nJUNTADA DE CERTIDÃO\nDESPACHO") is False
+    assert _cabecalho_suficiente("") is False
+    # Documento com o timbre/cabeçalho (linha CLASSE) — pode parar de abrir.
+    assert _cabecalho_suficiente("CLASSE: Execução de Título Extrajudicial") is True
+    doc = (
+        "CLASSE: Execução de Título Extrajudicial\n"
+        "Comarca de Fortaleza / 6ª Vara Cível\n"
+        "REQUERENTE: Banco XYZ S/A CNPJ: 00.000.000/0001-00"
+    )
+    assert _cabecalho_suficiente(doc) is True
+
+
+# --------------------------------------------------------------------------
+# Painel "Mais detalhes" do PJe → bloco do parser (sem abrir documentos)
+# --------------------------------------------------------------------------
+
+_HTML_DETALHE_PJE = """
+<div id="maisDetalhes">
+  <dl class="dl-horizontal">
+    <dt>Classe judicial</dt><dd>EXECUÇÃO DE TÍTULO EXTRAJUDICIAL (12154)</dd>
+    <dt>Assunto</dt><dd><ul><li>Pagamento (7703)</li></ul></dd>
+    <dt>Jurisdição</dt><dd>Comarca de Caucaia</dd>
+    <dt>Valor da causa</dt><dd>R$ 14.550,42</dd>
+  </dl>
+  <div><dl class="dl-horizontal">
+    <dt>Órgão julgador</dt><dd>1ª Vara Cível da Comarca de Caucaia</dd>
+  </dl></div>
+</div>
+<div id="poloAtivo"><table><tbody>
+  <tr><td><span><span>BELLA TRINDADE EMPREENDIMENTOS IMOBILIARIOS LTDA. - CNPJ: 24.518.456/0001-06 (EXEQUENTE)</span></span>
+    <ul class="tree"><li>MARCELO CANDIOTTO FREIRE - OAB MG104784 - CPF: 030.152.576-50 (ADVOGADO)</li></ul>
+  </td></tr>
+</tbody></table></div>
+<div id="poloPassivo"><table><tbody>
+  <tr><td><span><span>JOAO CARLOS DE SOUSA - CPF: 389.595.263-04 (EXECUTADO)</span></span>
+    <ul class="tree"><li>SHIRLEY CHAVES BRAGA BEZERRA - OAB CE53768 - CPF: 548.604.743-68 (ADVOGADO)</li></ul>
+  </td></tr>
+  <tr><td><span><span>CARLOS LEVI SILVA DE SOUSA - CPF: 080.162.783-45 (EXECUTADO)</span></span></td></tr>
+</tbody></table></div>
+"""
+
+
+def test_formatar_detalhe_pje_monta_bloco():
+    from organizador.integracoes.tjsp_scraper.parser_pje import _formatar_detalhe_pje
+
+    bloco = _formatar_detalhe_pje(_HTML_DETALHE_PJE)
+    assert "CLASSE: EXECUÇÃO DE TÍTULO EXTRAJUDICIAL" in bloco  # sem o (12154)
+    assert "ASSUNTO: Pagamento" in bloco
+    assert "Comarca de Caucaia / 1ª Vara Cível da Comarca de Caucaia" in bloco
+    assert "valor da causa R$ 14.550,42" in bloco
+    assert "EXEQUENTE: BELLA TRINDADE EMPREENDIMENTOS IMOBILIARIOS LTDA. CNPJ: 24.518.456/0001-06" in bloco
+    assert "EXECUTADO: JOAO CARLOS DE SOUSA CPF: 389.595.263-04" in bloco
+    assert "EXECUTADO: CARLOS LEVI SILVA DE SOUSA CPF: 080.162.783-45" in bloco
+    # Advogados (sub-árvore .tree) NÃO viram partes.
+    assert "ADVOGADO" not in bloco
+    # Sem o painel → vazio.
+    assert _formatar_detalhe_pje("<div>nada</div>") == ""
+
+
+def test_detalhe_pje_extrai_processo_completo():
+    from organizador.integracoes.tjsp_scraper.parser_pje import (
+        _formatar_detalhe_pje, extrair_processo_pje,
+    )
+    blob = "JUNTADA DE CERTIDÃO\n27 abr 2026\n\n" + _formatar_detalhe_pje(_HTML_DETALHE_PJE)
+    d = extrair_processo_pje(blob, numero_cnj="0008537-81.2019.8.06.0064")
+    assert d["classe"] == "EXECUÇÃO DE TÍTULO EXTRAJUDICIAL"
+    assert d["assunto"] == "Pagamento"
+    assert d["comarca"] == "Caucaia"
+    assert d["vara"] == "1ª Vara Cível da Comarca de Caucaia"
+    assert d["valor_causa"] == "R$ 14.550,42"
+    assert d["tribunal"] == "TJCE"
+    papeis = {(p["papel"], p["nome"]) for p in d["partes"]}
+    assert ("EXEQUENTE", "BELLA TRINDADE EMPREENDIMENTOS IMOBILIARIOS LTDA.") in papeis
+    assert ("EXECUTADO", "JOAO CARLOS DE SOUSA") in papeis
+    assert ("EXECUTADO", "CARLOS LEVI SILVA DE SOUSA") in papeis
+
+
+_HTML_DETALHE_PJE_MG = """
+<div id="maisDetalhes"><dl class="dl-horizontal">
+<dt>Classe judicial</dt><dd>[CÍVEL] EXECUÇÃO DE TÍTULO EXTRAJUDICIAL (12154)</dd>
+<dt>Assunto</dt><dd><ul><li>Compra e Venda (9587)</li></ul></dd>
+<dt>Jurisdição</dt><dd>Contagem</dd>
+<dt>Valor da causa</dt><dd>R$ 4.618,20</dd>
+</dl><div><dl class="dl-horizontal"><dt>Órgão julgador</dt><dd>4ª Vara Cível da Comarca de Contagem</dd></dl></div></div>
+<div id="poloAtivo"><table><tbody><tr><td><span><span>DIRECIONAL ENGENHARIA S.A - CNPJ: 16.614.075/0001-00 (EXEQUENTE)</span></span>
+<ul class="tree"><li>MARCELO CANDIOTTO FREIRE - OAB MG104784 - CPF: 030.152.576-50 (ADVOGADO)</li></ul>
+<ul class="tree"><li>Procuradoria - Direcional Engenharia</li></ul></td></tr></tbody></table></div>
+<div id="poloPassivo"><table><tbody><tr><td><span><span>LUIZ ALBERTO MARAZZI - CPF: 745.590.106-25 (EXECUTADO(A))</span></span>
+<ul class="tree"><li>LUIZ FERNANDO OLIVEIRA DE MORAIS - OAB MG229264 - CPF: 068.155.666-84 (ADVOGADO)</li></ul></td></tr></tbody></table></div>
+"""
+
+
+def test_detalhe_pje_tjmg_classe_civel_e_papel_com_parenteses():
+    from organizador.integracoes.tjsp_scraper.parser_pje import (
+        _formatar_detalhe_pje, extrair_processo_pje,
+    )
+    blob = "MOV\n01 jun 2026\n\n" + _formatar_detalhe_pje(_HTML_DETALHE_PJE_MG)
+    d = extrair_processo_pje(blob, numero_cnj="5014752-74.2021.8.13.0079")
+    # "[CÍVEL]" e código "(12154)" removidos da classe.
+    assert d["classe"] == "EXECUÇÃO DE TÍTULO EXTRAJUDICIAL"
+    assert d["comarca"] == "Contagem"          # derivada do órgão julgador
+    assert d["vara"] == "4ª Vara Cível da Comarca de Contagem"
+    assert d["valor_causa"] == "R$ 4.618,20"
+    assert d["tribunal"] == "TJMG"
+    papeis = {(p["papel"], p["nome"]) for p in d["partes"]}
+    assert ("EXEQUENTE", "DIRECIONAL ENGENHARIA S.A") in papeis
+    # "EXECUTADO(A)" (parênteses aninhados) é reconhecido como parte passiva.
+    assert any("LUIZ ALBERTO MARAZZI" == nome for _, nome in papeis)
+    # Advogados/procuradoria NÃO viram partes.
+    assert not any("ADVOGADO" in pap for pap, _ in papeis)

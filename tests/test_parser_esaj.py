@@ -144,8 +144,9 @@ def test_autor_e_reus_detectados_pelos_papeis_canonicos():
 
     p = _proc()
     assert _autor(p) == "Ns Empreendimento Imobiliário 23 Ltda."
+    # Mais de um réu: conectivo "e" entre os dois (em vez de ";").
     assert _reus_joined(p) == (
-        "Robson Matos Mascena da Silva; Danielle Oliveira da Silva Matos"
+        "Robson Matos Mascena da Silva e Danielle Oliveira da Silva Matos"
     )
 
 

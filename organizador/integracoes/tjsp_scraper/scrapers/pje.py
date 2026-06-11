@@ -65,6 +65,22 @@ TRIGGER_DOC = re.compile(
     r"ALVARA|LEVANTAMENTO|PENHORA|BLOQUEIO)\b"
 )
 
+# Teto de documentos a abrir: só uma guarda contra loop. Na prática o loop para
+# bem antes, assim que aparece o CABEÇALHO (ver _cabecalho_suficiente). Nunca
+# abre mais do que o comportamento antigo (que abria todos os candidatos).
+_MAX_DOCS_ABRIR = 30
+
+
+def _cabecalho_suficiente(blob: str) -> bool:
+    """Já abrimos o documento com o CABEÇALHO do processo? Sinal: linha 'CLASSE:'
+    (timbre TJCE) OU 'classe solta' "[CÍVEL] ... (156)" (timbre TJMG). Achar a
+    classe = pegamos o cabeçalho → dá para parar de abrir documentos."""
+    blob = blob or ""
+    from ..parser_pje import _RX_CLASSE, _RX_CLASSE_SOLTA
+    if _RX_CLASSE.search(blob):
+        return True
+    return any(_RX_CLASSE_SOLTA.match(linha) for linha in blob.splitlines())
+
 # PJe é nacional (login único via PDPJ/Keycloak em sso.cloud.pje.jus.br): o
 # código do app autenticador (TOTP) é o MESMO em todos os tribunais — muda só
 # a URL base do PJe e a chave de credencial. Por isso o TOTP fica fixo aqui e
@@ -534,10 +550,28 @@ class PJEScraper(TribunalScraper):
             self._screenshot("autos_nao_renderizou")
             return None
 
-        # Força carregar TODOS os eventos da timeline (lazy do RichFaces).
-        # Rolagem agressiva: muda scrollTop, dispara evento 'scroll'
-        # explícito, espera ajax, e para só quando a contagem de spans
-        # de documento parar de crescer.
+        # CAMINHO RÁPIDO: o painel "Mais detalhes" (cabeçalho + polos) já está no
+        # DOM da página de autos. Se presente, lê dali e NÃO abre nenhum documento
+        # (era a varredura lenta que o usuário pediu para evitar). A timeline (topo,
+        # sem rolar) dá a última movimentação.
+        from ..parser_pje import _formatar_detalhe_pje
+        bloco_detalhe = _formatar_detalhe_pje(self.driver.page_source)
+        if bloco_detalhe:
+            try:
+                timeline_txt = self.driver.find_element(By.ID, self._ID_TIMELINE).text or ""
+            except Exception:
+                timeline_txt = ""
+            print("📋 PJe: cabeçalho/partes do painel de detalhes (0 documentos abertos).")
+            blob = "\n".join([timeline_txt, bloco_detalhe])
+            return blob if blob.strip() else None
+        # Painel não veio no DOM dos autos: guarda um dump p/ diagnóstico e cai
+        # no fluxo de documentos (com parada na Classe).
+        print("⚠️ PJe: painel 'Mais detalhes' ausente no DOM dos autos; abrindo documentos.")
+        self._dump_dom("autos sem painel de detalhes")
+
+        # Carrega a timeline (lazy do RichFaces) rolando até a contagem de docs
+        # estabilizar. Isto NÃO é o gargalo (é só carregar spans); o custo grande
+        # era ABRIR cada documento — controlado no loop adiante (para na Classe).
         scroll_js = (
             "var el = document.getElementById(arguments[0]);"
             "if (!el) return 0;"
@@ -547,6 +581,7 @@ class PJEScraper(TribunalScraper):
         )
         spans_anterior = 0
         estaveis = 0
+        tentativa = 0
         for tentativa in range(60):
             self.driver.execute_script(scroll_js, self._ID_TIMELINE)
             time.sleep(0.7)
@@ -596,11 +631,18 @@ class PJEScraper(TribunalScraper):
             })
 
         print(
-            f"📑 PJe: {len(spans)} doc(s) na timeline; "
-            f"{len(candidatos)} chave(s) p/ abrir."
+            f"📑 PJe: {len(spans)} doc(s) carregado(s); "
+            f"{len(candidatos)} candidato(s); abrindo até ter cabeçalho + partes "
+            f"(máx. {_MAX_DOCS_ABRIR})."
         )
 
+        abertos = 0
         for cand in candidatos:
+            # Para assim que os dados básicos estiverem completos (ou no teto).
+            if abertos >= _MAX_DOCS_ABRIR or _cabecalho_suficiente(
+                "\n".join(p for p in partes_texto if p)
+            ):
+                break
             sid = cand["sid"]
             fr = self._iframe_doc_el()
             src_old = fr.get_attribute("src") if fr is not None else None
@@ -643,7 +685,9 @@ class PJEScraper(TribunalScraper):
                 f"| ID: {html.escape(cand['doc_id'], quote=False)} -->\n"
                 f"{texto_doc}"
             )
+            abertos += 1
 
+        print(f"📑 PJe: {abertos} documento(s) aberto(s) para extrair os dados.")
         blob = "\n".join(p for p in partes_texto if p)
         if not blob.strip():
             self._screenshot("autos_blob_vazio")

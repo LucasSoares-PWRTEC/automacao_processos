@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import re
 
+from bs4 import BeautifulSoup
 from unidecode import unidecode
 
 from .parser import _RX_DOCUMENTO_ORIGEM
@@ -145,6 +146,100 @@ def _extrair_partes(blob: str) -> list[dict]:
             "advogados": [],
         })
     return partes
+
+
+# ---------------------------------------------------------------------------
+# Painel "Mais detalhes" do PJe (no DOM da página de autos): cabeçalho + polos
+# já estruturados (classe, assunto, jurisdição, órgão julgador, valor, partes).
+# Reescreve no formato de BLOB que _extrair_cabecalho/_extrair_partes entendem,
+# para dispensar a abertura de documentos na busca.
+# ---------------------------------------------------------------------------
+# "NOME - CPF: 123 (EXECUTADO(A))" → papel é o ÚLTIMO parêntese (pode ter "(A)"
+# aninhado, ex.: TJMG usa "EXECUTADO(A)"/"REQUERIDO(A)"). Ancorado no fim.
+_RX_PARTE_DETALHE = re.compile(
+    r"^(?P<nome>.+?)\s*-\s*(?P<tipo>CPF|CNPJ)\s*:\s*(?P<doc>[\d./-]+)\s*\((?P<papel>.+)\)\s*$",
+    re.I,
+)
+
+
+def _campo_detalhe(campos: dict[str, str], *rotulos: str) -> str:
+    """Busca um valor por rótulo, tolerante a acento/caixa (varia por tribunal)."""
+    for rot in rotulos:
+        val = campos.get(unidecode(rot).lower().strip())
+        if val:
+            return val
+    return ""
+
+
+def _formatar_detalhe_pje(html: str) -> str:
+    """Do painel 'Mais detalhes' (#maisDetalhes/#poloAtivo/#poloPassivo), monta um
+    bloco-documento no formato esperado pelo parser. '' se o painel não existir.
+
+    Tolerante às diferenças sutis entre tribunais (TJCE, TJMG, …): rótulos sem
+    depender de acento/caixa, comarca derivada da Jurisdição OU do Órgão julgador,
+    e papéis (EXEQUENTE/EXECUTADO, REQUERENTE/REQUERIDO…) lidos do '(PAPEL)'."""
+    try:
+        soup = BeautifulSoup(html or "", "html.parser")
+    except Exception:
+        return ""
+    det = soup.find(id="maisDetalhes")
+    if det is None:
+        return ""
+
+    campos: dict[str, str] = {}
+    for dl in det.find_all("dl"):
+        dts, dds = dl.find_all("dt"), dl.find_all("dd")
+        for dt, dd in zip(dts, dds):
+            rot = unidecode(_normaliza(dt.get_text(" ", strip=True))).lower().rstrip(":").strip()
+            val = _normaliza(dd.get_text(" ", strip=True))
+            if rot and val:
+                campos[rot] = val
+
+    def _sem_codigo(s: str) -> str:
+        s = re.sub(r"\s*\(\d+\)", "", s)          # tira "(12154)" da classe/assunto
+        s = re.sub(r"^\s*\[[^\]]*\]\s*", "", s)   # tira prefixo "[CÍVEL] " (TJMG)
+        return s.strip()
+
+    classe = _sem_codigo(_campo_detalhe(campos, "Classe judicial", "Classe"))
+    assunto = _sem_codigo(_campo_detalhe(campos, "Assunto"))
+    jurisdicao = _campo_detalhe(campos, "Jurisdição", "Jurisdicao")
+    orgao = _campo_detalhe(campos, "Órgão julgador", "Orgao julgador")
+    valor = _campo_detalhe(campos, "Valor da causa")
+
+    linhas = ["<!-- DOCUMENTO_ORIGEM: Detalhes do processo | EVENTO: | DATA: | ID: -->"]
+    if classe:
+        linhas.append(f"CLASSE: {classe}")
+    if assunto:
+        linhas.append(f"ASSUNTO: {assunto}")
+    # Nome da comarca: da Jurisdição ("Comarca de X") ou, em fallback, do próprio
+    # Órgão julgador ("Nª Vara ... da Comarca de X").
+    m = re.search(r"Comarca de\s+(.+)", jurisdicao, re.I) or re.search(
+        r"Comarca de\s+([^/]+)", orgao, re.I
+    )
+    comarca_nome = (m.group(1).strip() if m else jurisdicao.strip())
+    if comarca_nome and orgao:
+        linhas.append(f"Comarca de {comarca_nome} / {orgao}")
+    elif orgao:
+        linhas.append(orgao)
+    if valor:
+        linhas.append(f"valor da causa {valor}")
+
+    # Partes dos polos (ignora os advogados, que ficam na sub-árvore <ul.tree>).
+    for div_id in ("poloAtivo", "poloPassivo"):
+        bloco = soup.find(id=div_id)
+        if bloco is None:
+            continue
+        for td in bloco.select("tbody td"):
+            for tree in td.find_all("ul", class_="tree"):
+                tree.extract()
+            mp = _RX_PARTE_DETALHE.match(_normaliza(td.get_text(" ", strip=True)))
+            if mp:
+                linhas.append(
+                    f"{mp.group('papel').strip()}: {mp.group('nome').strip()} "
+                    f"{mp.group('tipo').upper()}: {mp.group('doc')}"
+                )
+
+    return "\n".join(linhas) if len(linhas) > 1 else ""
 
 
 # ---------------------------------------------------------------------------

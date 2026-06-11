@@ -31,9 +31,10 @@ def _carregar_ui_state() -> dict:
 
 
 def _salvar_ui_state(**campos) -> None:
-    """Mescla `campos` no estado persistido da UI (ignora valores vazios)."""
+    """Mescla `campos` no estado persistido da UI. Descarta só None/'' (para não
+    apagar pastas salvas); booleans False são persistidos (ex.: modo_dev=False)."""
     estado = _carregar_ui_state()
-    estado.update({k: v for k, v in campos.items() if v})
+    estado.update({k: v for k, v in campos.items() if v not in (None, "")})
     try:
         UI_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
         UI_STATE_PATH.write_text(
@@ -81,6 +82,23 @@ _DEBUG_MODOS: dict[str, str] = {
     "Pausar após consulta (validar dados)": "pos_consulta",
 }
 
+def _converter_docx_para_pdf(docx_path: Path) -> Path:
+    """Converte um .docx para .pdf usando o Microsoft Word via COM (win32com)."""
+    import win32com.client
+    import pythoncom
+    pythoncom.CoInitialize()
+    word = win32com.client.Dispatch("Word.Application")
+    word.Visible = False
+    try:
+        doc = word.Documents.Open(str(docx_path.resolve()))
+        pdf_path = docx_path.with_suffix(".pdf")
+        doc.SaveAs(str(pdf_path.resolve()), FileFormat=17)  # 17 = wdFormatPDF
+        doc.Close()
+    finally:
+        word.Quit()
+    return pdf_path
+
+
 # Fontes e constantes visuais
 _FONT_BASE = ("Segoe UI", 10)
 _FONT_BOLD = ("Segoe UI", 10, "bold")
@@ -125,6 +143,11 @@ class App(ttk.Window):
         _ui_state = _carregar_ui_state()
         self.var_pesquisa_base = tk.StringVar(value=_ui_state.get("pesquisa_base") or PASTA_PADRAO)
         self.var_pesquisa_destino = tk.StringVar(value=_ui_state.get("pesquisa_destino") or "")
+        # Modo desenvolvedor: quando ligado, revela a aba Organizador, as opções
+        # avançadas da busca (baixar docs, navegador invisível, modo debug) e a
+        # seção 2FA das configurações. Desligado por padrão; lembrado entre sessões.
+        self.var_modo_dev = tk.BooleanVar(value=bool(_ui_state.get("modo_dev", False)))
+        self._dev_widgets_busca: list = []  # widgets avançados da aba Pesquisa
         self.var_filtro = tk.StringVar(value="")
         self.var_busca_numero = tk.StringVar(value="")
         self.var_busca_tj = tk.StringVar(value="TJSP — eproc (SP)")
@@ -155,10 +178,12 @@ class App(ttk.Window):
         self._templates_vars: dict[Path, tk.BooleanVar] = {}
         self.var_documento_unico = tk.BooleanVar(value=True)
         self.var_multiplos_imoveis = tk.BooleanVar(value=False)
+        self.var_gerar_pdf = tk.BooleanVar(value=False)
         self._pesquisa_log_queue: queue.Queue[str] = queue.Queue()
         self._gen_worker: threading.Thread | None = None
         self._busca_worker: threading.Thread | None = None
         self._busca_result_queue: queue.Queue = queue.Queue()
+        self._gen_result_queue: queue.Queue = queue.Queue()
         # Notificações de conclusão (popup + som + status). Fila thread-safe:
         # workers chamam _notificar(); o popup é mostrado na main thread.
         # _notify_busy evita empilhar diálogos durante o loop modal aninhado.
@@ -182,6 +207,7 @@ class App(ttk.Window):
         # Seção "Gerar petições" — referência para manter os campos dinâmicos
         # ACIMA dela (o botão de gerar fica sempre por último).
         self._section_gen: ttk.Labelframe | None = None
+        self._frame_gerados: ttk.Frame | None = None
         self._frame_imoveis: ttk.Frame | None = None
         self._chk_imoveis: ttk.Checkbutton | None = None
         self._scan_tpls_thread: threading.Thread | None = None
@@ -210,6 +236,7 @@ class App(ttk.Window):
         self.after(150, self._drain_busca_result)
         self.after(150, self._atualizar_progresso_pesquisa)
         self.after(200, self._drain_notify_queue)
+        self.after(200, self._drain_gen_result_queue)
         # Pré-carrega os processos já trabalhados (pasta base lembrada), para
         # adicionar novas petições a um processo existente sem recarregar à mão.
         self.after(300, self._carregar_pesquisa_inicial)
@@ -224,10 +251,15 @@ class App(ttk.Window):
         nb.add(frm_org, text="  Organizador  ")
         nb.add(frm_pesq, text="  Pesquisa de Processo  ")
         nb.add(frm_config, text="  Configurações  ")
+        # Referências p/ mostrar/ocultar conforme o modo dev.
+        self._nb = nb
+        self._tab_org = frm_org
+        self._tab_pesq = frm_pesq
 
         self._build_aba_organizador(frm_org)
         self._build_aba_pesquisa(frm_pesq)
         self._build_aba_config(frm_config)
+        self._aplicar_modo_dev()
 
         # Barra de status moderna
         bar = ttk.Frame(self, bootstyle="secondary")
@@ -378,32 +410,38 @@ class App(ttk.Window):
             f_busca, textvariable=self.var_busca_tj, values=list(TJ_SISTEMAS),
             state="readonly", width=18, font=_FONT_BASE,
         ).grid(row=0, column=3, sticky="w", pady=2)
-        ttk.Checkbutton(
+        chk_docs = ttk.Checkbutton(
             f_busca, text="Baixar documentos", variable=self.var_busca_docs,
             bootstyle="info",
-        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=(0, 6), pady=(4, 0))
-        ttk.Checkbutton(
+        )
+        chk_docs.grid(row=1, column=0, columnspan=2, sticky="w", padx=(0, 6), pady=(4, 0))
+        chk_headless = ttk.Checkbutton(
             f_busca, text="Navegador invisível", variable=self.var_busca_headless,
             bootstyle="info",
-        ).grid(row=1, column=2, sticky="w", padx=(8, 6), pady=(4, 0))
+        )
+        chk_headless.grid(row=1, column=2, sticky="w", padx=(8, 6), pady=(4, 0))
         self._btn_buscar = ttk.Button(
             f_busca, text="🔍  Buscar online", command=self._buscar_online,
             bootstyle="info", width=16,
         )
         self._btn_buscar.grid(row=1, column=3, sticky="e", pady=(4, 0))
         # ── Linha 3: modo de debug ─────────────────────────────────────
-        ttk.Label(f_busca, text="Modo debug:", font=_FONT_BASE).grid(
-            row=2, column=0, sticky="e", padx=(0, 6), pady=(4, 0),
-        )
-        ttk.Combobox(
+        lbl_debug = ttk.Label(f_busca, text="Modo debug:", font=_FONT_BASE)
+        lbl_debug.grid(row=2, column=0, sticky="e", padx=(0, 6), pady=(4, 0))
+        cbo_debug = ttk.Combobox(
             f_busca, textvariable=self.var_busca_debug,
             values=list(_DEBUG_MODOS), state="readonly", font=_FONT_BASE,
-        ).grid(row=2, column=1, columnspan=2, sticky="ew", padx=(0, 6), pady=(4, 0))
+        )
+        cbo_debug.grid(row=2, column=1, columnspan=2, sticky="ew", padx=(0, 6), pady=(4, 0))
         self._btn_fechar_debug = ttk.Button(
             f_busca, text="Fechar navegador debug", command=self._fechar_debug,
             bootstyle="warning-outline", width=22, state="disabled",
         )
         self._btn_fechar_debug.grid(row=2, column=3, sticky="e", pady=(4, 0))
+        # Opções avançadas — só visíveis no modo dev.
+        self._dev_widgets_busca = [
+            chk_docs, chk_headless, lbl_debug, cbo_debug, self._btn_fechar_debug,
+        ]
 
         # ── Seção: Filtro ──────────────────────────────────────────────
         f_filtro = ttk.Frame(parent)
@@ -508,12 +546,15 @@ class App(ttk.Window):
             lbl.grid(row=i, column=0, sticky="e", padx=(4, 6), pady=2)
             var = tk.StringVar(value="")
             self._det_vars[atr] = var
+            # Editável: o usuário pode corrigir/preencher o que a consulta trouxe
+            # (ou não trouxe). As edições fluem para a geração (ver _on_detalhe_edit).
             entry = ttk.Entry(
                 self._detalhes_frame, textvariable=var, font=_FONT_BASE,
-                state="readonly", bootstyle="info",
+                bootstyle="info",
             )
             entry.grid(row=i, column=1, sticky="ew", padx=(0, 4), pady=2)
             entry.bind("<Button-3>", self._abrir_menu_copiar)
+            var.trace_add("write", lambda *_a, a=atr: self._on_detalhe_edit(a))
             self._det_widgets[atr] = (lbl, entry)
         # Botão para copiar todos os dados do processo de uma vez.
         ttk.Button(
@@ -664,11 +705,22 @@ class App(ttk.Window):
             f_gerar, text="Escolher...", command=self._escolher_pesquisa_destino,
             bootstyle="outline", width=12,
         ).grid(row=0, column=2, pady=4)
+        # Indicadores de formato de saída
+        f_fmt = ttk.Frame(f_gerar)
+        f_fmt.grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        ttk.Label(f_fmt, text="📝", font=("Segoe UI", 14)).pack(side="left", padx=(0, 4))
+        ttk.Label(f_fmt, text="Word (.docx)", font=_FONT_BASE, bootstyle="secondary").pack(side="left", padx=(0, 20))
+        ttk.Label(f_fmt, text="📄", font=("Segoe UI", 14)).pack(side="left", padx=(0, 4))
+        ttk.Checkbutton(
+            f_fmt, text="PDF", variable=self.var_gerar_pdf, bootstyle="info",
+        ).pack(side="left")
         ttk.Button(
             f_gerar, text="📄  Gerar petições selecionadas",
             command=self._gerar_peticoes,
             bootstyle="success", width=28,
-        ).grid(row=1, column=0, columnspan=3, pady=(8, 0))
+        ).grid(row=2, column=0, columnspan=3, pady=(8, 0))
+        # Frame para exibir os arquivos gerados (oculto até gerar)
+        self._frame_gerados = ttk.Frame(section_gen)
 
         f_main.add(f_det_container, weight=2)
 
@@ -756,6 +808,7 @@ class App(ttk.Window):
             inner, text="  Autenticação em dois fatores (2FA)  ", bootstyle="default", padding=(12, 8),
         )
         sec_2fa.pack(fill="x", pady=(0, 8))
+        self._sec_2fa = sec_2fa  # ocultada fora do modo dev
         f2 = ttk.Frame(sec_2fa)
         f2.pack(fill="x")
         f2.columnconfigure(1, weight=1)
@@ -777,6 +830,7 @@ class App(ttk.Window):
         # ── Ações ──────────────────────────────────────────────────────
         f_acoes = ttk.Frame(inner)
         f_acoes.pack(fill="x", pady=(4, 0))
+        self._f_acoes_config = f_acoes  # âncora p/ re-empacotar a seção 2FA na ordem
         ttk.Button(
             f_acoes, text="💾  Salvar configurações", command=self._salvar_config,
             bootstyle="success", width=24,
@@ -789,6 +843,10 @@ class App(ttk.Window):
             f_acoes, text="Mostrar senhas", variable=self.var_mostrar_senhas,
             command=self._toggle_mostrar_senhas, bootstyle="info-round-toggle",
         ).pack(side="left", padx=(16, 0))
+        ttk.Checkbutton(
+            f_acoes, text="Modo desenvolvedor", variable=self.var_modo_dev,
+            command=self._toggle_modo_dev, bootstyle="warning-round-toggle",
+        ).pack(side="right")
 
         self._carregar_config_na_ui()
 
@@ -1292,6 +1350,62 @@ class App(ttk.Window):
         ]
         self._preencher_tree(filtrados)
 
+    def _toggle_modo_dev(self) -> None:
+        """Persiste o modo dev e aplica a visibilidade na hora."""
+        _salvar_ui_state(modo_dev=self.var_modo_dev.get())
+        self._aplicar_modo_dev()
+
+    def _aplicar_modo_dev(self) -> None:
+        """Mostra/oculta os elementos avançados conforme o modo dev:
+        aba Organizador, opções avançadas da busca e a seção 2FA das config."""
+        dev = bool(self.var_modo_dev.get())
+
+        # Aba Organizador (preserva a posição usando o estado da aba).
+        if getattr(self, "_nb", None) is not None:
+            with contextlib.suppress(Exception):
+                self._nb.tab(self._tab_org, state="normal" if dev else "hidden")
+                if not dev and self._nb.select() == str(self._tab_org):
+                    self._nb.select(self._tab_pesq)
+
+        # Opções avançadas da busca (grid_remove preserva a posição ao reexibir).
+        for w in getattr(self, "_dev_widgets_busca", []):
+            with contextlib.suppress(Exception):
+                w.grid() if dev else w.grid_remove()
+
+        # Seção 2FA das configurações (re-empacota antes da barra de ações).
+        sec = getattr(self, "_sec_2fa", None)
+        if sec is not None:
+            with contextlib.suppress(Exception):
+                if dev:
+                    sec.pack(fill="x", pady=(0, 8), before=self._f_acoes_config)
+                else:
+                    sec.pack_forget()
+
+    # Campos de "Dados do processo" que mapeiam 1:1 para atributos do Processo.
+    # (numero fica de fora: é a chave da linha na árvore — editá-lo na hora da
+    # geração é lido direto da var, sem mexer no objeto.)
+    _ATRS_DET_PROC = ("classe", "orgao_julgador", "juiz", "tribunal",
+                      "valor_causa", "ultima_movimentacao")
+    # Detalhe → campo editável equivalente (mantém a geração consistente quando o
+    # usuário corrige pelo painel de dados).
+    _ESPELHO_DET_EDIT = {"juiz": "var_juiz", "tribunal": "var_tribunal",
+                         "valor_causa": "var_valor_causa"}
+
+    def _on_detalhe_edit(self, atr: str) -> None:
+        """Edição de um campo dos dados do processo: espelha no campo editável
+        equivalente e grava de volta no Processo selecionado."""
+        proc = self._proc_selecionado
+        if proc is None:
+            return
+        val = self._det_vars[atr].get()
+        nome_var = self._ESPELHO_DET_EDIT.get(atr)
+        if nome_var is not None:
+            espelho = getattr(self, nome_var)
+            if espelho.get() != val:
+                espelho.set(val)
+        if atr in self._ATRS_DET_PROC:
+            setattr(proc, atr, val.strip())
+
     def _mostrar_linha_detalhe(self, atr: str, visivel: bool) -> None:
         """Mostra/oculta uma linha (rótulo+valor) dos dados do processo. Linha
         oculta colapsa no grid (sem buraco)."""
@@ -1419,17 +1533,7 @@ class App(ttk.Window):
         if not templates_dir.is_dir():
             templates_dir = PASTA_PETICOES
         if templates_dir.is_dir():
-            # Arquivos da raiz da pasta Petições.
-            for f in sorted(templates_dir.iterdir()):
-                if f.is_file() and f.suffix.lower() == ".docx":
-                    var = tk.BooleanVar(value=False)
-                    self._templates_vars[f] = var
-                    cb = ttk.Checkbutton(
-                        self._templates_inner, text=f.stem, variable=var,
-                        command=self._on_template_toggle, bootstyle="info",
-                    )
-                    cb.pack(anchor="w", pady=1)
-            # Subdiretórios (ex.: especiais/).
+            # Subdiretórios primeiro (ex.: Citação/, Mandado/, Penhora/).
             subdirs = sorted(
                 d for d in templates_dir.iterdir()
                 if d.is_dir() and not d.name.startswith(".")
@@ -1446,6 +1550,21 @@ class App(ttk.Window):
                     font=_FONT_BOLD, bootstyle="info",
                 ).pack(anchor="w", pady=(8, 2))
                 for f in arquivos:
+                    var = tk.BooleanVar(value=False)
+                    self._templates_vars[f] = var
+                    cb = ttk.Checkbutton(
+                        self._templates_inner, text=f.stem, variable=var,
+                        command=self._on_template_toggle, bootstyle="info",
+                    )
+                    cb.pack(anchor="w", pady=1)
+            # Arquivos da raiz da pasta Petições (sem subpasta) por último.
+            raiz = sorted(f for f in templates_dir.iterdir() if f.is_file() and f.suffix.lower() == ".docx")
+            if raiz:
+                ttk.Label(
+                    self._templates_inner, text="— Outros —",
+                    font=_FONT_BOLD, bootstyle="info",
+                ).pack(anchor="w", pady=(8, 2))
+                for f in raiz:
                     var = tk.BooleanVar(value=False)
                     self._templates_vars[f] = var
                     cb = ttk.Checkbutton(
@@ -1709,8 +1828,12 @@ class App(ttk.Window):
         vara_val = self.var_vara.get() or proc.vara
         # UF de fallback pelo número CNJ quando o processo não trouxe a UF.
         uf_cnj = proc.uf or _uf_de_numero_cnj(proc.numero)
+        # Campos editáveis dos "Dados do processo": número/autor/réu vêm das vars
+        # do painel (refletem correções do usuário); demais atributos já foram
+        # gravados no proc por _on_detalhe_edit.
+        numero_val = self._det_vars["numero"].get().strip() or proc.numero
         dados = {
-            "numero": proc.numero,
+            "numero": numero_val,
             "classe": proc.classe,
             "assunto": proc.assunto,
             "tribunal": self.var_tribunal.get() or proc.tribunal,
@@ -1718,8 +1841,8 @@ class App(ttk.Window):
             "comarca": self.var_comarca.get() or proc.comarca,
             "vara": vara_val,
             "juiz": self.var_juiz.get() or proc.juiz,
-            "autor": _autor(proc) or self.var_secretaria.get(),
-            "reu": _reus_joined(proc),
+            "autor": self._det_vars["autor"].get().strip() or self.var_secretaria.get(),
+            "reu": self._det_vars["reu"].get().strip(),
             "valor_causa": self.var_valor_causa.get() or proc.valor_causa,
             "secretaria": vara_val,
             "municipio": self.var_municipio.get() or _municipio_de_processo(proc),
@@ -1751,12 +1874,13 @@ class App(ttk.Window):
         documento_unico = self.var_documento_unico.get()
         ctx = _construir_contexto(proc)
         multiplos_imoveis = bool(self.var_multiplos_imoveis.get())
+        gerar_pdf = self.var_gerar_pdf.get()
 
         n_templates = len(templates_sel)
 
         def run() -> None:
             try:
-                gerar_peticoes(
+                gerados = gerar_peticoes(
                     proc,
                     templates_sel,
                     destino,
@@ -1766,19 +1890,72 @@ class App(ttk.Window):
                     ctx=ctx,
                     multiplos_imoveis=multiplos_imoveis,
                 )
+                todos: list[Path] = list(gerados)
+                if gerar_pdf:
+                    for docx_path in gerados:
+                        try:
+                            pdf = _converter_docx_para_pdf(docx_path)
+                            todos.append(pdf)
+                            self._pesquisa_log_queue.put(f"  PDF: {pdf.name}\n")
+                        except Exception as exc:
+                            self._pesquisa_log_queue.put(f"  ERRO ao gerar PDF: {exc}\n")
                 self._pesquisa_log_queue.put("\nConcluído.\n")
-                self._notificar(
-                    "Petições geradas",
-                    f"Geração concluída para o processo {proc.numero} "
-                    f"({n_templates} modelo(s)).",
-                    pasta=str(destino),
-                )
+                self._gen_result_queue.put(todos)
+                self._status_queue.put((
+                    "status",
+                    f"Geração concluída — {proc.numero} ({n_templates} modelo(s)).",
+                ))
+                with contextlib.suppress(Exception):
+                    self.bell()
             except Exception as exc:
                 self._pesquisa_log_queue.put(f"\nERRO: {exc}\n")
                 self._notificar("Erro ao gerar petições", str(exc), nivel="error")
 
         self._gen_worker = threading.Thread(target=run, daemon=True)
         self._gen_worker.start()
+
+    def _drain_gen_result_queue(self) -> None:
+        try:
+            while True:
+                arquivos = self._gen_result_queue.get_nowait()
+                self._mostrar_arquivos_gerados(arquivos)
+        except queue.Empty:
+            pass
+        self.after(200, self._drain_gen_result_queue)
+
+    def _mostrar_arquivos_gerados(self, arquivos: list) -> None:
+        frame = self._frame_gerados
+        if frame is None:
+            return
+        for w in frame.winfo_children():
+            w.destroy()
+        if not arquivos:
+            return
+        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=(6, 4))
+        ttk.Label(
+            frame, text="Arquivos gerados:", font=_FONT_BOLD,
+        ).pack(anchor="w", pady=(0, 2))
+        for arq in arquivos:
+            f_row = ttk.Frame(frame)
+            f_row.pack(fill="x", pady=1)
+            icone = "📄" if Path(arq).suffix.lower() == ".pdf" else "📝"
+            ttk.Label(
+                f_row, text=f"{icone}  {Path(arq).name}", font=_FONT_BASE,
+                anchor="w",
+            ).pack(side="left", fill="x", expand=True)
+            ttk.Button(
+                f_row, text="Abrir", width=8, bootstyle="outline-info",
+                command=lambda a=arq: os.startfile(a) if Path(a).exists() else None,
+            ).pack(side="right", padx=(4, 0))
+        pasta = Path(arquivos[0]).parent if arquivos else None
+        if pasta:
+            ttk.Button(
+                frame, text="📁  Abrir pasta de destino",
+                bootstyle="outline-secondary",
+                command=lambda p=pasta: os.startfile(p) if p.exists() else None,
+            ).pack(fill="x", pady=(4, 0))
+        if frame.winfo_manager() != "pack":
+            frame.pack(fill="x", pady=(4, 0))
 
     def _drain_pesquisa_log_queue(self) -> None:
         try:

@@ -591,7 +591,7 @@ def test_extrair_placeholders_detecta_campo_editavel():
     assert "novo endereço localizado" in phs
 
 
-def test_campo_editavel_valor_entra_em_negrito_e_tag_some():
+def test_campo_editavel_valor_substitui_a_tag():
     doc = docx.Document()
     p = doc.add_paragraph()
     run = p.add_run("(Campo editável no sistema - adicionar o novo endereço localizado)")
@@ -599,8 +599,8 @@ def test_campo_editavel_valor_entra_em_negrito_e_tag_some():
     op._substituir_paragrafo(p, {"novo endereço localizado": "Rua X, 10, Centro"})
     assert p.text == "Rua X, 10, Centro"
     assert "Campo editável" not in p.text
-    # Só a variável é negrito.
-    assert all(r.bold for r in p.runs if r.text)
+    # O valor herda o formato do modelo (aqui, base não-negrito) — sem forçar negrito.
+    assert not any(r.bold for r in p.runs if r.text)
 
 
 def test_campo_editavel_sem_valor_remove_a_tag():
@@ -612,17 +612,16 @@ def test_campo_editavel_sem_valor_remove_a_tag():
     assert "Campo editável" not in p.text
 
 
-def test_campo_editavel_texto_fixo_ao_redor_nao_fica_negrito():
+def test_campo_editavel_valor_nao_fica_negrito():
     doc = docx.Document()
     p = doc.add_paragraph()
-    fixo1 = p.add_run("Endereço: ")
-    fixo1.bold = False
-    p.add_run("(Campo editável no sistema - novo endereço localizado)")
+    # Mesmo com a tag num run negrito, o valor preenchido sai SEM negrito
+    # (decisão do modelo: o valor da variável não é forçado/ mantido em negrito).
+    run = p.add_run("(Campo editável no sistema - novo endereço localizado)")
+    run.bold = True
     op._substituir_paragrafo(p, {"novo endereço localizado": "Rua Y, 20"})
-    assert p.text == "Endereço: Rua Y, 20"
-    # O texto fixo não herda negrito; só o valor preenchido fica em negrito.
-    negritos = [r.text for r in p.runs if r.text and r.bold]
-    assert negritos == ["Rua Y, 20"]
+    assert p.text == "Rua Y, 20"
+    assert not any(r.bold for r in p.runs if r.text)
 
 
 # --------------------------------------------------------------------------

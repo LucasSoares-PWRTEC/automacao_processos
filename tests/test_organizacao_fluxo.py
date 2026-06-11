@@ -323,6 +323,15 @@ def test_uf_do_cnj_sem_match_e_partes_vazias():
     assert op.organizacao._reus_joined(Processo()) == ""
 
 
+def test_juntar_nomes_usa_conectivo_e():
+    j = op.organizacao._juntar_nomes
+    assert j([]) == ""
+    assert j(["Fulano"]) == "Fulano"
+    assert j(["Fulano", "Beltrano"]) == "Fulano e Beltrano"
+    assert j(["A", "B", "C"]) == "A, B e C"
+    assert j(["A", "", "C"]) == "A e C"  # ignora vazios
+
+
 def test_carregar_processos_ignora_json_invalido(tmp_path):
     pasta = tmp_path / "123"
     pasta.mkdir()

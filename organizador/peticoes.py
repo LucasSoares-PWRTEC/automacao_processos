@@ -139,8 +139,9 @@ def gerar_peticoes(
     documento_unico: bool = False,
     ctx: Contexto | None = None,
     multiplos_imoveis: bool = False,
-) -> None:
+) -> list[Path]:
     destino.mkdir(parents=True, exist_ok=True)
+    gerados: list[Path] = []
 
     if documento_unico and len(templates) > 1:
         try:
@@ -149,19 +150,22 @@ def gerar_peticoes(
                 multiplos_imoveis=multiplos_imoveis,
             )
             log(f"  OK: documento consolidado -> {saida.name}")
+            gerados.append(saida)
         except Exception as exc:
             log(f"  ERRO ao consolidar: {exc}")
-        return
+        return gerados
 
     for tmpl in templates:
         try:
-            _gerar_peticao_unica(
+            saida = _gerar_peticao_unica(
                 tmpl, destino, dados, ctx,
                 multiplos_imoveis=multiplos_imoveis,
             )
             log(f"  OK: {tmpl.stem}")
+            gerados.append(saida)
         except Exception as exc:
             log(f"  ERRO em {tmpl.name}: {exc}")
+    return gerados
 
 
 def _gerar_peticao_unica(
@@ -170,7 +174,7 @@ def _gerar_peticao_unica(
     dados: dict,
     ctx: Contexto | None = None,
     multiplos_imoveis: bool = False,
-) -> None:
+) -> Path:
     sufixo = template_path.suffix.lower()
     nome_base = template_path.stem
     destino_path = destino / f"{nome_base} - {dados.get('numero', 'sem_numero')}"
@@ -184,7 +188,9 @@ def _gerar_peticao_unica(
         doc, dados, ctx=ctx, zonas_paragrafos=zonas,
         multiplos_imoveis=multiplos_imoveis,
     )
-    doc.save(str(destino_path) + ".docx")
+    out = Path(str(destino_path) + ".docx")
+    doc.save(str(out))
+    return out
 
 
 def _gerar_peticao_consolidada(
@@ -698,9 +704,9 @@ def _reescrever_runs(
 def _aplicar_campo_editavel(paragrafo, dados: dict) -> None:
     """Substitui as tags "(Campo editável no sistema - X)" do parágrafo.
 
-    O valor digitado pelo usuário entra em NEGRITO (só a variável — o texto fixo
-    ao redor mantém o formato do modelo). Sem valor, a tag é removida; se o
-    parágrafo ficar vazio, `_colapsar_paragrafos_vazios` o descarta depois.
+    O valor digitado pelo usuário herda o formato do modelo (sem forçar negrito).
+    Sem valor, a tag é removida; se o parágrafo ficar vazio,
+    `_colapsar_paragrafos_vazios` o descarta depois.
     """
     texto = paragrafo.text
     if not paragrafo.runs:
@@ -716,8 +722,7 @@ def _aplicar_campo_editavel(paragrafo, dados: dict) -> None:
     base_size = base.font.size
     base_name = base.font.name
 
-    # Pedaços (texto, é_variável?). Texto fixo entre/fora das tags mantém o
-    # negrito do modelo; só o valor preenchido é forçado a negrito.
+    # Pedaços (texto, é_variável?). Ambos herdam o formato base do modelo.
     pedacos: list[tuple[str, bool]] = []
     pos = 0
     for m in RE_CAMPO_EDITAVEL.finditer(texto):
@@ -733,7 +738,7 @@ def _aplicar_campo_editavel(paragrafo, dados: dict) -> None:
         pedacos = [("", False)]
 
     def _fmt(run, variavel: bool) -> None:
-        run.bold = True if variavel else base_bold
+        run.bold = False if variavel else base_bold
         run.italic = base_italic
         run.underline = base_underline
         if base_size is not None:

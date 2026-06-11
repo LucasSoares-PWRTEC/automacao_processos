@@ -448,11 +448,22 @@ def uf_do_cnj(numero_cnj: str) -> str:
     return MAPA_UF_CNJ.get(chave, "")
 
 
+def _juntar_nomes(nomes: list[str]) -> str:
+    """Enumera nomes em português: 'A' / 'A e B' / 'A, B e C'.
+
+    Mais de um autor/réu usa o conectivo 'e' (último), em vez de ';'."""
+    nomes = [n for n in nomes if n]
+    if len(nomes) <= 1:
+        return nomes[0] if nomes else ""
+    return f"{', '.join(nomes[:-1])} e {nomes[-1]}"
+
+
 def _autor(proc: Processo) -> str:
-    for p in proc.partes:
-        if p.papel.upper() in [pp.upper() for pp in PAPEIS_ATIVO]:
-            return p.nome
-    return ""
+    nomes = [
+        p.nome for p in proc.partes
+        if p.papel.upper() in [pp.upper() for pp in PAPEIS_ATIVO]
+    ]
+    return _juntar_nomes(nomes)
 
 
 def _reus_joined(proc: Processo) -> str:
@@ -460,7 +471,7 @@ def _reus_joined(proc: Processo) -> str:
         p.nome for p in proc.partes
         if p.papel.upper() in [pp.upper() for pp in PAPEIS_PASSIVO]
     ]
-    return "; ".join(reus)
+    return _juntar_nomes(reus)
 
 
 def _dict_para_processo(dados: dict) -> Processo:
