@@ -15,6 +15,8 @@ from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
 
+from organizador import __version__
+
 from .config import (
     OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, PROCESSOS_ONLINE_DIR,
     TJ_SISTEMAS, UI_STATE_PATH, sugerir_tj_para_uf, uf_efetiva_tj,
@@ -110,7 +112,7 @@ _PAD_Y = 6
 
 class App(ttk.Window):
     def __init__(self) -> None:
-        super().__init__(title="Organizador de Processos — eproc", themename="litera")
+        super().__init__(title=f"Organizador de Processos — eproc — v{__version__}", themename="litera")
         # Geometria responsiva: ~90% da tela (com teto), centrada. Mantém a
         # janela redimensionável/maximizável; o layout interno usa fill/expand
         # e pesos de grid para fluir em qualquer tamanho.

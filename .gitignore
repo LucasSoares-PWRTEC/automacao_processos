@@ -5,6 +5,13 @@ __pycache__/
 build/
 dist/
 *.spec
+!OrganizadorProcessos.spec
+!Atualizador.spec
 config/.env
 config/credenciais.json
 config/*.local.*
+
+# Segredos do auto-updater — NUNCA commitar
+secrets/
+updater/_token.py
+version.txt
