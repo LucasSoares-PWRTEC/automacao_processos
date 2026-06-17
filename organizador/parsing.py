@@ -199,6 +199,34 @@ def _municipio_de_processo(proc) -> str:
     return _municipio_por_numero(getattr(proc, "numero", ""))
 
 
+# Prefixo de cargo do magistrado que às vezes vem grudado na vara/secretaria
+# (ex.: "Juízo Titular II - 2ª Vara Cível") — não faz parte do nome da vara.
+_RE_JUIZO_TITULAR = re.compile(r"(?i)^\s*ju[íi]zo\s+titular\s+[^-]*-\s*")
+
+# Sufixo de localidade que o PJe gruda no nome da vara
+# (ex.: "4ª Vara Cível da Comarca de Contagem"). Como o modelo de petição já
+# acrescenta "DA COMARCA DE <comarca>/<UF>", manter o sufixo aqui geraria a
+# duplicação "... DA COMARCA DE CONTAGEM DA COMARCA DE CONTAGEM/MG".
+_RE_VARA_LOCAL = re.compile(
+    r"(?i)\s+d[ao]\s+(?:Comarca|Regional|Foro|Subse[çc][ãa]o|Se[çc][ãa]o)\b.*$"
+)
+
+
+def _limpar_secretaria(valor: str) -> str:
+    """Normaliza a secretaria/vara para preencher o endereçamento da petição:
+    remove o prefixo de cargo 'Juízo Titular <N> -' e o sufixo de localidade
+    'da Comarca de X' (que o modelo já acrescenta), mantendo só o nome da vara.
+
+    Exemplos:
+        'Juízo Titular II - 2ª Vara Cível'            → '2ª Vara Cível'
+        '4ª Vara Cível da Comarca de Contagem'        → '4ª Vara Cível'
+        '1ª Vara da Subseção Judiciária de São Paulo' → '1ª Vara'
+    """
+    valor = _RE_JUIZO_TITULAR.sub("", valor or "")
+    valor = _RE_VARA_LOCAL.sub("", valor)
+    return valor.strip()
+
+
 def _oab_completa(uf: str, numero: str) -> str:
     """Formata a OAB completa no padrão 'OAB/UF NÚMERO' (ex.: 'OAB/SP 346.433')."""
     uf = (uf or "").strip().upper()

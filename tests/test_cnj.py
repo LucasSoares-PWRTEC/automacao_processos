@@ -67,6 +67,29 @@ def test_municipio_de_processo_fallback_orgao_julgador():
     assert op._municipio_de_processo(Processo(comarca="", orgao_julgador="")) == ""
 
 
+def test_limpar_secretaria_remove_juizo_titular():
+    f = op._limpar_secretaria
+    assert f("Juízo Titular II - 2ª Vara Cível") == "2ª Vara Cível"
+    assert f("JUÍZO TITULAR II - 2ª Vara Cível") == "2ª Vara Cível"
+    # Sem o prefixo, mantém intacto.
+    assert f("2ª Vara Cível") == "2ª Vara Cível"
+    assert f("") == ""
+
+
+def test_limpar_secretaria_remove_comarca_grudada():
+    """O modelo já acrescenta 'DA COMARCA DE <comarca>/<UF>', então o sufixo de
+    localidade que o PJe gruda na vara precisa sair para não duplicar."""
+    f = op._limpar_secretaria
+    assert f("4ª Vara Cível da Comarca de Contagem") == "4ª Vara Cível"
+    assert f("Juízo Titular III - 1ª Vara Cível da Comarca de X") == "1ª Vara Cível"
+    assert f("Vara Única da Comarca de Nova Lima") == "Vara Única"
+    assert f("1ª Vara da Subseção Judiciária de São Paulo") == "1ª Vara"
+    assert f("Vara do Foro Regional de Santo Amaro") == "Vara"
+    # Não confunde "de Família/Fazenda" com localidade.
+    assert f("2ª Vara de Família") == "2ª Vara de Família"
+    assert f("3ª Vara da Fazenda Pública") == "3ª Vara da Fazenda Pública"
+
+
 def test_origem_cnj_extrai_justica_tribunal_foro():
     from organizador import parsing
     assert parsing._origem_cnj("4004459-04.2026.8.26.0248") == "8.26.0248"

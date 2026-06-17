@@ -849,6 +849,16 @@ def _remover_highlight_amarelo(paragrafo) -> None:
             run.font.highlight_color = None
 
 
+def _remover_negrito(paragrafo) -> None:
+    """Força o parágrafo a não-negrito (usado no endereçamento/HEADER).
+
+    O modelo traz o endereçamento em negrito e os valores preenchidos herdam
+    esse formato; aqui zeramos o bold explicitamente (False, não None, para
+    sobrepor eventual negrito vindo do estilo)."""
+    for run in paragrafo.runs:
+        run.font.bold = False
+
+
 def _padronizar_espacamento(paragrafo) -> None:
     pf = paragrafo.paragraph_format
     if not paragrafo.text.strip():
@@ -951,6 +961,8 @@ def _preencher_campos_docx(
             multiplos_imoveis=multiplos_imoveis,
         )
         _remover_highlight_amarelo(paragrafo)
+        if zona == "HEADER":
+            _remover_negrito(paragrafo)
         _padronizar_espacamento(paragrafo)
 
     for tabela in doc.tables:

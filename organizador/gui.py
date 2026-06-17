@@ -51,7 +51,7 @@ from .organizacao import (
     salvar_processo_metadados, uf_do_cnj,
 )
 from .parsing import (
-    _municipio_de_processo, _oab_completa, _uf_de_numero_cnj,
+    _limpar_secretaria, _municipio_de_processo, _oab_completa, _uf_de_numero_cnj,
     aprender_comarcas, aprender_municipio,
 )
 from .peticoes import (
@@ -1459,7 +1459,7 @@ class App(ttk.Window):
         auto_map = {
             "valor_causa": proc.valor_causa,
             "comarca": proc.comarca,
-            "vara": proc.vara,
+            "vara": _limpar_secretaria(proc.vara),
             "tribunal": proc.tribunal,
             "endereco_foro": proc.foro_endereco,
             "juiz": proc.juiz,
@@ -1827,7 +1827,7 @@ class App(ttk.Window):
         )
 
         # Secretaria e Vara são espelhadas — o mesmo valor alimenta ambos placeholders.
-        vara_val = self.var_vara.get() or proc.vara
+        vara_val = _limpar_secretaria(self.var_vara.get() or proc.vara)
         # UF de fallback pelo número CNJ quando o processo não trouxe a UF.
         uf_cnj = proc.uf or _uf_de_numero_cnj(proc.numero)
         # Campos editáveis dos "Dados do processo": número/autor/réu vêm das vars
