@@ -239,12 +239,18 @@ def _fmt_mb(n: int) -> str:
 
 
 class AtualizadorApp:
-    def __init__(self) -> None:
+    def __init__(self, auto: bool = False) -> None:
+        # auto=True: modo silencioso (disparado pelo app na abertura). A janela
+        # fica oculta durante a checagem e só aparece se houver versão nova;
+        # quando já está atualizado ou ocorre erro, sai sem incomodar o usuário.
+        self.auto = auto
         self.root = tk.Tk()
         self.root.title("Atualizador — Organizador de Processos")
         self.root.geometry("440x170")
         self.root.resizable(False, False)
         self._centralizar()
+        if auto:
+            self.root.withdraw()
 
         self.eventos: queue.Queue = queue.Queue()
         self.cancel = threading.Event()
@@ -304,6 +310,9 @@ class AtualizadorApp:
     def iniciar(self) -> None:
         limpar_sobras()
         if not GITHUB_TOKEN:
+            if self.auto:
+                self.root.destroy()  # silencioso: nada a fazer sem token
+                return
             self.root.withdraw()
             messagebox.showerror(
                 "Atualizador",
@@ -312,7 +321,8 @@ class AtualizadorApp:
             )
             self.root.destroy()
             return
-        self.barra.start(12)
+        if not self.auto:
+            self.barra.start(12)
         self._em_thread(self._checar)
         self.root.after(100, self._drenar_eventos)
         self.root.mainloop()
@@ -326,11 +336,19 @@ class AtualizadorApp:
         self._post(lambda: self._resultado_checagem(release))
 
     def _resultado_checagem(self, release: dict) -> None:
-        self.barra.stop()
-        self.barra.configure(mode="determinate", value=0)
         self.release = release
         local = versao_instalada()
-        if parse_version(release["tag"]) > parse_version(local):
+        tem_update = parse_version(release["tag"]) > parse_version(local)
+        if self.auto and not tem_update:
+            self.root.destroy()  # silencioso: já está atualizado, não mostra nada
+            return
+        self.barra.stop()
+        self.barra.configure(mode="determinate", value=0)
+        if tem_update:
+            if self.auto:
+                self.root.deiconify()
+                self.root.lift()
+                self.root.focus_force()
             self.lbl.configure(
                 text=f"Nova versão disponível: {release['tag']} (instalada: v{local}).\n"
                      "Deseja atualizar agora?"
@@ -412,6 +430,9 @@ class AtualizadorApp:
         self.root.destroy()
 
     def _mostrar_erro(self, erro: UpdaterError) -> None:
+        if self.auto:
+            self.root.destroy()  # silencioso: não incomoda o usuário a cada abertura
+            return
         self.barra.stop()
         self.barra.configure(mode="determinate", value=0)
         self.lbl.configure(text=str(erro))
@@ -420,7 +441,8 @@ class AtualizadorApp:
 
 
 def main() -> None:
-    AtualizadorApp().iniciar()
+    auto = "--auto" in sys.argv[1:]
+    AtualizadorApp(auto=auto).iniciar()
 
 
 if __name__ == "__main__":

@@ -7,6 +7,8 @@ import contextlib
 import json
 import os
 import queue
+import subprocess
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -242,6 +244,10 @@ class App(ttk.Window):
         # Pré-carrega os processos já trabalhados (pasta base lembrada), para
         # adicionar novas petições a um processo existente sem recarregar à mão.
         self.after(300, self._carregar_pesquisa_inicial)
+        # Verifica atualizações em silêncio na abertura: dispara o Atualizador em
+        # modo --auto, que só mostra a janela se houver versão nova (caso contrário
+        # sai sem exibir nada). Assim o usuário não precisa abrir o Atualizador.
+        self.after(1500, self._verificar_atualizacao_silenciosa)
 
     def _build_widgets(self) -> None:
         nb = ttk.Notebook(self, bootstyle="primary")
@@ -2000,6 +2006,32 @@ class App(ttk.Window):
             self._pesquisa_em_progresso = False
             self.progress_pesquisa.stop()
         self.after(150, self._atualizar_progresso_pesquisa)
+
+    def _verificar_atualizacao_silenciosa(self) -> None:
+        """Dispara o Atualizador em modo silencioso na abertura do app.
+
+        O Atualizador.exe (que carrega o token de leitura do GitHub) checa a
+        release mais recente e só mostra a janela se houver versão nova; se já
+        estiver atualizado ou houver qualquer erro/sem internet, sai calado.
+        Best-effort: qualquer falha em iniciá-lo é ignorada.
+        """
+        try:
+            if getattr(sys, "frozen", False):
+                # App empacotado: o Atualizador.exe fica ao lado do Peticoes.exe.
+                exe = Path(sys.executable).resolve().parent / "Atualizador.exe"
+                if not exe.exists():
+                    return
+                cmd = [str(exe), "--auto"]
+            else:
+                # Modo fonte (dev): roda o updater.py com o Python atual.
+                updater = Path(__file__).resolve().parent.parent / "updater" / "updater.py"
+                if not updater.exists():
+                    return
+                cmd = [sys.executable, str(updater), "--auto"]
+            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # sem console no Windows
+            subprocess.Popen(cmd, close_fds=True, creationflags=flags)
+        except OSError:
+            pass
 
 
 def main() -> None:
