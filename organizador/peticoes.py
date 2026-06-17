@@ -330,8 +330,19 @@ PLACEHOLDERS_PETICAO = {
     "magistrada": "juiz",
     "nome do juiz": "juiz",
     "juiz da causa": "juiz",
+    "réu": "reu",
+    "reu": "reu",
+    "ré": "reu",
+    "re": "reu",
+    "executado": "reu",
+    "executada": "reu",
+    "devedor": "reu",
+    "devedora": "reu",
+    "requerido": "reu",
+    "requerida": "reu",
     "réu ou réus": "reu",
     "reu ou reus": "reu",
+    "ré ou rés ou réu ou réus": "reu",
     "nome ou nomes": "reu",
     "executado ou executados": "reu",
     "devedor ou devedores": "reu",
@@ -406,8 +417,6 @@ PLACEHOLDERS_AUTO: dict[str, tuple[str, ...]] = {
     "mantém ou mantêm":        ("reu_num", "mantém", "mantêm"),
     "mantem ou mantêm":        ("reu_num", "mantém", "mantêm"),
 
-    # Gênero + número (4 vias) pelo réu — o placeholder mais comum das novas petições.
-    "ré ou rés ou réu ou réus": ("reu_genum", "réu", "réus", "ré", "rés"),
 }
 
 
@@ -458,6 +467,8 @@ def _aplicar_substituicoes(
         valor = (dados.get(chave) or "").strip()
         if not valor:
             continue
+        if chave in {"autor", "reu"}:
+            valor = valor.upper()
         # Match case-insensitive: cobre "(REU)", "(Reu)", "(reu)" — templates
         # com small-caps em Word guardam o texto em caixa mista no .docx.
         padrao = re.compile(r"\(" + re.escape(placeholder) + r"\)", re.IGNORECASE)
@@ -558,6 +569,36 @@ def _atualizar_data_fechamento(texto: str, data: "_date | None" = None) -> str:
     return _RE_DATA_FECHAMENTO.sub(
         lambda m: f"{m.group(1)}{_data_por_extenso(data)}", texto
     )
+
+
+_RE_HEADER_JUDICIAL = re.compile(
+    r"(?i)\b(?:excelent|merit[ií]ssim).*\bju[ii]z(?:a)?(?:\s+de\s+direito)?\b"
+)
+_RE_HEADER_SAUDACAO = re.compile(
+    r"(?is)^\s*(.*?\bju[ii]z(?:a)?)(?:\s+de\s+direito)?\b.*$"
+)
+
+
+def _montar_header_enderecamento(texto: str, dados: dict, ctx: Contexto | None = None) -> str:
+    """Monta o endereçamento completo quando o modelo traz só a saudação judicial."""
+    base = _flex_judicial_treatment(texto, ctx).strip()
+    if not _RE_HEADER_JUDICIAL.search(base):
+        return base.upper()
+    m = _RE_HEADER_SAUDACAO.match(base)
+    saudacao = (m.group(1).strip() if m else base).rstrip(" ,.;:-")
+
+    vara = (dados.get("vara") or "").strip()
+    comarca = (dados.get("comarca") or "").strip()
+    estado = (dados.get("estado") or dados.get("uf") or "").strip().upper()
+    if not vara:
+        return saudacao.upper()
+
+    header = f"{saudacao} DE DIREITO DA {vara}"
+    if comarca:
+        header += f" DO {comarca}"
+        if estado:
+            header += f"/{estado}"
+    return header.upper()
 
 
 def _eh_run_vermelho(run) -> bool:
@@ -819,12 +860,11 @@ def _substituir_paragrafo(
     texto_novo = _aplicar_substituicoes(
         texto_mascarado, dados, ctx=ctx, multiplos_imoveis=multiplos_imoveis,
     )
-    # Flexão só em BODY e CLOSING (HEADER vai virar UPPERCASE).
+    # Flexão só em BODY e CLOSING (HEADER tem montagem própria).
     if ctx is not None and zona in ("BODY", "CLOSING"):
         texto_novo = _inflexionar_texto(texto_novo, ctx)
     if zona == "HEADER":
-        texto_novo = _flex_judicial_treatment(texto_novo, ctx)
-        texto_novo = texto_novo.upper()
+        texto_novo = _montar_header_enderecamento(texto_novo, dados, ctx)
     texto_novo = _colapsar_local_duplicado(texto_novo)
     texto_novo = _atualizar_data_fechamento(texto_novo)
 
@@ -849,14 +889,10 @@ def _remover_highlight_amarelo(paragrafo) -> None:
             run.font.highlight_color = None
 
 
-def _remover_negrito(paragrafo) -> None:
-    """Força o parágrafo a não-negrito (usado no endereçamento/HEADER).
-
-    O modelo traz o endereçamento em negrito e os valores preenchidos herdam
-    esse formato; aqui zeramos o bold explicitamente (False, não None, para
-    sobrepor eventual negrito vindo do estilo)."""
+def _aplicar_negrito(paragrafo) -> None:
+    """Força o parágrafo inteiro a negrito (usado no endereçamento/HEADER)."""
     for run in paragrafo.runs:
-        run.font.bold = False
+        run.font.bold = True
 
 
 def _padronizar_espacamento(paragrafo) -> None:
@@ -962,7 +998,7 @@ def _preencher_campos_docx(
         )
         _remover_highlight_amarelo(paragrafo)
         if zona == "HEADER":
-            _remover_negrito(paragrafo)
+            _aplicar_negrito(paragrafo)
         _padronizar_espacamento(paragrafo)
 
     for tabela in doc.tables:

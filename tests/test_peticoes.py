@@ -117,23 +117,27 @@ def test_resolver_auto_fonte_desconhecida_retorna_none(monkeypatch):
 
 def test_resolver_auto_reu_genum_4vias():
     ph = "ré ou rés ou réu ou réus"
-    assert op._resolver_auto(ph, Contexto(genero_reu="m", numero_reu="s"), False) == "réu"
-    assert op._resolver_auto(ph, Contexto(genero_reu="m", numero_reu="p"), False) == "réus"
-    assert op._resolver_auto(ph, Contexto(genero_reu="f", numero_reu="s"), False) == "ré"
-    assert op._resolver_auto(ph, Contexto(genero_reu="f", numero_reu="p"), False) == "rés"
+    assert op._resolver_auto(ph, Contexto(genero_reu="m", numero_reu="s"), False) is None
+    assert op._resolver_auto(ph, Contexto(genero_reu="m", numero_reu="p"), False) is None
+    assert op._resolver_auto(ph, Contexto(genero_reu="f", numero_reu="s"), False) is None
+    assert op._resolver_auto(ph, Contexto(genero_reu="f", numero_reu="p"), False) is None
 
 
 def test_resolver_auto_sem_contexto_usa_primeira_forma():
     # Sem Contexto, cai na 1ª forma (singular/masculino) sem estourar no unpack.
-    assert op._resolver_auto("ré ou rés ou réu ou réus", None, False) == "réu"
+    assert op._resolver_auto("ré ou rés ou réu ou réus", None, False) is None
     assert op._resolver_auto("parte ou partes", None, False) == "parte"
 
 
 def test_substituicoes_auto_genum_no_texto():
-    # No texto, "(ré ou rés ou réu ou réus)" é resolvido pelo gênero+número do réu.
+    # Nos modelos de citação, esse placeholder representa o(s) nome(s) do réu.
     ctx = Contexto(genero_reu="f", numero_reu="p")
-    out = op._aplicar_substituicoes("requer a intimação d@ (ré ou rés ou réu ou réus)", {}, ctx=ctx)
-    assert out == "requer a intimação d@ rés"
+    out = op._aplicar_substituicoes(
+        "requer a intimação d@ (ré ou rés ou réu ou réus)",
+        {"reu": "Fulana e Ciclana"},
+        ctx=ctx,
+    )
+    assert out == "requer a intimação d@ FULANA E CICLANA"
 
 
 def test_substituicoes_placeholder_generico_com_valor_vazio_preserva_original():
@@ -253,12 +257,39 @@ def test_preencher_campos_docx_substitui_placeholders():
     doc.add_paragraph("À (secretaria) da (vara).")
     # "(executado ou executados)" é placeholder de réu -> vira o nome do réu.
     doc.add_paragraph("Requer a citação do (executado ou executados).")
-    dados = {"secretaria": "1ª Secretaria", "vara": "2ª Vara Cível", "reu": "FULANO"}
+    dados = {"secretaria": "1ª Secretaria", "vara": "2ª Vara Cível", "reu": "Fulano"}
     op._preencher_campos_docx(doc, dados)
     textos = [p.text for p in doc.paragraphs]
     assert "1ª Secretaria" in textos[0]
     assert "2ª Vara Cível" in textos[0]
     assert "FULANO" in textos[1]
+
+
+def test_preencher_campos_docx_caixa_alta_para_autor_e_reu():
+    doc = docx.Document()
+    doc.add_paragraph("(autor) move a execução em face de (executado ou executados).")
+    op._preencher_campos_docx(doc, {"autor": "Empresa X Ltda.", "reu": "Fulano de Tal"})
+    assert doc.paragraphs[0].text == "EMPRESA X LTDA. move a execução em face de FULANO DE TAL."
+
+
+def test_preencher_campos_docx_preenche_reu_em_placeholder_singular():
+    doc = docx.Document()
+    doc.add_paragraph("Requer a intimação do (executado).")
+    op._preencher_campos_docx(doc, {"reu": "Fulano de Tal"})
+    assert doc.paragraphs[0].text == "Requer a intimação do FULANO DE TAL."
+
+
+def test_preencher_campos_docx_preenche_reus_em_placeholder_citacao():
+    doc = docx.Document()
+    doc.add_paragraph("(autor), em que contende com (ré ou rés ou réu ou réus).")
+    op._preencher_campos_docx(
+        doc,
+        {"autor": "Empresa X Ltda.", "reu": "Fulano de Tal e Sicrana de Tal"},
+        ctx=Contexto(genero_reu="f", numero_reu="p"),
+    )
+    assert doc.paragraphs[0].text == (
+        "EMPRESA X LTDA., em que contende com FULANO DE TAL E SICRANA DE TAL."
+    )
 
 
 def test_preencher_campos_docx_flexiona_papel_nu():
@@ -477,6 +508,7 @@ def test_header_tratamento_judicial_feminino():
     zonas = op._classificar_paragrafos(doc)
     op._preencher_campos_docx(doc, {}, ctx=ctx, zonas_paragrafos=zonas)
     assert "EXCELENT\u00cdSSIMA SENHORA DOUTORA JUIZA" in doc.paragraphs[0].text
+    assert all(r.bold for r in doc.paragraphs[0].runs if r.text)
 
 
 def test_header_tratamento_judicial_masculino():
@@ -488,6 +520,7 @@ def test_header_tratamento_judicial_masculino():
     zonas = op._classificar_paragrafos(doc)
     op._preencher_campos_docx(doc, {}, ctx=ctx, zonas_paragrafos=zonas)
     assert "EXCELENT\u00cdSSIMO SENHOR DOUTOR JUIZ" in doc.paragraphs[0].text
+    assert all(r.bold for r in doc.paragraphs[0].runs if r.text)
 
 
 def test_header_meritissimo_feminino():
@@ -521,6 +554,54 @@ def test_header_tratamento_judicial_sem_doutor_masculino():
     zonas = op._classificar_paragrafos(doc)
     op._preencher_campos_docx(doc, {}, ctx=ctx, zonas_paragrafos=zonas)
     assert "EXCELENT\u00cdSSIMO SENHOR JUIZ" in doc.paragraphs[0].text
+
+
+def test_header_monta_enderecamento_completo_tjsp():
+    doc = docx.Document()
+    doc.add_paragraph("EXCELENTÍSSIMO(A) SENHOR(A) JUIZ(A)")
+    doc.add_paragraph("")
+    doc.add_paragraph("Vem requerer o que segue.")
+    zonas = op._classificar_paragrafos(doc)
+    op._preencher_campos_docx(
+        doc,
+        {
+            "vara": "1ª Vara Cível",
+            "comarca": "Foro Regional VI - Penha de França",
+            "estado": "SP",
+        },
+        ctx=Contexto(genero_juiz="m"),
+        zonas_paragrafos=zonas,
+    )
+    assert doc.paragraphs[0].text == (
+        "EXCELENTÍSSIMO SENHOR JUIZ DE DIREITO DA 1ª VARA CÍVEL "
+        "DO FORO REGIONAL VI - PENHA DE FRANÇA/SP"
+    )
+    assert all(r.bold for r in doc.paragraphs[0].runs if r.text)
+
+
+def test_header_descarta_enderecamento_duplicado_do_template():
+    doc = docx.Document()
+    doc.add_paragraph(
+        "EXCELENTÍSSIMO(A) SENHOR(A) JUIZ(A) DE DIREITO DA 1ª VARA CÍVEL "
+        "DA COMARCA DE PENHA DE FRANÇA/SP"
+    )
+    doc.add_paragraph("")
+    doc.add_paragraph("Vem requerer o que segue.")
+    zonas = op._classificar_paragrafos(doc)
+    op._preencher_campos_docx(
+        doc,
+        {
+            "vara": "1ª Vara Cível",
+            "comarca": "Foro Regional VI - Penha de França",
+            "estado": "SP",
+        },
+        ctx=Contexto(genero_juiz="m"),
+        zonas_paragrafos=zonas,
+    )
+    assert doc.paragraphs[0].text == (
+        "EXCELENTÍSSIMO SENHOR JUIZ DE DIREITO DA 1ª VARA CÍVEL "
+        "DO FORO REGIONAL VI - PENHA DE FRANÇA/SP"
+    )
 
 
 # --------------------------------------------------------------------------

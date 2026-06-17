@@ -182,7 +182,7 @@ class App(ttk.Window):
         self._templates_vars: dict[Path, tk.BooleanVar] = {}
         self.var_documento_unico = tk.BooleanVar(value=True)
         self.var_multiplos_imoveis = tk.BooleanVar(value=False)
-        self.var_gerar_pdf = tk.BooleanVar(value=False)
+        self.var_gerar_pdf = tk.BooleanVar(value=True)
         self._pesquisa_log_queue: queue.Queue[str] = queue.Queue()
         self._gen_worker: threading.Thread | None = None
         self._busca_worker: threading.Thread | None = None

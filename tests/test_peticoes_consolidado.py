@@ -46,19 +46,28 @@ def test_gerar_peticao_consolidada_preserva_tabela_e_deduplica_body(tmp_path):
     saida = op._gerar_peticao_consolidada(
         [t1, t2],
         tmp_path,
-        {"numero": "4004459-04.2026.8.26.0248"},
+        {
+            "numero": "4004459-04.2026.8.26.0248",
+            "vara": "1ª Vara Cível",
+            "comarca": "Foro Regional VI - Penha de França",
+            "estado": "SP",
+        },
         Contexto(genero_juiz="m"),
     )
 
     doc = docx.Document(str(saida))
     textos = [p.text for p in doc.paragraphs if p.text.strip()]
-    assert textos[0] == "EXCELENTÍSSIMO SENHOR JUIZ"
+    assert textos[0] == (
+        "EXCELENTÍSSIMO SENHOR JUIZ DE DIREITO DA 1ª VARA CÍVEL "
+        "DO FORO REGIONAL VI - PENHA DE FRANÇA/SP"
+    )
     assert textos.count("Linha longa de corpo para deduplicar com mais de vinte e cinco chars.") == 1
     assert "Corpo exclusivo A" in textos
     assert "Corpo exclusivo B" in textos
     assert "Fecho A" in textos
     assert len(doc.tables) == 1
     assert "4004459-04.2026.8.26.0248" in doc.tables[0].cell(0, 0).text
+    assert all(r.bold for r in doc.paragraphs[0].runs if r.text)
 
 
 def test_gerar_peticao_consolidada_preserva_bloco_de_fechamento_inteiro(tmp_path):
