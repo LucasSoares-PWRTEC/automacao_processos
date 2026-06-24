@@ -2107,18 +2107,21 @@ class App(ttk.Window):
         Best-effort: qualquer falha em iniciá-lo é ignorada.
         """
         try:
+            # Passa o PID desta instância para o Atualizador encerrá-la antes de
+            # trocar o exe (senão a versão antiga ficaria aberta após o update).
+            pid = str(os.getpid())
             if getattr(sys, "frozen", False):
                 # App empacotado: o Atualizador.exe fica ao lado do Peticoes.exe.
                 exe = Path(sys.executable).resolve().parent / "Atualizador.exe"
                 if not exe.exists():
                     return
-                cmd = [str(exe), "--auto"]
+                cmd = [str(exe), "--auto", "--parent-pid", pid]
             else:
                 # Modo fonte (dev): roda o updater.py com o Python atual.
                 updater = Path(__file__).resolve().parent.parent / "updater" / "updater.py"
                 if not updater.exists():
                     return
-                cmd = [sys.executable, str(updater), "--auto"]
+                cmd = [sys.executable, str(updater), "--auto", "--parent-pid", pid]
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # sem console no Windows
             subprocess.Popen(cmd, close_fds=True, creationflags=flags)
         except OSError:

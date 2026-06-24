@@ -16,9 +16,11 @@ from __future__ import annotations
 import json
 import os
 import queue
+import signal
 import ssl
 import sys
 import threading
+import time
 import tkinter as tk
 import urllib.error
 import urllib.request
@@ -106,6 +108,49 @@ def limpar_sobras() -> None:
             (base_dir() / nome).unlink(missing_ok=True)
         except OSError:
             pass
+
+
+def _processo_vivo(pid: int) -> bool:
+    """True se o processo `pid` ainda existe (Windows; best-effort).
+
+    Não uso os.kill(pid, 0) porque no Windows QUALQUER sinal != CTRL_* chama
+    TerminateProcess — ou seja, mataria o processo em vez de só checar.
+    """
+    try:
+        import ctypes
+        from ctypes import wintypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        k32 = ctypes.windll.kernel32
+        handle = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return False  # não abriu → provavelmente já saiu
+        try:
+            code = wintypes.DWORD()
+            if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value == STILL_ACTIVE
+        finally:
+            k32.CloseHandle(handle)
+    except Exception:
+        return False
+
+
+def encerrar_processo(pid: int, espera_s: float = 3.0) -> None:
+    """Encerra o processo `pid` (a versão ANTIGA do app que disparou o updater)
+    e aguarda até `espera_s` o SO liberar o lock do .exe. Best-effort: nunca
+    levanta — se o PID já saiu/é inválido, apenas retorna."""
+    if not pid:
+        return
+    try:
+        os.kill(pid, signal.SIGTERM)  # no Windows: TerminateProcess
+    except (OSError, ProcessLookupError, ValueError):
+        return
+    deadline = time.monotonic() + espera_s
+    while time.monotonic() < deadline:
+        if not _processo_vivo(pid):
+            return
+        time.sleep(0.1)
 
 
 # ---------------------------------------------------------------------------
@@ -239,11 +284,14 @@ def _fmt_mb(n: int) -> str:
 
 
 class AtualizadorApp:
-    def __init__(self, auto: bool = False) -> None:
+    def __init__(self, auto: bool = False, parent_pid: int | None = None) -> None:
         # auto=True: modo silencioso (disparado pelo app na abertura). A janela
         # fica oculta durante a checagem e só aparece se houver versão nova;
         # quando já está atualizado ou ocorre erro, sai sem incomodar o usuário.
+        # parent_pid: PID da instância do app que disparou o updater — encerrada
+        # antes de trocar o exe, para não sobrar a versão antiga aberta.
         self.auto = auto
+        self.parent_pid = parent_pid
         self.root = tk.Tk()
         self.root.title("Atualizador — Organizador de Processos")
         self.root.geometry("440x170")
@@ -396,6 +444,13 @@ class AtualizadorApp:
         self._post(lambda: self._instalar(destino, alvo))
 
     def _instalar(self, destino: Path, alvo: Path) -> None:
+        # Encerra a versão ANTIGA do app ANTES de trocar o exe: assim o
+        # os.replace funciona direto (sem deixar Peticoes.exe.old preso pelo
+        # processo aberto) e não sobram duas instâncias após a atualização.
+        if self.parent_pid:
+            self.lbl.configure(text="Finalizando: fechando a versão anterior...")
+            self.root.update_idletasks()
+            encerrar_processo(self.parent_pid)
         try:
             replace_exe(destino, alvo)
         except AppRunningError as e:
@@ -425,7 +480,11 @@ class AtualizadorApp:
         self.lbl.configure(text=f"Atualização para {versao} concluída!")
         self.barra.configure(value=self.barra.cget("maximum") or 1)
         self._limpar_botoes()
-        if messagebox.askyesno("Atualizador", "Atualização concluída!\nAbrir o programa agora?"):
+        if self.parent_pid:
+            # Auto-update: a versão antiga já foi encerrada — reabre direto na
+            # nova (sem perguntar; senão o usuário ficaria sem nenhuma janela).
+            os.startfile(alvo)  # noqa: S606 — abre o app recém-instalado
+        elif messagebox.askyesno("Atualizador", "Atualização concluída!\nAbrir o programa agora?"):
             os.startfile(alvo)  # noqa: S606 — abre o app recém-instalado
         self.root.destroy()
 
@@ -440,9 +499,21 @@ class AtualizadorApp:
         self._botao("Fechar", self._fechar, default=True)
 
 
+def _arg_int(argv: list[str], flag: str) -> int | None:
+    """Lê o valor inteiro que segue `flag` em argv (ex.: --parent-pid 1234)."""
+    if flag in argv:
+        try:
+            return int(argv[argv.index(flag) + 1])
+        except (ValueError, IndexError):
+            return None
+    return None
+
+
 def main() -> None:
-    auto = "--auto" in sys.argv[1:]
-    AtualizadorApp(auto=auto).iniciar()
+    argv = sys.argv[1:]
+    auto = "--auto" in argv
+    parent_pid = _arg_int(argv, "--parent-pid")
+    AtualizadorApp(auto=auto, parent_pid=parent_pid).iniciar()
 
 
 if __name__ == "__main__":
