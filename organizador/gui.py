@@ -47,11 +47,12 @@ def _salvar_ui_state(**campos) -> None:
     except Exception:
         pass
 from .flexao import _construir_contexto
-from .models import Processo
+from .models import Parte, Processo
 from .organizacao import (
     _autor, _carregar_processos, _reus_joined, organizar_pasta,
     salvar_processo_metadados, uf_do_cnj,
 )
+from .padroes import RE_NUMERO_CNJ
 from .parsing import (
     _limpar_secretaria, _municipio_de_processo, _oab_completa, _uf_de_numero_cnj,
     aprender_comarcas, aprender_municipio,
@@ -152,12 +153,17 @@ class App(ttk.Window):
         # seção 2FA das configurações. Desligado por padrão; lembrado entre sessões.
         self.var_modo_dev = tk.BooleanVar(value=bool(_ui_state.get("modo_dev", False)))
         self._dev_widgets_busca: list = []  # widgets avançados da aba Pesquisa
+        # Barra única: filtra a lista ao vivo e, no Enter/botão, busca online
+        # (só vai à web se o processo ainda não estiver carregado).
         self.var_filtro = tk.StringVar(value="")
-        self.var_busca_numero = tk.StringVar(value="")
         self.var_busca_tj = tk.StringVar(value="TJSP — eproc (SP)")
         self.var_busca_headless = tk.BooleanVar(value=True)
         self.var_busca_docs = tk.BooleanVar(value=False)  # False → modo_docs "nenhum"; True → "atos"
         self.var_busca_debug = tk.StringVar(value="Desligado")  # ver _DEBUG_MODOS
+        # Forçar busca na web mesmo quando o processo já está no cache local
+        # (planilhas importadas / buscas anteriores). Útil p/ atualizar um
+        # andamento desatualizado. Não é lembrado entre sessões (padrão: desligado).
+        self.var_busca_forcar = tk.BooleanVar(value=False)
         # Scraper retido em modo debug: mantém o navegador aberto (evita coleta
         # de lixo) e permite fechá-lo depois pelo botão "Fechar navegador debug".
         self._debug_scraper: object | None = None
@@ -244,6 +250,9 @@ class App(ttk.Window):
         # Pré-carrega os processos já trabalhados (pasta base lembrada), para
         # adicionar novas petições a um processo existente sem recarregar à mão.
         self.after(300, self._carregar_pesquisa_inicial)
+        # Modelos de petição disponíveis já na abertura: permite escolher o
+        # modelo e preencher tudo à mão (gerar sem buscar/selecionar processo).
+        self.after(300, self._carregar_templates)
         # Verifica atualizações em silêncio na abertura: dispara o Atualizador em
         # modo --auto, que só mostra a janela se houver versão nova (caso contrário
         # sai sem exibir nada). Assim o usuário não precisa abrir o Atualizador.
@@ -392,25 +401,31 @@ class App(ttk.Window):
             bootstyle="outline-info", width=16,
         ).pack(side="left", padx=(8, 0))
 
-        # ── Seção: Busca online ────────────────────────────────────────
+        # ── Seção: Buscar processo (barra única) ───────────────────────
         section_busca = ttk.Labelframe(
-            parent, text="  Busca online  ", bootstyle="default",
+            parent, text="  Buscar processo  ", bootstyle="default",
             padding=(12, 8),
         )
         section_busca.pack(fill="x", pady=(0, 6))
 
-        # Grid em 2 linhas para os controles não transbordarem em larguras
-        # menores: só o Entry do número absorve a folga; o resto mantém
+        # Barra única: filtra a lista ao vivo enquanto digita; no Enter ou no
+        # botão, busca o processo — só vai à web se ainda não estiver carregado.
+        # Grid em linhas para os controles não transbordarem em larguras
+        # menores: só o Entry de busca absorve a folga; o resto mantém
         # largura natural e o botão "Buscar" fica sempre visível (linha 2).
         f_busca = ttk.Frame(section_busca)
         f_busca.pack(fill="x")
         f_busca.columnconfigure(1, weight=1)
-        ttk.Label(f_busca, text="Nº do processo:", font=_FONT_BASE).grid(
+        ttk.Label(f_busca, text="Buscar:", font=_FONT_BASE).grid(
             row=0, column=0, sticky="e", padx=(0, 6), pady=2,
         )
-        ttk.Entry(
-            f_busca, textvariable=self.var_busca_numero, font=_FONT_BASE,
-        ).grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=2)
+        ent_busca = ttk.Entry(
+            f_busca, textvariable=self.var_filtro, font=_FONT_BASE,
+        )
+        ent_busca.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=2)
+        # Filtra a lista a cada tecla; Enter dispara a busca (cache-first).
+        self.var_filtro.trace_add("write", lambda *_: self._filtrar_pesquisa())
+        ent_busca.bind("<Return>", lambda _e: self._buscar_online())
         ttk.Label(f_busca, text="TJ/Sistema:", font=_FONT_BASE).grid(
             row=0, column=2, sticky="e", padx=(8, 6), pady=2,
         )
@@ -418,47 +433,45 @@ class App(ttk.Window):
             f_busca, textvariable=self.var_busca_tj, values=list(TJ_SISTEMAS),
             state="readonly", width=18, font=_FONT_BASE,
         ).grid(row=0, column=3, sticky="w", pady=2)
-        chk_docs = ttk.Checkbutton(
-            f_busca, text="Baixar documentos", variable=self.var_busca_docs,
-            bootstyle="info",
+        # ── Linha 1: "Forçar busca online" (sempre visível) + botão Buscar ──
+        chk_forcar = ttk.Checkbutton(
+            f_busca, text="Forçar busca online", variable=self.var_busca_forcar,
+            bootstyle="warning-round-toggle",
         )
-        chk_docs.grid(row=1, column=0, columnspan=2, sticky="w", padx=(0, 6), pady=(4, 0))
-        chk_headless = ttk.Checkbutton(
-            f_busca, text="Navegador invisível", variable=self.var_busca_headless,
-            bootstyle="info",
-        )
-        chk_headless.grid(row=1, column=2, sticky="w", padx=(8, 6), pady=(4, 0))
+        chk_forcar.grid(row=1, column=0, columnspan=2, sticky="w", padx=(0, 6), pady=(4, 0))
         self._btn_buscar = ttk.Button(
             f_busca, text="🔍  Buscar online", command=self._buscar_online,
             bootstyle="info", width=16,
         )
         self._btn_buscar.grid(row=1, column=3, sticky="e", pady=(4, 0))
-        # ── Linha 3: modo de debug ─────────────────────────────────────
+        # ── Linha 2: opções avançadas (dev) ─────────────────────────────
+        chk_docs = ttk.Checkbutton(
+            f_busca, text="Baixar documentos", variable=self.var_busca_docs,
+            bootstyle="info",
+        )
+        chk_docs.grid(row=2, column=0, columnspan=2, sticky="w", padx=(0, 6), pady=(4, 0))
+        chk_headless = ttk.Checkbutton(
+            f_busca, text="Navegador invisível", variable=self.var_busca_headless,
+            bootstyle="info",
+        )
+        chk_headless.grid(row=2, column=2, sticky="w", padx=(8, 6), pady=(4, 0))
+        # ── Linha 3: modo de debug (dev) ────────────────────────────────
         lbl_debug = ttk.Label(f_busca, text="Modo debug:", font=_FONT_BASE)
-        lbl_debug.grid(row=2, column=0, sticky="e", padx=(0, 6), pady=(4, 0))
+        lbl_debug.grid(row=3, column=0, sticky="e", padx=(0, 6), pady=(4, 0))
         cbo_debug = ttk.Combobox(
             f_busca, textvariable=self.var_busca_debug,
             values=list(_DEBUG_MODOS), state="readonly", font=_FONT_BASE,
         )
-        cbo_debug.grid(row=2, column=1, columnspan=2, sticky="ew", padx=(0, 6), pady=(4, 0))
+        cbo_debug.grid(row=3, column=1, columnspan=2, sticky="ew", padx=(0, 6), pady=(4, 0))
         self._btn_fechar_debug = ttk.Button(
             f_busca, text="Fechar navegador debug", command=self._fechar_debug,
             bootstyle="warning-outline", width=22, state="disabled",
         )
-        self._btn_fechar_debug.grid(row=2, column=3, sticky="e", pady=(4, 0))
+        self._btn_fechar_debug.grid(row=3, column=3, sticky="e", pady=(4, 0))
         # Opções avançadas — só visíveis no modo dev.
         self._dev_widgets_busca = [
             chk_docs, chk_headless, lbl_debug, cbo_debug, self._btn_fechar_debug,
         ]
-
-        # ── Seção: Filtro ──────────────────────────────────────────────
-        f_filtro = ttk.Frame(parent)
-        f_filtro.pack(fill="x", pady=(0, 6))
-        ttk.Label(f_filtro, text="Filtro:", font=_FONT_BASE).pack(side="left")
-        ttk.Entry(
-            f_filtro, textvariable=self.var_filtro, font=_FONT_BASE,
-        ).pack(side="left", fill="x", expand=True, padx=6)
-        self.var_filtro.trace_add("write", lambda *_: self._filtrar_pesquisa())
 
         # ── Área principal: Treeview + Detalhes ────────────────────────
         f_main = ttk.Panedwindow(parent, orient="horizontal")
@@ -1203,11 +1216,40 @@ class App(ttk.Window):
         self._preencher_tree(self._processos_carregados)
 
     def _buscar_online(self) -> None:
-        """Dispara a busca do processo no TJ/sistema escolhido numa thread."""
-        numero = self.var_busca_numero.get().strip()
-        if not numero:
-            messagebox.showwarning("Busca online", "Informe o número do processo (CNJ).")
+        """Dispara a busca do processo no TJ/sistema escolhido numa thread.
+
+        Cache-first: se o número digitado já estiver carregado (pasta base ou
+        cache de buscas anteriores), apenas seleciona a linha — não vai à web."""
+        texto = self.var_filtro.get().strip()
+        if not texto:
+            messagebox.showwarning("Buscar processo", "Informe o número do processo (CNJ).")
             return
+        # Extrai o CNJ canônico do que foi digitado (a barra também serve de filtro).
+        m = RE_NUMERO_CNJ.search(texto)
+        numero = m.group(0) if m else texto
+
+        # Se o processo já foi carregado, não precisa buscar na web: seleciona.
+        # Exceção: "Forçar busca online" marcado → atualiza o dado pela web.
+        forcar = self.var_busca_forcar.get()
+        existente = next(
+            (p for p in self._processos_carregados if p.numero == numero), None
+        )
+        if existente and not forcar:
+            self._preencher_tree(self._processos_carregados)
+            if self.tree.exists(existente.numero):
+                self.tree.selection_set(existente.numero)
+                self.tree.see(existente.numero)
+            self._pesquisa_log_queue.put(
+                f"Processo {numero} já carregado — sem busca na web "
+                f"(marque 'Forçar busca online' para atualizar).\n"
+            )
+            self.var_status.set(f"Processo {numero} já carregado (sem busca na web).")
+            return
+        if existente and forcar:
+            self._pesquisa_log_queue.put(
+                f"Processo {numero} já em cache — forçando atualização pela web.\n"
+            )
+
         tj_label = self.var_busca_tj.get()
 
         # Sugere trocar de sistema se o número for de outra UF que não a do TJ
@@ -1305,6 +1347,19 @@ class App(ttk.Window):
                 tipo, payload = self._busca_result_queue.get_nowait()
                 if tipo == "ok":
                     proc = payload
+                    # Ao atualizar pela web um processo já em cache (ex.: busca
+                    # forçada sobre um caso vindo das planilhas), preserva a tag
+                    # de origem "Mapeamento: ..." e o valor da causa quando o
+                    # online não o trouxe — não perde o que veio da planilha.
+                    anterior = next(
+                        (p for p in self._processos_carregados if p.numero == proc.numero), None
+                    )
+                    if anterior is not None:
+                        for t in anterior.tags:
+                            if str(t).startswith("Mapeamento:") and t not in proc.tags:
+                                proc.tags.insert(0, t)
+                        if not proc.valor_causa and anterior.valor_causa:
+                            proc.valor_causa = anterior.valor_causa
                     self._processos_carregados = [
                         p for p in self._processos_carregados if p.numero != proc.numero
                     ]
@@ -1533,6 +1588,9 @@ class App(ttk.Window):
             self.var_status.set("Nenhum dado para copiar — selecione um processo.")
 
     def _carregar_templates(self) -> None:
+        # Preserva as marcações já feitas (ex.: o usuário escolheu modelos antes
+        # de selecionar um processo) para não zerá-las ao reconstruir a lista.
+        marcados = {p for p, v in self._templates_vars.items() if v.get()}
         for w in self._templates_inner.winfo_children():
             w.destroy()
         self._templates_vars.clear()
@@ -1558,7 +1616,7 @@ class App(ttk.Window):
                     font=_FONT_BOLD, bootstyle="info",
                 ).pack(anchor="w", pady=(8, 2))
                 for f in arquivos:
-                    var = tk.BooleanVar(value=False)
+                    var = tk.BooleanVar(value=f in marcados)
                     self._templates_vars[f] = var
                     cb = ttk.Checkbutton(
                         self._templates_inner, text=f.stem, variable=var,
@@ -1573,7 +1631,7 @@ class App(ttk.Window):
                     font=_FONT_BOLD, bootstyle="info",
                 ).pack(anchor="w", pady=(8, 2))
                 for f in raiz:
-                    var = tk.BooleanVar(value=False)
+                    var = tk.BooleanVar(value=f in marcados)
                     self._templates_vars[f] = var
                     cb = ttk.Checkbutton(
                         self._templates_inner, text=f.stem, variable=var,
@@ -1807,13 +1865,39 @@ class App(ttk.Window):
             self.var_pesquisa_destino.set(path)
             _salvar_ui_state(pesquisa_destino=path)
 
+    def _construir_proc_manual(self) -> Processo:
+        """Monta um Processo a partir dos campos preenchidos à mão, para gerar
+        petições sem buscar/selecionar um processo na lista. Os painéis "Dados do
+        processo" e "Campos editáveis" já são sempre editáveis; aqui apenas
+        consolidamos seus valores num Processo para o restante de _gerar_peticoes
+        (que lê proc.classe/assunto/uf, contexto de gênero das partes, etc.)."""
+        det = {atr: var.get().strip() for atr, var in self._det_vars.items()}
+        proc = Processo(
+            numero=det.get("numero", ""),
+            tribunal=det.get("tribunal", "") or self.var_tribunal.get().strip(),
+            classe=det.get("classe", ""),
+            orgao_julgador=det.get("orgao_julgador", ""),
+            juiz=det.get("juiz", "") or self.var_juiz.get().strip(),
+            valor_causa=det.get("valor_causa", "") or self.var_valor_causa.get().strip(),
+            assunto=self.var_assunto.get().strip(),
+            comarca=self.var_comarca.get().strip(),
+            vara=self.var_vara.get().strip(),
+            uf=self.var_estado.get().strip(),
+            foro_endereco=self.var_endereco_foro.get().strip(),
+        )
+        # Partes a partir dos nomes digitados → flexão de gênero/número correta.
+        if det.get("autor"):
+            proc.partes.append(Parte(papel="AUTOR", nome=det["autor"]))
+        if det.get("reu"):
+            proc.partes.append(Parte(papel="RÉU", nome=det["reu"]))
+        return proc
+
     def _gerar_peticoes(self) -> None:
         if self._gen_worker and self._gen_worker.is_alive():
             return
-        proc = self._proc_selecionado
-        if not proc:
-            messagebox.showwarning("Aviso", "Selecione um processo na lista.")
-            return
+        # Sem processo selecionado: monta um Processo a partir dos campos
+        # preenchidos à mão (modo manual). Destino e ≥1 modelo continuam exigidos.
+        proc = self._proc_selecionado or self._construir_proc_manual()
         destino = Path(self.var_pesquisa_destino.get() or "").expanduser()
         if not destino:
             messagebox.showwarning("Aviso", "Escolha uma pasta de destino para as petições.")
@@ -1829,7 +1913,8 @@ class App(ttk.Window):
         self._destacar_campos_faltantes()
 
         self._pesquisa_log_queue.put(
-            f"Gerando {len(templates_sel)} petição(ões) para {proc.numero} ...\n"
+            f"Gerando {len(templates_sel)} petição(ões) para "
+            f"{proc.numero or '(sem número)'} ...\n"
         )
 
         # Secretaria e Vara são espelhadas — o mesmo valor alimenta ambos placeholders.
@@ -1911,7 +1996,8 @@ class App(ttk.Window):
                 self._gen_result_queue.put(todos)
                 self._status_queue.put((
                     "status",
-                    f"Geração concluída — {proc.numero} ({n_templates} modelo(s)).",
+                    f"Geração concluída — {proc.numero or '(sem número)'} "
+                    f"({n_templates} modelo(s)).",
                 ))
                 with contextlib.suppress(Exception):
                     self.bell()

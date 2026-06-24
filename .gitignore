@@ -11,6 +11,9 @@ config/.env
 config/credenciais.json
 config/*.local.*
 
+# Screenshots de diagnóstico dos scrapers (artefatos descartáveis)
+organizador/integracoes/data/_debug/
+
 # Segredos do auto-updater — NUNCA commitar
 secrets/
 updater/_token.py
