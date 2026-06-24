@@ -20,7 +20,8 @@ from ttkbootstrap.constants import *
 from organizador import __version__
 
 from .config import (
-    OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, PROCESSOS_ONLINE_DIR,
+    OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, PROCESSOS_BASE_JSON,
+    PROCESSOS_ONLINE_DIR,
     TJ_SISTEMAS, UI_STATE_PATH, sugerir_tj_para_uf, uf_efetiva_tj,
 )
 
@@ -49,8 +50,8 @@ def _salvar_ui_state(**campos) -> None:
 from .flexao import _construir_contexto
 from .models import Parte, Processo
 from .organizacao import (
-    _autor, _carregar_processos, _reus_joined, organizar_pasta,
-    salvar_processo_metadados, uf_do_cnj,
+    _autor, _carregar_processos, _reus_joined, carregar_processos_base,
+    organizar_pasta, salvar_processo_metadados, uf_do_cnj,
 )
 from .padroes import RE_NUMERO_CNJ
 from .parsing import (
@@ -1182,15 +1183,19 @@ class App(ttk.Window):
             _salvar_ui_state(pesquisa_base=path)
 
     def _listar_processos(self) -> list[Processo]:
-        """Processos da pasta base + os buscados online (persistidos), sem
-        duplicar por número (a pasta base, curada, tem prioridade)."""
+        """Processos da pasta base + buscados online (persistidos) + os
+        embutidos na release, sem duplicar por número. Prioridade: pasta base
+        (curada) > cache de buscas online do usuário > base embutida (release),
+        para que a busca do próprio usuário sempre prevaleça sobre o snapshot."""
         pasta = Path(self.var_pesquisa_base.get()).expanduser()
         procs = _carregar_processos(pasta) if pasta.is_dir() else []
         vistos = {p.numero for p in procs}
-        for p in _carregar_processos(PROCESSOS_ONLINE_DIR):
-            if p.numero and p.numero not in vistos:
-                procs.append(p)
-                vistos.add(p.numero)
+        for fonte in (_carregar_processos(PROCESSOS_ONLINE_DIR),
+                      carregar_processos_base(PROCESSOS_BASE_JSON)):
+            for p in fonte:
+                if p.numero and p.numero not in vistos:
+                    procs.append(p)
+                    vistos.add(p.numero)
         return procs
 
     def _carregar_pesquisa_inicial(self) -> None:

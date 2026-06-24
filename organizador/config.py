@@ -51,6 +51,11 @@ UI_STATE_PATH = APP_DATA_DIR / "ui_state.json"
 # Processos trazidos pela busca online são persistidos aqui (um
 # <numero>/metadados.json por processo) para reaparecerem na lista ao reabrir.
 PROCESSOS_ONLINE_DIR = APP_DATA_DIR / "processos_online"
+# Processos pré-carregados EMBUTIDOS na release (JSON consolidado, gzip), para
+# aparecerem já populados em qualquer máquina onde o app for instalado. Fica em
+# _RAIZ (=_MEIPASS no exe), como config/ e Petições/. Prioridade menor que a
+# pasta base e que o cache de buscas online do próprio usuário.
+PROCESSOS_BASE_JSON = _RAIZ / "data" / "processos_base.json.gz"
 PASTA_PETICOES = _RAIZ / "Petições"
 CONFIG_DIR = _RAIZ / "config"
 CONFIG_ENV_PATH = CONFIG_DIR / ".env"

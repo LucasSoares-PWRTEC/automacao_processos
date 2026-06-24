@@ -17,6 +17,7 @@ from PyInstaller.utils.hooks import collect_all
 datas = [
     ("config", "config"),        # credenciais.json + .env (embutidos)
     ("Petições", "Petições"),    # modelos .docx das petições
+    ("data/processos_base.json.gz", "data"),  # processos pré-carregados (planilhas + enriquecidos)
 ]
 binaries = []
 hiddenimports = []

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import csv
+import gzip
 import itertools
 import json
 import os
@@ -522,6 +523,29 @@ def salvar_processo_metadados(proc: Processo, base: Path) -> None:
         )
     except Exception:
         pass
+
+
+def carregar_processos_base(caminho: Path) -> list[Processo]:
+    """Carrega os processos EMBUTIDOS na release de um JSON consolidado (lista de
+    dicts no mesmo formato de metadados.json; aceita .json ou .json.gz). Devolve
+    [] se o arquivo não existir ou estiver corrompido — nunca derruba o startup."""
+    if not caminho.is_file():
+        return []
+    try:
+        if caminho.suffix == ".gz":
+            with gzip.open(caminho, "rt", encoding="utf-8") as f:
+                dados = json.load(f)
+        else:
+            dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    resultados: list[Processo] = []
+    for d in dados or []:
+        try:
+            resultados.append(_dict_para_processo(d))
+        except Exception:
+            continue
+    return resultados
 
 
 def _carregar_processos(pasta: Path) -> list[Processo]:
