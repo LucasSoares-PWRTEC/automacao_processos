@@ -720,7 +720,7 @@ def test_data_fechamento_aceita_ponto_e_zero_a_esquerda():
     import datetime
     t = "De Belo Horizonte/MG, 09 de abril de 2025."
     assert op._atualizar_data_fechamento(t, datetime.date(2026, 12, 1)) == \
-        "De Belo Horizonte/MG, 1 de dezembro de 2026"
+        "Belo Horizonte/MG, 1 de dezembro de 2026"
 
 
 def test_data_no_corpo_nao_e_alterada():

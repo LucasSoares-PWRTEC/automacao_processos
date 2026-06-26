@@ -28,7 +28,7 @@ from organizador.scraper import buscar_processo_online
 
 # numero -> (sistema_declarado, tj_label | None, motivo_se_nao_suportado)
 PROCESSOS: list[tuple[str, str, str | None, str]] = [
-    ("4018574-23.2025.8.26.0100", "eproc SP",     "TJSP — eproc (SP)", ""),
+    ("4018574-23.2025.8.26.0100", "eproc SP",     "TJSP — eproc", ""),
     ("1102493-63.2022.8.26.0100", "e-SAJ SP",     "TJSP — e-SAJ",      ""),
     ("5000432-19.2021.8.13.0079", "PJe MG",       "TJMG — PJe",        ""),
     ("5014752-74.2021.8.13.0079", "PJe MG",       "TJMG — PJe",        ""),

@@ -77,25 +77,41 @@ LEGACY_SENHAS_XLSX_PATH = LEGACY_SCRAPER_DIR / "data" / "senhas.xlsx"
 # (SP, MG, RJ, PR, RN, GO) — o login/2FA é o mesmo; muda só qual botão clicar.
 # Quando None, o scraper usa a sigla padrão do estado (ex.: TJMG → "MG").
 TJ_SISTEMAS = {
-    "TJSP — eproc (SP)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "SP"),
-    "TJSP — eproc (MG)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "MG"),
-    "TJSP — eproc (RJ)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "RJ"),
-    "TJSP — eproc (PR)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "PR"),
-    "TJSP — eproc (RN)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "RN"),
-    "TJSP — eproc (GO)": ("eproc", "SAO PAULO",    "https://eproc1g.tjsp.jus.br/eproc/", "GO"),
-    "TJSP — e-SAJ": ("esaj",  "SAO PAULO",          "https://esaj.tjsp.jus.br/cpopg/open.do", None),
-    "TJAM — e-SAJ": ("esaj",  "AMAZONAS",           "https://consultasaj.tjam.jus.br/cpopg/open.do", None),
-    "TJMS — e-SAJ": ("esaj",  "MATO GROSSO DO SUL", "https://esaj.tjms.jus.br/cpopg/open.do", None),
-    "TJMG — eproc": ("eproc", "MINAS GERAIS", "https://eproc1g.tjmg.jus.br/eproc/", None),
-    "TJMG — PJe":   ("pje",   "MINAS GERAIS", "https://pje.tjmg.jus.br/pje/", None),
+    # ── SP ──────────────────────────────────────────────────────────────────
+    "TJSP — eproc":  ("eproc", "SAO PAULO", "https://eproc1g.tjsp.jus.br/eproc/", "SP"),
+    "TJSP — e-SAJ":  ("esaj",  "SAO PAULO", "https://esaj.tjsp.jus.br/cpopg/open.do", None),
+    # ── AM ──────────────────────────────────────────────────────────────────
+    "TJAM — e-SAJ":  ("esaj",  "AMAZONAS",           "https://consultasaj.tjam.jus.br/cpopg/open.do", None),
+    # ── CE ──────────────────────────────────────────────────────────────────
     # PJe é nacional (login único via PDPJ): o scraper deriva login.seam e a
     # busca interna da URL base abaixo (cada tribunal tem seu host/path: /pje/,
     # /pje1grau/, /1g/...). O TOTP é o mesmo (TOTP_PDPJ) em todos.
-    "TJCE — PJe":   ("pje",   "CEARA",       "https://pje.tjce.jus.br/pje1grau/", None),
-    "TJMA — PJe":   ("pje",   "MARANHAO",    "https://pje.tjma.jus.br/pje/", None),
-    "TJPA — PJe":   ("pje",   "PARA",        "https://pje.tjpa.jus.br/pje/", None),
-    "TJPE — PJe":   ("pje",   "PERNAMBUCO",  "https://pje.cloud.tjpe.jus.br/1g/", None),
-    "TJSC — eproc": ("eproc", "SANTA CATARINA", "https://eproc1g.tjsc.jus.br/eproc/", "SC"),
+    "TJCE — PJe":    ("pje",   "CEARA",              "https://pje.tjce.jus.br/pje1grau/", None),
+    # ── GO ──────────────────────────────────────────────────────────────────
+    # Acesso via perfil OAB-GO na plataforma eproc do TJSP (mesmo login/2FA).
+    "TJGO — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "GO"),
+    # ── MA ──────────────────────────────────────────────────────────────────
+    "TJMA — PJe":    ("pje",   "MARANHAO",            "https://pje.tjma.jus.br/pje/", None),
+    # ── MG ──────────────────────────────────────────────────────────────────
+    "TJMG — eproc":  ("eproc", "MINAS GERAIS",        "https://eproc1g.tjmg.jus.br/eproc/", None),
+    "TJMG — PJe":    ("pje",   "MINAS GERAIS",        "https://pje.tjmg.jus.br/pje/", None),
+    # ── MS ──────────────────────────────────────────────────────────────────
+    "TJMS — e-SAJ":  ("esaj",  "MATO GROSSO DO SUL",  "https://esaj.tjms.jus.br/cpopg/open.do", None),
+    # ── PA ──────────────────────────────────────────────────────────────────
+    "TJPA — PJe":    ("pje",   "PARA",                "https://pje.tjpa.jus.br/pje/", None),
+    # ── PE ──────────────────────────────────────────────────────────────────
+    "TJPE — PJe":    ("pje",   "PERNAMBUCO",          "https://pje.cloud.tjpe.jus.br/1g/", None),
+    # ── PR ──────────────────────────────────────────────────────────────────
+    # Acesso via perfil OAB-PR na plataforma eproc do TJSP (mesmo login/2FA).
+    "TJPR — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "PR"),
+    # ── RJ ──────────────────────────────────────────────────────────────────
+    # Acesso via perfil OAB-RJ na plataforma eproc do TJSP (mesmo login/2FA).
+    "TJRJ — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "RJ"),
+    # ── RN ──────────────────────────────────────────────────────────────────
+    # Acesso via perfil OAB-RN na plataforma eproc do TJSP (mesmo login/2FA).
+    "TJRN — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "RN"),
+    # ── SC ──────────────────────────────────────────────────────────────────
+    "TJSC — eproc":  ("eproc", "SANTA CATARINA",      "https://eproc1g.tjsc.jus.br/eproc/", "SC"),
 }
 _ESTADO_TJ_UF = {
     "SAO PAULO": ("TJSP", "SP"),

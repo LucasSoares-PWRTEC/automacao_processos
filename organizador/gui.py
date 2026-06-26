@@ -118,10 +118,10 @@ def _converter_docx_para_pdf(docx_path: Path) -> Path:
 
 
 # Fontes e constantes visuais
-_FONT_BASE = ("Segoe UI", 10)
-_FONT_BOLD = ("Segoe UI", 10, "bold")
-_FONT_MONO = ("Consolas", 9)
-_FONT_TITLE = ("Segoe UI", 11, "bold")
+_FONT_BASE = ("Segoe UI", 11)
+_FONT_BOLD = ("Segoe UI", 11, "bold")
+_FONT_MONO = ("Consolas", 10)
+_FONT_TITLE = ("Segoe UI", 12, "bold")
 _PAD_X = 12
 _PAD_Y = 6
 
@@ -140,6 +140,7 @@ class App(ttk.Window):
         self.geometry(f"{w}x{h}+{x}+{y}")
         self.minsize(900, 600)
         self.configure(background="#f0f2f5")
+        self.option_add("*TCombobox*Listbox.font", _FONT_BASE)
 
         # Estado compartilhado / aba Organizador
         self.var_origem = tk.StringVar(value=PASTA_PADRAO)
@@ -169,7 +170,7 @@ class App(ttk.Window):
         # Barra única: filtra a lista ao vivo e, no Enter/botão, busca online
         # (só vai à web se o processo ainda não estiver carregado).
         self.var_filtro = tk.StringVar(value="")
-        self.var_busca_tj = tk.StringVar(value="TJSP — eproc (SP)")
+        self.var_busca_tj = tk.StringVar(value="TJSP — eproc")
         self.var_busca_headless = tk.BooleanVar(value=True)
         self.var_busca_docs = tk.BooleanVar(value=False)  # False → modo_docs "nenhum"; True → "atos"
         self.var_busca_debug = tk.StringVar(value="Desligado")  # ver _DEBUG_MODOS
@@ -398,6 +399,7 @@ class App(ttk.Window):
             padding=(12, 8),
         )
         section_base.pack(fill="x", pady=(0, 6))
+        self._sec_base = section_base
 
         f0 = ttk.Frame(section_base)
         f0.pack(fill="x")
@@ -420,6 +422,7 @@ class App(ttk.Window):
             padding=(12, 8),
         )
         section_busca.pack(fill="x", pady=(0, 6))
+        self._sec_busca = section_busca
 
         # Barra única: filtra a lista ao vivo enquanto digita; no Enter ou no
         # botão, busca o processo — só vai à web se ainda não estiver carregado.
@@ -444,7 +447,7 @@ class App(ttk.Window):
         )
         ttk.Combobox(
             f_busca, textvariable=self.var_busca_tj, values=list(TJ_SISTEMAS),
-            state="readonly", width=18, font=_FONT_BASE,
+            state="readonly", width=18, height=20, font=_FONT_BASE,
         ).grid(row=0, column=3, sticky="w", pady=2)
         # ── Linha 1: "Forçar busca online" (sempre visível) + botão Buscar ──
         chk_forcar = ttk.Checkbutton(
@@ -483,8 +486,33 @@ class App(ttk.Window):
         self._btn_fechar_debug.grid(row=3, column=3, sticky="e", pady=(4, 0))
         # Opções avançadas — só visíveis no modo dev.
         self._dev_widgets_busca = [
-            chk_docs, chk_headless, lbl_debug, cbo_debug, self._btn_fechar_debug,
+            chk_forcar, chk_docs, chk_headless, lbl_debug, cbo_debug, self._btn_fechar_debug,
         ]
+
+        # ── Modelos de petição (full-width, acima do painel de processos) ─
+        f_templates = ttk.Labelframe(
+            parent, text="  Modelos de petição  ",
+            bootstyle="default", padding=(12, 8),
+        )
+        f_templates.pack(fill="x", expand=False, pady=(0, 4))
+        self._templates_inner = ttk.Frame(f_templates, padding=4)
+        self._templates_inner.pack(fill="both", expand=True)
+
+        f_btn_t = ttk.Frame(parent)
+        f_btn_t.pack(fill="x", pady=(0, 6))
+        ttk.Button(
+            f_btn_t, text="Marcar todos", command=self._marcar_todos_templates,
+            bootstyle="outline", width=14,
+        ).pack(side="left")
+        ttk.Button(
+            f_btn_t, text="Desmarcar todos", command=self._desmarcar_todos_templates,
+            bootstyle="outline-secondary", width=16,
+        ).pack(side="left", padx=(8, 0))
+        ttk.Checkbutton(
+            f_btn_t, text="Gerar documento único",
+            variable=self.var_documento_unico,
+            bootstyle="info",
+        ).pack(side="left", padx=(16, 0))
 
         # ── Área principal: Treeview + Detalhes ────────────────────────
         f_main = ttk.Panedwindow(parent, orient="horizontal")
@@ -663,61 +691,6 @@ class App(ttk.Window):
             f_detalhes, text="  Campos adicionais (placeholders novos)  ",
             bootstyle="warning", padding=(12, 8),
         )
-
-        # ── Modelos de petição ─────────────────────────────────────────
-        # Exibido ANTES dos "Campos editáveis" (before=f_edicao): escolher os
-        # modelos primeiro é o que destaca quais campos editáveis são exigidos.
-        f_templates = ttk.Labelframe(
-            f_detalhes, text="  Modelos de petição  ",
-            bootstyle="default", padding=(12, 8),
-        )
-        f_templates.pack(fill="both", expand=True, pady=(0, 6), before=f_edicao)
-        # height é apenas um mínimo (Tk trata como pedido, não teto): com
-        # fill/expand o canvas cresce junto com a janela.
-        self._templates_canvas = tk.Canvas(
-            f_templates, highlightthickness=0, height=120, bg="#fafbfc",
-        )
-        scroll_t = ttk.Scrollbar(
-            f_templates, orient="vertical", command=self._templates_canvas.yview,
-            bootstyle="round",
-        )
-        self._templates_inner = ttk.Frame(self._templates_canvas, padding=4)
-        self._templates_inner.bind("<Configure>",
-            lambda e: self._templates_canvas.configure(scrollregion=self._templates_canvas.bbox("all")))
-        self._templates_canvas.create_window((0, 0), window=self._templates_inner, anchor="nw")
-        self._templates_canvas.configure(yscrollcommand=scroll_t.set)
-        self._templates_canvas.pack(side="left", fill="both", expand=True)
-        scroll_t.pack(side="right", fill="y")
-
-        def _on_tpl_mousewheel(event: tk.Event) -> str:
-            self._templates_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-            return "break"
-
-        self._templates_canvas.bind(
-            "<Enter>",
-            lambda e: self._templates_canvas.bind_all("<MouseWheel>", _on_tpl_mousewheel),
-        )
-        self._templates_canvas.bind(
-            "<Leave>",
-            lambda e: det_canvas.bind_all("<MouseWheel>", _on_det_mousewheel),
-        )
-
-        # Botões de templates (logo abaixo da lista de modelos, ainda acima dos editáveis)
-        f_btn_t = ttk.Frame(f_detalhes)
-        f_btn_t.pack(fill="x", pady=(0, 6), before=f_edicao)
-        ttk.Button(
-            f_btn_t, text="Marcar todos", command=self._marcar_todos_templates,
-            bootstyle="outline", width=14,
-        ).pack(side="left")
-        ttk.Button(
-            f_btn_t, text="Desmarcar todos", command=self._desmarcar_todos_templates,
-            bootstyle="outline-secondary", width=16,
-        ).pack(side="left", padx=(8, 0))
-        ttk.Checkbutton(
-            f_btn_t, text="Gerar documento único",
-            variable=self.var_documento_unico,
-            bootstyle="info",
-        ).pack(side="left", padx=(16, 0))
 
         # ── Geração de petições ────────────────────────────────────────
         section_gen = ttk.Labelframe(
@@ -1461,6 +1434,16 @@ class App(ttk.Window):
             with contextlib.suppress(Exception):
                 w.grid() if dev else w.grid_remove()
 
+        # Seção "Base de dados" da aba de pesquisa (pasta base + lista).
+        sec_base = getattr(self, "_sec_base", None)
+        sec_busca = getattr(self, "_sec_busca", None)
+        if sec_base is not None and sec_busca is not None:
+            with contextlib.suppress(Exception):
+                if dev:
+                    sec_base.pack(fill="x", pady=(0, 6), before=sec_busca)
+                else:
+                    sec_base.pack_forget()
+
         # Seção 2FA das configurações (re-empacota antes da barra de ações).
         sec = getattr(self, "_sec_2fa", None)
         if sec is not None:
@@ -1625,45 +1608,54 @@ class App(ttk.Window):
         if not templates_dir.is_dir():
             templates_dir = PASTA_PETICOES
         if templates_dir.is_dir():
-            # Subdiretórios primeiro (ex.: Citação/, Mandado/, Penhora/).
             subdirs = sorted(
                 d for d in templates_dir.iterdir()
                 if d.is_dir() and not d.name.startswith(".")
             )
+            # Calcula o máximo de linhas por coluna para equilibrar as alturas:
+            # usa a mediana dos tamanhos das categorias (mín. 6, máx. 12).
+            tamanhos = []
+            grupos: list[tuple[str, list]] = []
             for subdir in subdirs:
-                arquivos = sorted(
-                    f for f in subdir.iterdir()
-                    if f.is_file() and f.suffix.lower() == ".docx"
-                )
-                if not arquivos:
-                    continue
-                ttk.Label(
-                    self._templates_inner, text=f"— {subdir.name.title()} —",
-                    font=_FONT_BOLD, bootstyle="info",
-                ).pack(anchor="w", pady=(8, 2))
-                for f in arquivos:
-                    var = tk.BooleanVar(value=f in marcados)
-                    self._templates_vars[f] = var
-                    cb = ttk.Checkbutton(
-                        self._templates_inner, text=f.stem, variable=var,
-                        command=self._on_template_toggle, bootstyle="info",
-                    )
-                    cb.pack(anchor="w", pady=1)
-            # Arquivos da raiz da pasta Petições (sem subpasta) por último.
+                arqs = sorted(f for f in subdir.iterdir() if f.is_file() and f.suffix.lower() == ".docx")
+                if arqs:
+                    tamanhos.append(len(arqs))
+                    grupos.append((subdir.name.title(), arqs))
             raiz = sorted(f for f in templates_dir.iterdir() if f.is_file() and f.suffix.lower() == ".docx")
             if raiz:
-                ttk.Label(
-                    self._templates_inner, text="— Outros —",
-                    font=_FONT_BOLD, bootstyle="info",
-                ).pack(anchor="w", pady=(8, 2))
-                for f in raiz:
-                    var = tk.BooleanVar(value=f in marcados)
-                    self._templates_vars[f] = var
-                    cb = ttk.Checkbutton(
-                        self._templates_inner, text=f.stem, variable=var,
-                        command=self._on_template_toggle, bootstyle="info",
-                    )
-                    cb.pack(anchor="w", pady=1)
+                tamanhos.append(len(raiz))
+                grupos.append(("Outros", raiz))
+
+            if tamanhos:
+                mediana = sorted(tamanhos)[len(tamanhos) // 2]
+                _MAX_COL = max(6, min(12, mediana))
+            else:
+                _MAX_COL = 8
+
+            col_idx = 0
+            for titulo, arquivos in grupos:
+                # Divide em fatias de _MAX_COL itens; cada fatia = 1 coluna.
+                fatias = [arquivos[i:i + _MAX_COL] for i in range(0, len(arquivos), _MAX_COL)]
+                for fatia_i, fatia in enumerate(fatias):
+                    col = ttk.Frame(self._templates_inner)
+                    col.grid(row=0, column=col_idx, sticky="nsew", padx=(0, 16))
+                    self._templates_inner.columnconfigure(col_idx, weight=1)
+                    # Título só na primeira fatia; colunas de continuação ficam
+                    # com espaço vazio para manter o alinhamento visual.
+                    lbl_txt = titulo if fatia_i == 0 else ""
+                    ttk.Label(
+                        col, text=lbl_txt,
+                        font=_FONT_BOLD, bootstyle="info",
+                    ).pack(anchor="w", pady=(0, 2))
+                    ttk.Separator(col, orient="horizontal").pack(fill="x", pady=(0, 6))
+                    for f in fatia:
+                        var = tk.BooleanVar(value=f in marcados)
+                        self._templates_vars[f] = var
+                        ttk.Checkbutton(
+                            col, text=f.stem, variable=var,
+                            command=self._on_template_toggle, bootstyle="info",
+                        ).pack(anchor="w", pady=2)
+                    col_idx += 1
         self._scan_templates_em_background()
         self._on_template_toggle()
 

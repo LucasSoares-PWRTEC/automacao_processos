@@ -116,7 +116,7 @@ def test_busca_online_usa_scraper_interno_sem_manipular_sys_path(monkeypatch):
 
     proc = mod.buscar_processo_online(
         "4004459-04.2026.8.26.0248",
-        "TJSP — eproc (SP)",
+        "TJSP — eproc",
         True,
         logs.append,
     )
@@ -194,7 +194,7 @@ def test_busca_online_sinaliza_processo_nao_encontrado(monkeypatch):
     logs: list[str] = []
     with pytest.raises(RuntimeError, match="não encontrado"):
         mod.buscar_processo_online(
-            "0000223-52.2025.8.26.0127", "TJSP — eproc (SP)", True, logs.append,
+            "0000223-52.2025.8.26.0127", "TJSP — eproc", True, logs.append,
         )
 
 
@@ -239,7 +239,7 @@ def test_modo_debug_pos_login_para_antes_da_consulta(monkeypatch):
     retidos: list[object] = []
     logs: list[str] = []
     proc = mod.buscar_processo_online(
-        "4004459-04.2026.8.26.0248", "TJSP — eproc (SP)", False,
+        "4004459-04.2026.8.26.0248", "TJSP — eproc", False,
         logs.append, modo_debug="pos_login", reter_scraper=retidos.append,
     )
 
@@ -276,7 +276,7 @@ def test_modo_debug_pos_consulta_extrai_e_nao_fecha(monkeypatch):
     retidos: list[object] = []
     logs: list[str] = []
     proc = mod.buscar_processo_online(
-        "4004459-04.2026.8.26.0248", "TJSP — eproc (SP)", False,
+        "4004459-04.2026.8.26.0248", "TJSP — eproc", False,
         logs.append, modo_debug="pos_consulta", reter_scraper=retidos.append,
     )
 
@@ -328,10 +328,9 @@ def test_opcoes_esaj_multitribunal():
 def test_uf_efetiva_tj_usa_perfil_ou_estado():
     from organizador.config import uf_efetiva_tj
 
-    assert uf_efetiva_tj("TJSP — eproc (MG)") == "MG"  # perfil tem prioridade
-    assert uf_efetiva_tj("TJSP — eproc (SP)") == "SP"
-    assert uf_efetiva_tj("TJSP — e-SAJ") == "SP"  # sem perfil → UF do estado
     assert uf_efetiva_tj("TJMG — eproc") == "MG"
+    assert uf_efetiva_tj("TJSP — eproc") == "SP"
+    assert uf_efetiva_tj("TJSP — e-SAJ") == "SP"  # sem perfil → UF do estado
     assert uf_efetiva_tj("inexistente") == ""
 
 
@@ -341,8 +340,8 @@ def test_sugerir_tj_para_uf_prefere_eproc():
     sug_mg = sugerir_tj_para_uf("MG")
     assert sug_mg is not None and TJ_SISTEMAS[sug_mg][0] == "eproc"
 
-    assert sugerir_tj_para_uf("SP") == "TJSP — eproc (SP)"
-    assert sugerir_tj_para_uf("sp") == "TJSP — eproc (SP)"  # case-insensitive
+    assert sugerir_tj_para_uf("SP") == "TJSP — eproc"
+    assert sugerir_tj_para_uf("sp") == "TJSP — eproc"  # case-insensitive
     assert sugerir_tj_para_uf("BA") is None  # sem sistema configurado
     assert sugerir_tj_para_uf("") is None
 

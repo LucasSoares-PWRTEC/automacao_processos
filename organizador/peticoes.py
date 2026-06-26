@@ -565,10 +565,14 @@ def _data_por_extenso(data: "_date | None" = None) -> str:
 
 
 def _atualizar_data_fechamento(texto: str, data: "_date | None" = None) -> str:
-    """Troca a data fixa da linha de fechamento pela data de emissão (hoje)."""
-    return _RE_DATA_FECHAMENTO.sub(
-        lambda m: f"{m.group(1)}{_data_por_extenso(data)}", texto
-    )
+    """Troca a data fixa da linha de fechamento pela data de emissão (hoje).
+    Quando há apenas um local (sem "para"), remove o "De " inicial."""
+    def _repl(m: re.Match) -> str:
+        prefixo = m.group(1)
+        if not re.search(r"\bpara\b", prefixo, re.IGNORECASE):
+            prefixo = re.sub(r"(?i)^\bDe\s+", "", prefixo)
+        return f"{prefixo}{_data_por_extenso(data)}"
+    return _RE_DATA_FECHAMENTO.sub(_repl, texto)
 
 
 _RE_HEADER_JUDICIAL = re.compile(
@@ -593,9 +597,12 @@ def _montar_header_enderecamento(texto: str, dados: dict, ctx: Contexto | None =
     if not vara:
         return saudacao.upper()
 
-    header = f"{saudacao} DE DIREITO DA {vara}"
+    _VARA_MASC = ("JUÍZO", "JUIZO", "JUIZADO", "FORO")
+    prep_vara = "DO" if vara.upper().startswith(_VARA_MASC) else "DA"
+    header = f"{saudacao} DE DIREITO {prep_vara} {vara}"
     if comarca:
-        header += f" DO {comarca}"
+        prep = "DA" if comarca.upper().startswith("COMARCA") else "DO"
+        header += f" {prep} {comarca}"
         if estado:
             header += f"/{estado}"
     return header.upper()
