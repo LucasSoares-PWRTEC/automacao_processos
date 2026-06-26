@@ -88,20 +88,32 @@ _DEBUG_MODOS: dict[str, str] = {
     "Pausar após consulta (validar dados)": "pos_consulta",
 }
 
+def _word_disponivel() -> bool:
+    try:
+        import win32com.client  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
 def _converter_docx_para_pdf(docx_path: Path) -> Path:
-    """Converte um .docx para .pdf usando o Microsoft Word via COM (win32com)."""
-    import win32com.client
-    import pythoncom
+    """Converte .docx para .pdf usando Microsoft Word via COM."""
+    try:
+        import win32com.client
+        import pythoncom
+    except ImportError:
+        raise RuntimeError("pywin32 não instalado — conversão para PDF indisponível.")
     pythoncom.CoInitialize()
     word = win32com.client.Dispatch("Word.Application")
     word.Visible = False
+    word.DisplayAlerts = False
     try:
         doc = word.Documents.Open(str(docx_path.resolve()))
         pdf_path = docx_path.with_suffix(".pdf")
         doc.SaveAs(str(pdf_path.resolve()), FileFormat=17)  # 17 = wdFormatPDF
-        doc.Close()
+        doc.Close(SaveChanges=False)
     finally:
-        word.Quit()
+        word.Quit(SaveChanges=False)
     return pdf_path
 
 
@@ -189,7 +201,7 @@ class App(ttk.Window):
         self._templates_vars: dict[Path, tk.BooleanVar] = {}
         self.var_documento_unico = tk.BooleanVar(value=True)
         self.var_multiplos_imoveis = tk.BooleanVar(value=False)
-        self.var_gerar_pdf = tk.BooleanVar(value=True)
+        self.var_gerar_pdf = tk.BooleanVar(value=_word_disponivel())
         self._pesquisa_log_queue: queue.Queue[str] = queue.Queue()
         self._gen_worker: threading.Thread | None = None
         self._busca_worker: threading.Thread | None = None
@@ -733,9 +745,18 @@ class App(ttk.Window):
         ttk.Label(f_fmt, text="📝", font=("Segoe UI", 14)).pack(side="left", padx=(0, 4))
         ttk.Label(f_fmt, text="Word (.docx)", font=_FONT_BASE, bootstyle="secondary").pack(side="left", padx=(0, 20))
         ttk.Label(f_fmt, text="📄", font=("Segoe UI", 14)).pack(side="left", padx=(0, 4))
-        ttk.Checkbutton(
+        _cb_pdf = ttk.Checkbutton(
             f_fmt, text="PDF", variable=self.var_gerar_pdf, bootstyle="info",
-        ).pack(side="left")
+        )
+        _cb_pdf.pack(side="left")
+        if not _word_disponivel():
+            _cb_pdf.configure(state="disabled")
+            ttk.Label(
+                f_fmt,
+                text="(Microsoft Word não instalado — contate o TI)",
+                font=_FONT_BASE,
+                bootstyle="danger",
+            ).pack(side="left", padx=(6, 0))
         ttk.Button(
             f_gerar, text="📄  Gerar petições selecionadas",
             command=self._gerar_peticoes,
