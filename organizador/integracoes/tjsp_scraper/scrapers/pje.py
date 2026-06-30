@@ -140,6 +140,22 @@ class PJEScraper(TribunalScraper):
                 continue
         return None
 
+    @staticmethod
+    def _xp_campo_numero(sufixo: str) -> str:
+        """XPath de um campo do número do processo casando o SUFIXO do id SEM
+        diferenciar maiúsc./minúsc. O PJe varia a caixa entre tribunais (TJMG usa
+        'fPP:numeroProcesso:Ano'; o TJPA usa ':ano') — fixar o id quebrava o TJPA."""
+        minus, maius = "abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        return (
+            "//input[starts-with(@id,'fPP:numeroProcesso:') and "
+            f"translate(substring-after(@id,'fPP:numeroProcesso:'),'{maius}','{minus}')"
+            f"='{sufixo.lower()}']"
+        )
+
+    def _campo_numero(self, sufixo: str, timeout: int = 8):
+        """Acha o campo do número pelo sufixo do id (case-insensitive)."""
+        return self._first([(By.XPATH, self._xp_campo_numero(sufixo))], timeout=timeout)
+
     def _screenshot(self, nome: str):
         try:
             _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
@@ -299,15 +315,17 @@ class PJEScraper(TribunalScraper):
             return None
         partes = list(m.groups())  # [NNNNNNN, DD, AAAA, J, TR, OOOO]
 
-        # IDs JSF CONFIRMADOS via dump do DOM (teste ao vivo 2026-05-19).
-        # 6 campos do número, na ordem do CNJ.
-        ids_numero = [
-            "fPP:numeroProcesso:numeroSequencial",       # NNNNNNN
-            "fPP:numeroProcesso:numeroDigitoVerificador",  # DD
-            "fPP:numeroProcesso:Ano",                      # AAAA
-            "fPP:numeroProcesso:ramoJustica",              # J
-            "fPP:numeroProcesso:respectivoTribunal",       # TR
-            "fPP:numeroProcesso:NumeroOrgaoJustica",       # OOOO
+        # 6 campos do número, na ordem do CNJ. Guardamos só o SUFIXO do id; a
+        # localização ignora a caixa (translate no XPath), porque ela varia entre
+        # tribunais: TJMG usa ':Ano', o TJPA usa ':ano' — antes o TJPA falhava no
+        # preenchimento e todos os 54 processos do PA vinham "não encontrado".
+        sufixos_numero = [
+            "numeroSequencial",        # NNNNNNN
+            "numeroDigitoVerificador", # DD
+            "Ano",                     # AAAA
+            "ramoJustica",             # J
+            "respectivoTribunal",      # TR
+            "NumeroOrgaoJustica",      # OOOO
         ]
 
         # Acessa o form de busca; se a sessão expirou (Keycloak SSO),
@@ -343,7 +361,9 @@ class PJEScraper(TribunalScraper):
 
             try:
                 WebDriverWait(self.driver, 12).until(
-                    EC.visibility_of_element_located((By.ID, ids_numero[0]))
+                    EC.visibility_of_element_located(
+                        (By.XPATH, self._xp_campo_numero(sufixos_numero[0]))
+                    )
                 )
                 form_pronto = True
                 break
@@ -372,8 +392,13 @@ class PJEScraper(TribunalScraper):
         if not form_pronto:
             return None
 
-        for campo_id, valor in zip(ids_numero, partes):
-            campo = self.driver.find_element(By.ID, campo_id)
+        for sufixo, valor in zip(sufixos_numero, partes):
+            campo = self._campo_numero(sufixo, timeout=6)
+            if campo is None:
+                self._dump_dom(f"campo do numero ausente ({sufixo})")
+                self._screenshot("busca_campo_numero_ausente")
+                print(f"❌ PJe: campo '{sufixo}' do número não encontrado (variação de DOM).")
+                return None
             campo.clear()
             campo.send_keys(valor)
 

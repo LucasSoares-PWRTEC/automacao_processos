@@ -635,14 +635,6 @@
     "quando": "2026-06-29T08:34:18",
     "cliente": "DIRECIONAL"
   },
-  "0800820-47.2019.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:24:44",
-    "cliente": "DIRECIONAL"
-  },
   "0021264-83.2019.8.19.0008": {
     "status": "sem_rota",
     "uf": "RJ",
@@ -1431,206 +1423,6 @@
     "autor": "CAMBRAIA EMPREENDIMENTOS IMOBILIARIOS LTDA",
     "reu": "RAFAEL VILAR SILVA",
     "quando": "2026-06-29T10:41:25",
-    "cliente": "DIRECIONAL"
-  },
-  "0800214-87.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:24:48",
-    "cliente": "DIRECIONAL"
-  },
-  "0800222-64.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:24:53",
-    "cliente": "DIRECIONAL"
-  },
-  "0800299-73.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:24:57",
-    "cliente": "DIRECIONAL"
-  },
-  "0800311-87.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:01",
-    "cliente": "DIRECIONAL"
-  },
-  "0800312-72.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:06",
-    "cliente": "DIRECIONAL"
-  },
-  "0800460-83.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:10",
-    "cliente": "DIRECIONAL"
-  },
-  "0800467-75.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:15",
-    "cliente": "DIRECIONAL"
-  },
-  "0822972-07.2018.8.14.0301": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:19",
-    "cliente": "DIRECIONAL"
-  },
-  "0001461-25.2018.8.14.0094": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:24",
-    "cliente": "DIRECIONAL"
-  },
-  "0824366-49.2018.8.14.0301": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:28",
-    "cliente": "DIRECIONAL"
-  },
-  "0800465-08.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:32",
-    "cliente": "DIRECIONAL"
-  },
-  "0800897-17.2018.8.14.0028": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:36",
-    "cliente": "DIRECIONAL"
-  },
-  "0800508-19.2018.8.14.0097": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:41",
-    "cliente": "DIRECIONAL"
-  },
-  "0832838-39.2018.8.14.0301": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:45",
-    "cliente": "DIRECIONAL"
-  },
-  "0004759-74.2018.8.14.0013": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:49",
-    "cliente": "DIRECIONAL"
-  },
-  "0800941-12.2018.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:54",
-    "cliente": "DIRECIONAL"
-  },
-  "0801007-89.2018.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:25:58",
-    "cliente": "DIRECIONAL"
-  },
-  "0806815-68.2018.8.14.0006": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:02",
-    "cliente": "DIRECIONAL"
-  },
-  "0800329-40.2019.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:07",
-    "cliente": "DIRECIONAL"
-  },
-  "0800946-97.2019.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:11",
-    "cliente": "DIRECIONAL"
-  },
-  "0800367-18.2020.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:15",
-    "cliente": "DIRECIONAL"
-  },
-  "0800469-40.2020.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:20",
-    "cliente": "DIRECIONAL"
-  },
-  "0800519-66.2020.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:24",
-    "cliente": "DIRECIONAL"
-  },
-  "0828998-50.2020.8.14.0301": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:28",
-    "cliente": "DIRECIONAL"
-  },
-  "0800836-64.2020.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:33",
     "cliente": "DIRECIONAL"
   },
   "0003730-88.2020.8.17.2420": {
@@ -3114,14 +2906,6 @@
     "quando": "2026-06-30T01:00:29",
     "cliente": "DIRECIONAL"
   },
-  "0017839-97.2016.8.14.0006": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:37",
-    "cliente": "DIRECIONAL"
-  },
   "0633467-71.2016.8.04.0001": {
     "status": "enriquecido",
     "uf": "AM",
@@ -3142,46 +2926,6 @@
     "quando": "2026-06-30T00:40:52",
     "cliente": "DIRECIONAL"
   },
-  "0800234-78.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:41",
-    "cliente": "DIRECIONAL"
-  },
-  "0800225-19.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:46",
-    "cliente": "DIRECIONAL"
-  },
-  "0800228-71.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:50",
-    "cliente": "DIRECIONAL"
-  },
-  "0800246-92.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:55",
-    "cliente": "DIRECIONAL"
-  },
-  "0800256-39.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:26:59",
-    "cliente": "DIRECIONAL"
-  },
   "0609611-44.2017.8.04.0001": {
     "status": "enriquecido",
     "uf": "AM",
@@ -3199,30 +2943,6 @@
     "quando": "2026-06-30T01:00:30",
     "cliente": "DIRECIONAL"
   },
-  "0800285-89.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:04",
-    "cliente": "DIRECIONAL"
-  },
-  "0800310-05.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:08",
-    "cliente": "DIRECIONAL"
-  },
-  "0800314-42.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:12",
-    "cliente": "DIRECIONAL"
-  },
   "0611156-52.2017.8.04.0001": {
     "status": "enriquecido",
     "uf": "AM",
@@ -3231,46 +2951,6 @@
     "autor": "Ônix Empreendimentos Imobiliários Ltda.",
     "reu": "Emanoel Júnior Quintino de Souza",
     "quando": "2026-06-30T00:41:09",
-    "cliente": "DIRECIONAL"
-  },
-  "0800449-54.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:16",
-    "cliente": "DIRECIONAL"
-  },
-  "0800458-16.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:21",
-    "cliente": "DIRECIONAL"
-  },
-  "0800469-45.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:25",
-    "cliente": "DIRECIONAL"
-  },
-  "0800472-97.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:30",
-    "cliente": "DIRECIONAL"
-  },
-  "0800474-67.2017.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:34",
     "cliente": "DIRECIONAL"
   },
   "0130511-75.2017.8.09.0160": {
@@ -3473,14 +3153,6 @@
     "quando": "2026-06-30T01:00:30",
     "cliente": "DIRECIONAL"
   },
-  "0802534-69.2018.8.14.0006": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:39",
-    "cliente": "DIRECIONAL"
-  },
   "5100964-65.2018.8.09.0160": {
     "status": "sem_rota",
     "uf": "GO",
@@ -3509,14 +3181,6 @@
     "quando": "2026-06-30T01:00:31",
     "cliente": "DIRECIONAL"
   },
-  "0834160-94.2018.8.14.0301": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:43",
-    "cliente": "DIRECIONAL"
-  },
   "5217540-44.2018.8.09.0160": {
     "status": "sem_rota",
     "uf": "GO",
@@ -3541,22 +3205,6 @@
     "quando": "2026-06-30T00:41:50",
     "cliente": "DIRECIONAL"
   },
-  "0834189-47.2018.8.14.0301": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:47",
-    "cliente": "DIRECIONAL"
-  },
-  "0834173-93.2018.8.14.0301": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:52",
-    "cliente": "DIRECIONAL"
-  },
   "5232506-06.2018.8.09.0162": {
     "status": "sem_rota",
     "uf": "GO",
@@ -3578,14 +3226,6 @@
     "quando": "2026-06-30T01:00:31",
     "cliente": "DIRECIONAL"
   },
-  "0836709-77.2018.8.14.0301": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:27:56",
-    "cliente": "DIRECIONAL"
-  },
   "0622109-41.2018.8.04.0001": {
     "status": "enriquecido",
     "uf": "AM",
@@ -3596,14 +3236,6 @@
     "quando": "2026-06-30T00:41:58",
     "cliente": "DIRECIONAL"
   },
-  "0837696-16.2018.8.14.0301": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:28:01",
-    "cliente": "DIRECIONAL"
-  },
   "0623447-50.2018.8.04.0001": {
     "status": "enriquecido",
     "uf": "AM",
@@ -3612,14 +3244,6 @@
     "autor": "Ônix Empreendimentos Imobiliários Ltda.",
     "reu": "Laerte Cruz Lopes",
     "quando": "2026-06-30T00:42:06",
-    "cliente": "DIRECIONAL"
-  },
-  "0802009-21.2018.8.14.0028": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:28:05",
     "cliente": "DIRECIONAL"
   },
   "0629991-20.2019.8.04.0001": {
@@ -3670,14 +3294,6 @@
     "autor": "DIRECIONAL ENGENHARIA S.A",
     "reu": "RAFAEL DOS SANTOS LIMA",
     "quando": "2026-06-29T10:42:45",
-    "cliente": "DIRECIONAL"
-  },
-  "0801327-42.2018.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:28:10",
     "cliente": "DIRECIONAL"
   },
   "0635121-25.2018.8.04.0001": {
@@ -4595,14 +4211,6 @@
     "quando": "2026-06-30T00:45:38",
     "cliente": "DIRECIONAL"
   },
-  "0800536-05.2020.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:28:14",
-    "cliente": "DIRECIONAL"
-  },
   "0051814-16.2020.8.06.0064": {
     "status": "enriquecido",
     "uf": "CE",
@@ -4618,14 +4226,6 @@
     "uf": "RJ",
     "obs": "UF sem sistema suportado",
     "quando": "2026-06-30T01:00:33",
-    "cliente": "DIRECIONAL"
-  },
-  "0800545-64.2020.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:28:18",
     "cliente": "DIRECIONAL"
   },
   "0006530-81.2020.8.19.0206": {
@@ -5127,14 +4727,6 @@
     "quando": "2026-06-30T00:47:32",
     "cliente": "DIRECIONAL"
   },
-  "0800843-56.2020.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:28:23",
-    "cliente": "DIRECIONAL"
-  },
   "0680507-10.2020.8.04.0001": {
     "status": "enriquecido",
     "uf": "AM",
@@ -5522,14 +5114,6 @@
     "autor": "Coral Empreendimentos Imobiliários Ltda",
     "reu": "Fabiana Hoff Feijo",
     "quando": "2026-06-30T00:48:53",
-    "cliente": "DIRECIONAL"
-  },
-  "0801372-75.2020.8.14.0133": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:28:27",
     "cliente": "DIRECIONAL"
   },
   "1016783-60.2020.8.26.0451": {
@@ -8562,14 +8146,6 @@
     "quando": "2026-06-30T01:00:38",
     "cliente": "LOCALIZA"
   },
-  "0003200-57.2019.8.14.0107": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:28:32",
-    "cliente": "LOCALIZA"
-  },
   "0003385-96.2018.8.16.0100": {
     "status": "sem_rota",
     "uf": "PR",
@@ -9214,14 +8790,6 @@
     "autor": "UNIDAS LOCADORA DE VEICULOS LTDA",
     "reu": "G. I. FERNANDES SERVICOS EIRELI - EPP",
     "quando": "2026-06-29T10:37:20",
-    "cliente": "LOCALIZA"
-  },
-  "0851281-33.2021.8.14.0301": {
-    "status": "nao_encontrado",
-    "uf": "PA",
-    "sistema": "TJPA — PJe",
-    "erro": "NoSuchElementException: Message: no such element: Unable to locate element: {\"method\":\"css selector\",\"selector\":\"[id=\"fPP:numeroProcesso:Ano\"]\"}\n  (Session info: chrome=149.0.7827.156); For documentation on this error, please visit: https://www.selenium.dev/documentation/webdriver/troubleshooting/errors#nosuchelementexception\nStacktrace:\n\tchromedriver!GetHandleVerifier [0x7ff71efa3fa5+14925]\n\tchromedriver!GetHandleVerifier [0x7ff71efa4000+14980]\n\tchromedriver!(No symbol) [0x7ff71eae793d]\n\tchromedriver!(No symbol) [0x7ff71eb41aad]\n\tchromedriver!(No symbol) [0x7ff71eb41dac]\n\tchromedriver!(No symbol) [0x7ff71eb927d7]\n\tchromedriver!(No symbol) [0x7ff71eb8f39b]\n\tchromedriver!(No symbol) [0x7ff71eb3401c]\n\tchromedriver!(No symbol) [0x7ff71eb34f43]\n\tchromedriver!GetHandleVerifier [0x7ff71f587591+5f7f11]\n\tchromedriver!GetHandleVerifier [0x7ff71f581902+5f2282]\n\tchromedriver!GetHandleVerifier [0x7ff71f5a7115+617a95]\n\tchromedriver!GetHandleVerifier [0x7ff71efc1dce+3274e]\n\tchromedriver!GetHandleVerifier [0x7ff71efca82c+3b1ac]\n\tchromedriver!GetHandleVerifier [0x7ff71efad744+1e0c4]\n\tchromedriver!GetHandleVerifier [0x7ff71efad8d4+1e254]\n\tchromedriver!GetHandleVerifier [0x7ff71ef91447+1dc7]\n\tKERNEL32!BaseThreadInitThunk [0x7ffa92147374+14]\n\tntdll!RtlUserThreadStart [0x7ffa92d7cc91+21]\n",
-    "quando": "2026-06-30T00:28:36",
     "cliente": "LOCALIZA"
   },
   "0861234-06.2019.8.15.2001": {
@@ -15892,6 +15460,544 @@
     "autor": "UNIDAS LOCADORA DE VEICULOS LTDA e COMPANHIA DE LOCACAO DAS AMERICAS",
     "reu": "WENDA DO BRASIL LTDA e GEISSLER ANTONIO DA SILVA",
     "quando": "2026-06-30T08:47:34",
+    "cliente": "LOCALIZA"
+  },
+  "0800820-47.2019.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "LUIS HEVERTON FONSECA RAMOS e FLAVIANE DA COSTA GOMES",
+    "quando": "2026-06-30T11:30:03",
+    "cliente": "DIRECIONAL"
+  },
+  "0800214-87.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "CRISTILENE DE ALBUQUERQUE PELAES",
+    "quando": "2026-06-30T11:30:23",
+    "cliente": "DIRECIONAL"
+  },
+  "0800222-64.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "ISAIAS FERREIRA DE OLIVEIRA",
+    "quando": "2026-06-30T11:30:44",
+    "cliente": "DIRECIONAL"
+  },
+  "0800299-73.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "WANDERCLEIDE DA SILVA COSTA",
+    "quando": "2026-06-30T11:31:07",
+    "cliente": "DIRECIONAL"
+  },
+  "0800311-87.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "CARLOS DE OLIVEIRA COELHO e DEBORA ALINE DOS SANTOS COELHO",
+    "quando": "2026-06-30T11:31:28",
+    "cliente": "DIRECIONAL"
+  },
+  "0800312-72.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JANE DO SOCORRO BANDEIRA DOS ANJOS",
+    "quando": "2026-06-30T11:31:48",
+    "cliente": "DIRECIONAL"
+  },
+  "0800460-83.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JORGE NOBRE CARDIAS CABRAL",
+    "quando": "2026-06-30T11:32:08",
+    "cliente": "DIRECIONAL"
+  },
+  "0800467-75.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "SILENE DE ALBUQUERQUE PELAES",
+    "quando": "2026-06-30T11:32:26",
+    "cliente": "DIRECIONAL"
+  },
+  "0822972-07.2018.8.14.0301": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "ROSIMEIRE MONTEIRO DO NASCIMENTO",
+    "quando": "2026-06-30T11:32:45",
+    "cliente": "DIRECIONAL"
+  },
+  "0001461-25.2018.8.14.0094": {
+    "status": "ainda_sem_reu",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": false,
+    "autor": "",
+    "reu": "",
+    "quando": "2026-06-30T11:33:05",
+    "cliente": "DIRECIONAL"
+  },
+  "0824366-49.2018.8.14.0301": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "BIANCA LUCAS DA FONSECA",
+    "quando": "2026-06-30T11:33:26",
+    "cliente": "DIRECIONAL"
+  },
+  "0800465-08.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "MARIA DENISSE FARIAS DA SILVA",
+    "quando": "2026-06-30T11:33:47",
+    "cliente": "DIRECIONAL"
+  },
+  "0800897-17.2018.8.14.0028": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "EDIVAINIA APARECIDA DOS SANTOS",
+    "quando": "2026-06-30T11:34:07",
+    "cliente": "DIRECIONAL"
+  },
+  "0800508-19.2018.8.14.0097": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "ANDERSON NASCIMENTO DE ANDRADE",
+    "quando": "2026-06-30T11:34:28",
+    "cliente": "DIRECIONAL"
+  },
+  "0832838-39.2018.8.14.0301": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "ANTONIO SOUZA DA SILVA",
+    "quando": "2026-06-30T11:34:50",
+    "cliente": "DIRECIONAL"
+  },
+  "0004759-74.2018.8.14.0013": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "IZABEL MARIA DA SILVA MACIEL",
+    "quando": "2026-06-30T11:35:12",
+    "cliente": "DIRECIONAL"
+  },
+  "0800941-12.2018.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "ROSENILSON NOGUEIRA DA SILVA",
+    "quando": "2026-06-30T11:35:32",
+    "cliente": "DIRECIONAL"
+  },
+  "0801007-89.2018.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "DULCE MARIA MARTINS BARATA",
+    "quando": "2026-06-30T11:35:52",
+    "cliente": "DIRECIONAL"
+  },
+  "0806815-68.2018.8.14.0006": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JEFFERSON PEREIRA CASTRO",
+    "quando": "2026-06-30T11:36:13",
+    "cliente": "DIRECIONAL"
+  },
+  "0800329-40.2019.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "ISABELLA SANTORINNE DE SOUZA BRAGA",
+    "quando": "2026-06-30T11:36:34",
+    "cliente": "DIRECIONAL"
+  },
+  "0800946-97.2019.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "EVERTON ANDRADE AMARAL",
+    "quando": "2026-06-30T11:36:54",
+    "cliente": "DIRECIONAL"
+  },
+  "0800367-18.2020.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "NILSON DE SOUSA FERREIRA",
+    "quando": "2026-06-30T11:37:14",
+    "cliente": "DIRECIONAL"
+  },
+  "0800469-40.2020.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "SHEYLA SAMPAIO BEZERRA",
+    "quando": "2026-06-30T11:37:34",
+    "cliente": "DIRECIONAL"
+  },
+  "0800519-66.2020.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JOSE FRANCISCO DOS SANTOS JUNIOR e DANDARA DA SILVA BRITO DOS SANTOS",
+    "quando": "2026-06-30T11:37:53",
+    "cliente": "DIRECIONAL"
+  },
+  "0828998-50.2020.8.14.0301": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "AMETISTA EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JAIRO LUIZ ALVES MONTEIRO",
+    "quando": "2026-06-30T11:38:16",
+    "cliente": "DIRECIONAL"
+  },
+  "0800836-64.2020.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JOSE EXPEDITO CARNEIRO MATOS",
+    "quando": "2026-06-30T11:38:35",
+    "cliente": "DIRECIONAL"
+  },
+  "0017839-97.2016.8.14.0006": {
+    "status": "nao_encontrado",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "erro": "Scraper não retornou dados para esse número.",
+    "quando": "2026-06-30T11:39:04",
+    "cliente": "DIRECIONAL"
+  },
+  "0800234-78.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "GLAUCE KELLY DALMACIO JACARANDA",
+    "quando": "2026-06-30T11:39:22",
+    "cliente": "DIRECIONAL"
+  },
+  "0800225-19.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "LUIS EURIPEDES DA SILVA",
+    "quando": "2026-06-30T11:39:42",
+    "cliente": "DIRECIONAL"
+  },
+  "0800228-71.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "WAGNER PINHO DOS SANTOS",
+    "quando": "2026-06-30T11:40:03",
+    "cliente": "DIRECIONAL"
+  },
+  "0800246-92.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "MANOEL MONTEIRO FONTES",
+    "quando": "2026-06-30T11:40:24",
+    "cliente": "DIRECIONAL"
+  },
+  "0800256-39.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "MELISSA MELIANNE ROCHA MELO",
+    "quando": "2026-06-30T11:40:46",
+    "cliente": "DIRECIONAL"
+  },
+  "0800285-89.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "ANA ROSA DE ALMEIDA PINHEIRO",
+    "quando": "2026-06-30T11:41:07",
+    "cliente": "DIRECIONAL"
+  },
+  "0800310-05.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "TAMARA SUELEN DA CUNHA MACHADO",
+    "quando": "2026-06-30T11:41:28",
+    "cliente": "DIRECIONAL"
+  },
+  "0800314-42.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "ANA ROSA DE ALMEIDA PINHEIRO",
+    "quando": "2026-06-30T11:41:52",
+    "cliente": "DIRECIONAL"
+  },
+  "0800449-54.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "CARLOS AUGUSTO LOPES DA SILVA e PATRICIA COSTA SILVA",
+    "quando": "2026-06-30T11:42:16",
+    "cliente": "DIRECIONAL"
+  },
+  "0800458-16.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "HAILY LUISE DA SILVA TEIXEIRA",
+    "quando": "2026-06-30T11:42:40",
+    "cliente": "DIRECIONAL"
+  },
+  "0800469-45.2017.8.14.0133": {
+    "status": "ainda_sem_reu",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": false,
+    "autor": "",
+    "reu": "",
+    "quando": "2026-06-30T11:43:02",
+    "cliente": "DIRECIONAL"
+  },
+  "0800472-97.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "SUANNE CORDOVIL ESPINDOLA",
+    "quando": "2026-06-30T11:43:26",
+    "cliente": "DIRECIONAL"
+  },
+  "0800474-67.2017.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "SUANNE CORDOVIL ESPINDOLA",
+    "quando": "2026-06-30T11:43:47",
+    "cliente": "DIRECIONAL"
+  },
+  "0802534-69.2018.8.14.0006": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "MARIA EUNICE SALES FERREIRA",
+    "reu": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "quando": "2026-06-30T11:44:09",
+    "cliente": "DIRECIONAL"
+  },
+  "0834160-94.2018.8.14.0301": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "ALEXANDRE DA COSTA FERREIRA",
+    "quando": "2026-06-30T11:44:30",
+    "cliente": "DIRECIONAL"
+  },
+  "0834189-47.2018.8.14.0301": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "THALES RENATO DOS SANTOS",
+    "quando": "2026-06-30T11:44:52",
+    "cliente": "DIRECIONAL"
+  },
+  "0834173-93.2018.8.14.0301": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "THALLEZ SALVIANO CARNEIRO PINHEIRO",
+    "quando": "2026-06-30T11:45:13",
+    "cliente": "DIRECIONAL"
+  },
+  "0836709-77.2018.8.14.0301": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "THAIS ALAIDE REIS MEIRELES",
+    "quando": "2026-06-30T11:45:35",
+    "cliente": "DIRECIONAL"
+  },
+  "0837696-16.2018.8.14.0301": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "BRUNO CLEYTON RIBEIRO MARTINS",
+    "quando": "2026-06-30T11:45:59",
+    "cliente": "DIRECIONAL"
+  },
+  "0802009-21.2018.8.14.0028": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL SAFIRA EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "LUIZ PAULO DE OLIVEIRA, MARIA DAS DORES BRACHI DE OLIVEIRA e MARRIETE OLIVEIRA",
+    "quando": "2026-06-30T11:46:21",
+    "cliente": "DIRECIONAL"
+  },
+  "0801327-42.2018.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "HENRIQUE CLEBER LOPES DE OLIVEIRA",
+    "quando": "2026-06-30T11:46:42",
+    "cliente": "DIRECIONAL"
+  },
+  "0800536-05.2020.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JEAN BENTES JORDAO DE CASTRO",
+    "quando": "2026-06-30T11:47:03",
+    "cliente": "DIRECIONAL"
+  },
+  "0800545-64.2020.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "WELBER DIAS RIBEIRO",
+    "quando": "2026-06-30T11:47:27",
+    "cliente": "DIRECIONAL"
+  },
+  "0800843-56.2020.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "RAFAEL DOUGLAS MORAES DA COSTA",
+    "quando": "2026-06-30T11:47:46",
+    "cliente": "DIRECIONAL"
+  },
+  "0801372-75.2020.8.14.0133": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "DIRECIONAL DIAMANTE EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JOSE BENEDITO MARQUES FILHO e MARIA DE NAZARE LOPES MARQUES",
+    "quando": "2026-06-30T11:48:05",
+    "cliente": "DIRECIONAL"
+  },
+  "0003200-57.2019.8.14.0107": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "UNIDAS LOCADORA DE VEICULOS LTDA e UNIDAS S/A",
+    "reu": "COOPERATIVA AGROINDUSTRIAL DE DOM ELISEU - COADE",
+    "quando": "2026-06-30T11:48:25",
+    "cliente": "LOCALIZA"
+  },
+  "0851281-33.2021.8.14.0301": {
+    "status": "enriquecido",
+    "uf": "PA",
+    "sistema": "TJPA — PJe",
+    "tem_reu": true,
+    "autor": "LOCAMÉRICA RENT A CAR S/A",
+    "reu": "MUNICÍPIO DE BELÉM e NORTE LOCADORA E SERVICOS EIRELI - EPP",
+    "quando": "2026-06-30T11:48:45",
     "cliente": "LOCALIZA"
   }
 }
