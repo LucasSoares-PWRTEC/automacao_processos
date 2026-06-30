@@ -350,19 +350,25 @@ def _gerar_relatorios(estado: dict, md_path: Path = RELATORIO_MD,
                 extra = f" — {r.get('erro') or ''}"
             linhas.append(f"- `{numero}` ({uf} / {sistema}){extra}")
         linhas.append("")
-    md_path.write_text("\n".join(linhas), encoding="utf-8")
-
-    with csv_path.open("w", encoding="utf-8-sig", newline="") as f:
-        w = csv.writer(f, delimiter=";")
-        w.writerow(["numero", "uf", "sistema", "status", "tem_reu",
-                    "autor", "reu", "obs", "erro", "quando"])
-        for numero, r in sorted(estado.items()):
-            w.writerow([
-                numero, r.get("uf", ""), r.get("sistema", ""), r.get("status", ""),
-                "sim" if r.get("tem_reu") else "nao",
-                r.get("autor", ""), r.get("reu", ""),
-                r.get("obs", ""), r.get("erro", ""), r.get("quando", ""),
-            ])
+    # O relatório é conveniência; o estado.json é a fonte da verdade. Se o
+    # arquivo estiver ABERTO (Excel trava o .csv no Windows), só avisa e segue —
+    # NUNCA derruba o enriquecimento por causa do relatório.
+    try:
+        md_path.write_text("\n".join(linhas), encoding="utf-8")
+        with csv_path.open("w", encoding="utf-8-sig", newline="") as f:
+            w = csv.writer(f, delimiter=";")
+            w.writerow(["numero", "uf", "sistema", "status", "tem_reu",
+                        "autor", "reu", "obs", "erro", "quando"])
+            for numero, r in sorted(estado.items()):
+                w.writerow([
+                    numero, r.get("uf", ""), r.get("sistema", ""), r.get("status", ""),
+                    "sim" if r.get("tem_reu") else "nao",
+                    r.get("autor", ""), r.get("reu", ""),
+                    r.get("obs", ""), r.get("erro", ""), r.get("quando", ""),
+                ])
+    except (PermissionError, OSError) as exc:
+        print(f"   ⚠️ relatório não regravado (arquivo aberto/bloqueado?): {exc}. "
+              "Os dados foram salvos; regenere depois com --so-relatorio.")
 
 
 # --- loop principal -------------------------------------------------------

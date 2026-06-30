@@ -11,6 +11,7 @@ from .base import TribunalScraper
 from .esaj import ESAJScraper
 from .pje import PJEScraper
 from .eproc import EprocScraper
+from .tjrj import TJRJScraper
 
 
 def criar_scraper(
@@ -33,10 +34,13 @@ def criar_scraper(
         return PJEScraper(estado=estado, url=url, headless=headless)
     if site == "eproc":
         return EprocScraper(estado=estado, url=url, headless=headless, perfil=perfil)
+    if site == "tjrj":
+        return TJRJScraper(estado=estado, url=url, headless=headless)
 
     raise NotImplementedError(
         f"Scraper para o site '{site}' ainda não implementado."
     )
 
 
-__all__ = ["TribunalScraper", "ESAJScraper", "PJEScraper", "EprocScraper", "criar_scraper"]
+__all__ = ["TribunalScraper", "ESAJScraper", "PJEScraper", "EprocScraper",
+           "TJRJScraper", "criar_scraper"]

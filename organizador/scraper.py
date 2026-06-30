@@ -150,6 +150,15 @@ def _consultar_e_extrair(
         proc = _dict_para_processo(extrair_processo_esaj(html, numero_cnj=numero))
         log("Dados extraídos do e-SAJ "
             f"({len(proc.partes)} parte(s), {proc.total_eventos} movimentação(ões)).\n")
+    elif site == "tjrj":
+        import json as _json
+        from .integracoes.tjsp_scraper.parser_tjrj import extrair_processo_tjrj
+        blob = _json.loads(html)
+        proc = _dict_para_processo(
+            extrair_processo_tjrj(blob.get("detalhe") or {}, blob.get("resumo") or {}, numero_cnj=numero)
+        )
+        log("Dados extraídos do TJRJ (consulta pública) "
+            f"({len(proc.partes)} parte(s), {len(proc.eventos)} movimentação(ões)).\n")
     else:  # pje
         from .integracoes.tjsp_scraper.parser_pje import extrair_processo_pje
         proc = _dict_para_processo(extrair_processo_pje(html, numero_cnj=numero))

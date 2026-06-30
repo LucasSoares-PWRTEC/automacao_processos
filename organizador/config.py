@@ -109,15 +109,12 @@ TJ_SISTEMAS = {
     # ── PR ──────────────────────────────────────────────────────────────────
     # Acesso via perfil OAB-PR na plataforma eproc do TJSP (mesmo login/2FA).
     "TJPR — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "PR"),
-    # ── RJ ── SEM rota automatizável hoje ────────────────────────────────────
-    # Duas tentativas confirmadas como inviáveis (2026-06-30):
-    #   • eproc/perfil-RJ na plataforma do TJSP → loga, mas "não encontrado"
-    #     (o eproc do TJSP não hospeda processos do TJRJ);
-    #   • PJe do TJRJ (tjrj.pje.jus.br) → login PRÓPRIO (não o Keycloak nacional
-    #     do PDPJ) e exige certificado digital p/ advogado → incompatível com o
-    #     scraper PJe atual.
-    # Recuperar o RJ exigiria um scraper dedicado + credenciais/certificado do
-    # TJRJ. Por ora, processos do RJ ficam "sem rota".
+    # ── RJ ──────────────────────────────────────────────────────────────────
+    # CONSULTA PÚBLICA do TJRJ (www3.tjrj.jus.br/consultaprocessual): API REST
+    # ABERTA — sem login, sem certificado, sem captcha (recuperar-site-key → 204).
+    # O PJe do TJRJ exige certificado digital e o eproc/perfil-RJ do TJSP não
+    # hospeda processos do TJRJ; esta consulta pública é a rota viável. 1ª inst.
+    "TJRJ — Consulta": ("tjrj", "RIO DE JANEIRO", "https://www3.tjrj.jus.br/consultaprocessual/api/", None),
     # ── RN ──────────────────────────────────────────────────────────────────
     # Acesso via perfil OAB-RN na plataforma eproc do TJSP (mesmo login/2FA).
     "TJRN — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "RN"),
@@ -127,6 +124,7 @@ TJ_SISTEMAS = {
 _ESTADO_TJ_UF = {
     "SAO PAULO": ("TJSP", "SP"),
     "MINAS GERAIS": ("TJMG", "MG"),
+    "RIO DE JANEIRO": ("TJRJ", "RJ"),
     "DISTRITO FEDERAL": ("TJDFT", "DF"),
     "AMAZONAS": ("TJAM", "AM"),
     "MATO GROSSO DO SUL": ("TJMS", "MS"),
