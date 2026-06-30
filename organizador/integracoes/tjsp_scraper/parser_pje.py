@@ -50,9 +50,13 @@ _RX_DATA_PJE = re.compile(r"^(\d{1,2})\s+([a-zç]{3})\s+(\d{4})$", re.I)
 _RX_HORA = re.compile(r"^\d{2}:\d{2}$")
 _RX_DOC_LINHA = re.compile(r"^(\d{6,})\s*-\s*(.+)$")  # "10629074581 - Petição (…)"
 
-# Linha de parte no cabeçalho do documento:
+# Linha de parte no cabeçalho do documento (ou sintetizada do painel de detalhes):
 #   "REQUERENTE: NOME ... CPF: 10.923.840/0001-80"
 #   "RÉU: NOME ... CPF: 085.118.676-94 e outros"
+#   "REQUERIDO(A): NOME"  ← SEM documento (réu pessoa física com CPF sob sigilo)
+# O CPF/CNPJ é OPCIONAL: o réu costuma vir sem documento e, antes, era descartado
+# aqui — deixando o processo só com o autor. Ancorado em fim-de-linha; só casa
+# linhas que COMEÇAM com um papel conhecido (evita falso-positivo em corpo de ato).
 _RX_PARTE = re.compile(
     r"^\s*(?P<papel>REQUERENTE|REQUERIDO\(A\)|REQUERIDO|REQUERENTE\(A\)|"
     r"AUTOR|AUTORA|R[ÉE]U|EXEQUENTE|EXECUTADO\(A\)|EXECUTADO|EXECUTADA|"
@@ -60,7 +64,12 @@ _RX_PARTE = re.compile(
     r"APELANTE|APELADO\(A\)|APELADO|IMPETRANTE|IMPETRADO\(A\)|IMPETRADO|"
     r"RECORRENTE|RECORRIDO\(A\)|RECORRIDO|TERCEIRO INTERESSADO|INTERESSADO\(A\)|"
     r"INTERESSADO|V[ÍI]TIMA)\s*:\s*"
-    r"(?P<nome>.+?)\s*(?:CPF|CNPJ)\s*:\s*(?P<doc>[\d./-]+)",
+    r"(?P<nome>.+?)"
+    r"(?:"
+    r"\s*(?:CPF|CNPJ)\s*:\s*(?P<doc>[\d./-]+)"  # com doc: para no documento (como antes)
+    r"|"
+    r"\s*(?:e\s+outros?)?\s*$"                   # sem doc: nome vai até o fim da linha
+    r")",
     re.I,
 )
 
@@ -118,6 +127,23 @@ def _canonizar_papel(bruto: str) -> str:
     return _PAPEL_PJE.get(chave_acentos) or _PAPEL_PJE.get(chave) or chave_acentos
 
 
+# Polo de cada papel canônico — para deduplicar partes por POLO, não por papel
+# exato (ver _extrair_partes).
+_PAPEIS_ATIVO_PJE = {"REQUERENTE", "AUTOR", "EXEQUENTE", "EMBARGANTE",
+                     "AGRAVANTE", "APELANTE", "IMPETRANTE", "RECORRENTE"}
+_PAPEIS_PASSIVO_PJE = {"REQUERIDO", "RÉU", "REU", "EXECUTADO", "EMBARGADO",
+                       "AGRAVADO", "APELADO", "IMPETRADO", "RECORRIDO"}
+
+
+def _polo_de(papel: str) -> str:
+    """'A' (ativo), 'P' (passivo) ou o próprio papel (terceiros/vítima/etc.)."""
+    if papel in _PAPEIS_ATIVO_PJE:
+        return "A"
+    if papel in _PAPEIS_PASSIVO_PJE:
+        return "P"
+    return papel
+
+
 # ---------------------------------------------------------------------------
 # Partes — varre os cabeçalhos de TODOS os documentos, dedupe por nome.
 # ---------------------------------------------------------------------------
@@ -133,13 +159,19 @@ def _extrair_partes(blob: str) -> list[dict]:
         nome = re.sub(r"\s+e outros?$", "", nome, flags=re.I).strip()
         if not nome:
             continue
-        chave = unidecode(nome).upper()
+        papel = _canonizar_papel(m.group("papel"))
+        # Dedupe por (POLO, nome), não pelo nome cru: a MESMA parte pode aparecer
+        # como REQUERENTE num doc e AUTOR noutro (mesmo polo → 1 entrada). Mas
+        # alguns processos a listam nos DOIS polos (poloAtivo=AUTOR e
+        # poloPassivo=RÉU) — aí mantém as duas, senão o réu sumia (deixava o
+        # processo "sem réu" mesmo com o polo passivo preenchido no painel).
+        chave = (_polo_de(papel), unidecode(nome).upper())
         if chave in vistos:
             continue
         vistos.add(chave)
-        doc = m.group("doc").strip()
+        doc = (m.group("doc") or "").strip()  # réu sob sigilo vem sem documento
         partes.append({
-            "papel": _canonizar_papel(m.group("papel")),
+            "papel": papel,
             "nome": nome,
             "documento": doc,
             "tipo": _tipo_documento(doc),
@@ -156,8 +188,10 @@ def _extrair_partes(blob: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # "NOME - CPF: 123 (EXECUTADO(A))" → papel é o ÚLTIMO parêntese (pode ter "(A)"
 # aninhado, ex.: TJMG usa "EXECUTADO(A)"/"REQUERIDO(A)"). Ancorado no fim.
+# O trecho "- CPF/CNPJ: doc" é OPCIONAL: o polo passivo costuma vir só como
+# "NOME (REQUERIDO(A))" (CPF sob sigilo) e antes era ignorado — sumindo o réu.
 _RX_PARTE_DETALHE = re.compile(
-    r"^(?P<nome>.+?)\s*-\s*(?P<tipo>CPF|CNPJ)\s*:\s*(?P<doc>[\d./-]+)\s*\((?P<papel>.+)\)\s*$",
+    r"^(?P<nome>.+?)\s*(?:-\s*(?P<tipo>CPF|CNPJ)\s*:\s*(?P<doc>[\d./-]+)\s*)?\((?P<papel>.+)\)\s*$",
     re.I,
 )
 
@@ -225,6 +259,10 @@ def _formatar_detalhe_pje(html: str) -> str:
         linhas.append(f"valor da causa {valor}")
 
     # Partes dos polos (ignora os advogados, que ficam na sub-árvore <ul.tree>).
+    # O réu costuma vir SEM CPF/CNPJ (sigilo) — emitir mesmo assim, senão o polo
+    # passivo some e o processo fica só com o autor. Quando o td nem traz
+    # "(PAPEL)", usa o próprio polo (ativo→REQUERENTE, passivo→REQUERIDO).
+    _PAPEL_POLO = {"poloAtivo": "REQUERENTE", "poloPassivo": "REQUERIDO"}
     for div_id in ("poloAtivo", "poloPassivo"):
         bloco = soup.find(id=div_id)
         if bloco is None:
@@ -232,12 +270,22 @@ def _formatar_detalhe_pje(html: str) -> str:
         for td in bloco.select("tbody td"):
             for tree in td.find_all("ul", class_="tree"):
                 tree.extract()
-            mp = _RX_PARTE_DETALHE.match(_normaliza(td.get_text(" ", strip=True)))
+            texto = _normaliza(td.get_text(" ", strip=True))
+            if not texto:
+                continue
+            mp = _RX_PARTE_DETALHE.match(texto)
             if mp:
-                linhas.append(
-                    f"{mp.group('papel').strip()}: {mp.group('nome').strip()} "
-                    f"{mp.group('tipo').upper()}: {mp.group('doc')}"
-                )
+                doc = (mp.group("doc") or "").strip()
+                tipo = (mp.group("tipo") or "").upper()
+                # TJMG rotula o polo com barra de gênero ("RÉU/RÉ", "AUTOR/AUTORA",
+                # "EXEQUENTE/EXEQUENTE"); fica só com o 1º termo, que _RX_PARTE
+                # reconhece (senão a parte é descartada ao reparsear a linha).
+                papel = mp.group("papel").split("/")[0].strip()
+                cab = f"{papel}: {mp.group('nome').strip()}"
+                linhas.append(f"{cab} {tipo}: {doc}" if doc else cab)
+            elif "(" not in texto:
+                # td só com o nome (sem "(PAPEL)"): usa o polo como papel.
+                linhas.append(f"{_PAPEL_POLO[div_id]}: {texto}")
 
     return "\n".join(linhas) if len(linhas) > 1 else ""
 

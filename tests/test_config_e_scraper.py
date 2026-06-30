@@ -21,6 +21,21 @@ def test_arquivos_de_exemplo_de_configuracao_existem():
     assert config.CREDENCIAIS_EXAMPLE_PATH.exists()
 
 
+def test_candidatos_tj_para_uf_ordena_e_cobre_fallback():
+    from organizador.config import TJ_SISTEMAS, candidatos_tj_para_uf
+
+    mg = candidatos_tj_para_uf("MG")
+    assert len(mg) == 2
+    assert TJ_SISTEMAS[mg[0]][0] == "pje"  # MG: os alvos estão no PJe → 1º
+    assert {TJ_SISTEMAS[lbl][0] for lbl in mg} == {"pje", "eproc"}
+
+    sp = candidatos_tj_para_uf("SP")
+    assert TJ_SISTEMAS[sp[0]][0] == "eproc"  # SP: eproc 1º (traz documento/réu)
+
+    assert candidatos_tj_para_uf("BA") == []  # UF sem rota
+    assert candidatos_tj_para_uf("") == []
+
+
 def test_loader_de_credenciais_json(monkeypatch, tmp_path):
     mod = importlib.import_module("organizador.integracoes.tjsp_scraper.credenciais")
     cred_path = tmp_path / "credenciais.json"

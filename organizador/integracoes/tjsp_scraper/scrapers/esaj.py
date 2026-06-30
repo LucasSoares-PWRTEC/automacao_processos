@@ -28,6 +28,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from .base import TribunalScraper, criar_chrome_driver
+from .popup import AtribuicaoDetectadaError, detectar_atribuicao
 from ..credenciais import obter_credenciais, cpf_formatado
 from ..two_factor import obter_codigo_2fa_email
 
@@ -373,6 +374,12 @@ class ESAJScraper(TribunalScraper):
         except Exception:
             self._screenshot("pos_consulta_sem_resultado")
             return self.driver.page_source  # devolve o que tiver; parser decide
+
+        # Modal de "atribuir/vincular ao advogado"? NÃO confirma: fecha com
+        # segurança e aborta este processo (pedido do usuário).
+        obs = detectar_atribuicao(self.driver)
+        if obs:
+            raise AtribuicaoDetectadaError(obs)
 
         self._click_all_mais_mov()
         return self.driver.page_source

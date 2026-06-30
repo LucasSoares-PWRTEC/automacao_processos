@@ -14,6 +14,7 @@ from organizador.integracoes.tjsp_scraper.parser_pje import (
     extrair_processo_pje,
     _canonizar_papel,
     _converter_data,
+    _formatar_detalhe_pje,
     _tipo_documento,
 )
 from organizador.organizacao import _dict_para_processo
@@ -111,6 +112,56 @@ def test_partes_com_documento_e_tipo_dedupe_por_nome():
     assert nomes.count("ANAPU EMPREENDIMENTOS IMOBILIÁRIOS LTDA") == 1
     # "e outros" não vaza para o nome do réu.
     assert all(not n.endswith("e outros") for n in nomes)
+
+
+# --- painel "Mais detalhes" (poloAtivo/poloPassivo) --------------------------
+def _partes_do_painel(html: str):
+    """Roda o painel pelo mesmo caminho do scraper: formata o bloco e extrai."""
+    return _dict_para_processo(extrair_processo_pje(_formatar_detalhe_pje(html))).partes
+
+
+def test_painel_reu_com_barra_de_genero_e_sem_cpf():
+    """TJMG rotula o réu como 'RÉU/RÉ' e às vezes sem CPF (sigilo). Antes ambos
+    eram descartados, deixando o processo só com o autor."""
+    html = """
+    <div id="maisDetalhes"><dl>
+      <dt>Classe judicial</dt><dd>[CÍVEL] PROCEDIMENTO COMUM CÍVEL (7)</dd>
+      <dt>Órgão julgador</dt><dd>1ª Vara Cível da Comarca de Vespasiano</dd>
+    </dl></div>
+    <div id="poloAtivo"><table><tbody>
+      <tr><td>VILLE PARK MADRI SPE LTDA - CNPJ: 24.997.166/0001-92 (AUTOR)</td></tr>
+    </tbody></table></div>
+    <div id="poloPassivo"><table><tbody>
+      <tr><td>HIGOR HENRIQUE DE SOUZA - CPF: 139.818.146-30 (RÉU/RÉ)</td></tr>
+      <tr><td>MARIA SEM DOCUMENTO (REQUERIDO(A))</td></tr>
+    </tbody></table></div>
+    """
+    partes = _partes_do_painel(html)
+    papeis = {(p.papel, p.nome) for p in partes}
+    assert ("AUTOR", "VILLE PARK MADRI SPE LTDA") in papeis
+    assert ("RÉU", "HIGOR HENRIQUE DE SOUZA") in papeis           # 'RÉU/RÉ' normalizado
+    # réu sem CPF também entra, com documento vazio
+    maria = [p for p in partes if p.nome == "MARIA SEM DOCUMENTO"]
+    assert maria and maria[0].papel == "REQUERIDO" and maria[0].documento == ""
+
+
+def test_painel_parte_nos_dois_polos_mantem_os_dois_papeis():
+    """Alguns processos listam a MESMA parte no polo ativo E no passivo; manter
+    cada polo evita perder o réu (dedupe por polo, não pelo nome cru)."""
+    html = """
+    <div id="maisDetalhes"><dl><dt>Órgão julgador</dt><dd>1ª Vara</dd></dl></div>
+    <div id="poloAtivo"><table><tbody>
+      <tr><td>MASTER TOWER SPE LTDA - CNPJ: 24.555.886/0001-06 (AUTOR)</td></tr>
+      <tr><td>MARCOS FELIPE - CPF: 138.561.166-99 (AUTOR)</td></tr>
+    </tbody></table></div>
+    <div id="poloPassivo"><table><tbody>
+      <tr><td>MARCOS FELIPE - CPF: 138.561.166-99 (RÉU/RÉ)</td></tr>
+      <tr><td>MASTER TOWER SPE LTDA - CNPJ: 24.555.886/0001-06 (RÉU/RÉ)</td></tr>
+    </tbody></table></div>
+    """
+    papeis = {(p.papel, p.nome) for p in _partes_do_painel(html)}
+    assert ("AUTOR", "MARCOS FELIPE") in papeis
+    assert ("RÉU", "MARCOS FELIPE") in papeis  # mesmo nome nos dois polos → 2 entradas
 
 
 # --- eventos -----------------------------------------------------------------

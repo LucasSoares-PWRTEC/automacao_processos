@@ -105,6 +105,79 @@ def salvar_config_2fa(valores: dict[str, str]) -> None:
         os.environ[chave] = valor
 
 
+def _consultar_e_extrair(
+    scraper,
+    site: str,
+    numero: str,
+    tribunal: str,
+    uf: str,
+    modo_docs: str = "nenhum",
+    log: Callable[[str], None] = lambda s: None,
+) -> Processo:
+    """Consulta um processo num scraper JÁ LOGADO e devolve o ``Processo`` extraído.
+
+    NÃO cria nem fecha o scraper — o chamador é dono da sessão. Isso permite
+    reaproveitar o MESMO login em vários processos (1 login por sistema, dezenas
+    de consultas), evitando o bloqueio que vem de relogar a cada processo.
+
+    Levanta ``RuntimeError`` (número não encontrado ou sem dados) ou
+    ``AtribuicaoDetectadaError`` (o scraper detectou o pop-up de "atribuir o
+    processo ao advogado", fechou o modal sem confirmar e relançou)."""
+    log(f"Consultando processo {numero}"
+        + (f" (docs={modo_docs})" if site == "eproc" else "") + "...\n")
+    if site == "eproc":
+        html = scraper.consultar_processo(numero, modo_docs=modo_docs)
+    else:
+        html = scraper.consultar_processo(numero)  # esaj/pje não aceitam modo_docs
+    if not html:
+        raise RuntimeError("Scraper não retornou dados para esse número.")
+
+    if _html_indica_nao_encontrado(html, site):
+        raise RuntimeError(
+            f"Processo {numero} não encontrado em {tribunal} ({site}). "
+            "Confira o número e o foro/UF, e se o processo está mesmo nesse "
+            "sistema (eproc × e-SAJ × PJe)."
+        )
+
+    if site == "eproc":
+        from .integracoes.tjsp_scraper.parser_processo import extrair_processo
+        proc = _dict_para_processo(
+            extrair_processo(html, _extrair_blocos_com_origem(html), numero_cnj=numero)
+        )
+        log("Dados extraídos com sucesso.\n")
+    elif site == "esaj":
+        from .integracoes.tjsp_scraper.parser_esaj import extrair_processo_esaj
+        proc = _dict_para_processo(extrair_processo_esaj(html, numero_cnj=numero))
+        log("Dados extraídos do e-SAJ "
+            f"({len(proc.partes)} parte(s), {proc.total_eventos} movimentação(ões)).\n")
+    else:  # pje
+        from .integracoes.tjsp_scraper.parser_pje import extrair_processo_pje
+        proc = _dict_para_processo(extrair_processo_pje(html, numero_cnj=numero))
+        log("Dados extraídos do PJe "
+            f"({len(proc.partes)} parte(s), {proc.total_eventos} movimentação(ões)).\n")
+
+    # Fallback de tribunal/UF quando o parser não os inferiu do CNJ.
+    if not proc.tribunal:
+        proc.tribunal = tribunal
+    if not proc.uf:
+        proc.uf = uf
+    if not proc.numero:
+        proc.numero = numero
+
+    # Palavras-chave de penhora/bloqueio (extrator genérico, todos os sites).
+    keywords = list(dict.fromkeys(
+        k["descricao"] for k in extrair_penhora_bloqueio_tribunais(html) if k.get("descricao")
+    ))
+    if keywords:
+        log("Palavras-chave de penhora/bloqueio: " + ", ".join(keywords) + "\n")
+        if site != "eproc":  # no eproc não polui as tags estruturadas
+            for kw in keywords:
+                if kw not in proc.tags:
+                    proc.tags.append(kw)
+
+    return proc
+
+
 def buscar_processo_online(
     numero: str, tj_label: str, headless: bool, log: Callable[[str], None],
     modo_docs: str = "nenhum",
@@ -176,58 +249,9 @@ def buscar_processo_online(
             log("🐞 DEBUG: parado após o login (sem pesquisar o processo). "
                 "Navegador deixado aberto para inspeção.\n")
             return Processo(numero=numero, tribunal=tribunal, uf=uf)
-        log(f"Consultando processo {numero}"
-            + (f" (docs={modo_docs})" if site == "eproc" else "") + "...\n")
-        if site == "eproc":
-            html = scraper.consultar_processo(numero, modo_docs=modo_docs)
-        else:
-            html = scraper.consultar_processo(numero)  # esaj/pje não aceitam modo_docs
-        if not html:
-            raise RuntimeError("Scraper não retornou dados para esse número.")
-
-        if _html_indica_nao_encontrado(html, site):
-            raise RuntimeError(
-                f"Processo {numero} não encontrado em {tj_label}. "
-                "Confira o número e o foro/UF, e se o processo está mesmo nesse "
-                "sistema (eproc × e-SAJ × PJe)."
-            )
-
-        if site == "eproc":
-            from .integracoes.tjsp_scraper.parser_processo import extrair_processo
-            proc = _dict_para_processo(
-                extrair_processo(html, _extrair_blocos_com_origem(html), numero_cnj=numero)
-            )
-            log("Dados extraídos com sucesso.\n")
-        elif site == "esaj":
-            from .integracoes.tjsp_scraper.parser_esaj import extrair_processo_esaj
-            proc = _dict_para_processo(extrair_processo_esaj(html, numero_cnj=numero))
-            log("Dados extraídos do e-SAJ "
-                f"({len(proc.partes)} parte(s), {proc.total_eventos} movimentação(ões)).\n")
-        else:  # pje
-            from .integracoes.tjsp_scraper.parser_pje import extrair_processo_pje
-            proc = _dict_para_processo(extrair_processo_pje(html, numero_cnj=numero))
-            log("Dados extraídos do PJe "
-                f"({len(proc.partes)} parte(s), {proc.total_eventos} movimentação(ões)).\n")
-
-        # Fallback de tribunal/UF quando o parser não os inferiu do CNJ.
-        if not proc.tribunal:
-            proc.tribunal = tribunal
-        if not proc.uf:
-            proc.uf = uf
-
-        if not proc.numero:
-            proc.numero = numero
-
-        # Palavras-chave de penhora/bloqueio (extrator genérico, todos os sites).
-        keywords = list(dict.fromkeys(
-            k["descricao"] for k in extrair_penhora_bloqueio_tribunais(html) if k.get("descricao")
-        ))
-        if keywords:
-            log("Palavras-chave de penhora/bloqueio: " + ", ".join(keywords) + "\n")
-            if site != "eproc":  # no eproc não polui as tags estruturadas
-                for kw in keywords:
-                    if kw not in proc.tags:
-                        proc.tags.append(kw)
+        proc = _consultar_e_extrair(
+            scraper, site, numero, tribunal, uf, modo_docs=modo_docs, log=log
+        )
 
         if modo_debug == "pos_consulta":
             log("🐞 DEBUG: consulta concluída — valide os dados extraídos abaixo "

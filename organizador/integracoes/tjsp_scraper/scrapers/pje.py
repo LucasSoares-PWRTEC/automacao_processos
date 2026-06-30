@@ -30,6 +30,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from unidecode import unidecode
 
 from .base import TribunalScraper, criar_chrome_driver
+from .popup import AtribuicaoDetectadaError, detectar_atribuicao
 from ..credenciais import obter_credenciais
 from ..two_factor import gerar_codigo_totp
 
@@ -417,6 +418,15 @@ class PJEScraper(TribunalScraper):
         janelas_antes = set(self.driver.window_handles)
         self.driver.execute_script("arguments[0].click();", abrir)
 
+        # Abrir o processo pode disparar um modal de "atribuir/vincular ao
+        # advogado" (habilitação). NÃO confirma: fecha com segurança e aborta
+        # este processo (pedido do usuário). Checa na janela atual antes de
+        # esperar a nova aba (o modal pode impedir a nova janela de abrir).
+        time.sleep(0.5)
+        obs = detectar_atribuicao(self.driver)
+        if obs:
+            raise AtribuicaoDetectadaError(obs)
+
         # PJe abre os autos em NOVA janela/aba — trocar o foco.
         try:
             WebDriverWait(self.driver, 25).until(
@@ -428,6 +438,11 @@ class PJEScraper(TribunalScraper):
         except Exception:
             # Não abriu nova janela — talvez navegou na mesma aba (ajax)
             print("ℹ️ PJe: sem nova janela; seguindo na mesma aba.")
+
+        # Reverifica já na janela dos autos (o aviso pode aparecer só aqui).
+        obs = detectar_atribuicao(self.driver)
+        if obs:
+            raise AtribuicaoDetectadaError(obs)
 
         return self._coletar_timeline_e_documentos()
 
@@ -549,6 +564,21 @@ class PJEScraper(TribunalScraper):
             self._dump_dom("autos digitais")
             self._screenshot("autos_nao_renderizou")
             return None
+
+        # O polo passivo do painel "Mais detalhes" é populado por AJAX um instante
+        # DEPOIS da timeline. Numa corrida em lote, ler cedo demais traz o autor
+        # mas perde o réu. Espera curta até o #poloPassivo ter conteúdo além do
+        # rótulo; tolera ausência (processos de um polo só) sem travar.
+        def _polo_passivo_populado(d):
+            els = d.find_elements(By.ID, "poloPassivo")
+            if not els:
+                return True  # sem o elemento: não há o que esperar
+            txt = (els[0].text or "").strip()
+            return len(txt) > len("Polo passivo") + 3
+        try:
+            WebDriverWait(self.driver, 6).until(_polo_passivo_populado)
+        except Exception:
+            pass
 
         # CAMINHO RÁPIDO: o painel "Mais detalhes" (cabeçalho + polos) já está no
         # DOM da página de autos. Se presente, lê dali e NÃO abre nenhum documento

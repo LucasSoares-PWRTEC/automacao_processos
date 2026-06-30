@@ -82,6 +82,11 @@ TJ_SISTEMAS = {
     "TJSP — e-SAJ":  ("esaj",  "SAO PAULO", "https://esaj.tjsp.jus.br/cpopg/open.do", None),
     # ── AM ──────────────────────────────────────────────────────────────────
     "TJAM — e-SAJ":  ("esaj",  "AMAZONAS",           "https://consultasaj.tjam.jus.br/cpopg/open.do", None),
+    # ── DF ──────────────────────────────────────────────────────────────────
+    # PJe nacional (login.seam → sso.cloud.pje.jus.br, client pje-tjdft-1g).
+    # Validado ao vivo: a conta tem acesso ao TJDFT. (TJBA é PJe nacional também,
+    # mas a conta NÃO está habilitada lá — login não confirma após o TOTP.)
+    "TJDFT — PJe":   ("pje",   "DISTRITO FEDERAL",   "https://pje.tjdft.jus.br/pje/", None),
     # ── CE ──────────────────────────────────────────────────────────────────
     # PJe é nacional (login único via PDPJ): o scraper deriva login.seam e a
     # busca interna da URL base abaixo (cada tribunal tem seu host/path: /pje/,
@@ -104,9 +109,15 @@ TJ_SISTEMAS = {
     # ── PR ──────────────────────────────────────────────────────────────────
     # Acesso via perfil OAB-PR na plataforma eproc do TJSP (mesmo login/2FA).
     "TJPR — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "PR"),
-    # ── RJ ──────────────────────────────────────────────────────────────────
-    # Acesso via perfil OAB-RJ na plataforma eproc do TJSP (mesmo login/2FA).
-    "TJRJ — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "RJ"),
+    # ── RJ ── SEM rota automatizável hoje ────────────────────────────────────
+    # Duas tentativas confirmadas como inviáveis (2026-06-30):
+    #   • eproc/perfil-RJ na plataforma do TJSP → loga, mas "não encontrado"
+    #     (o eproc do TJSP não hospeda processos do TJRJ);
+    #   • PJe do TJRJ (tjrj.pje.jus.br) → login PRÓPRIO (não o Keycloak nacional
+    #     do PDPJ) e exige certificado digital p/ advogado → incompatível com o
+    #     scraper PJe atual.
+    # Recuperar o RJ exigiria um scraper dedicado + credenciais/certificado do
+    # TJRJ. Por ora, processos do RJ ficam "sem rota".
     # ── RN ──────────────────────────────────────────────────────────────────
     # Acesso via perfil OAB-RN na plataforma eproc do TJSP (mesmo login/2FA).
     "TJRN — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "RN"),
@@ -116,6 +127,7 @@ TJ_SISTEMAS = {
 _ESTADO_TJ_UF = {
     "SAO PAULO": ("TJSP", "SP"),
     "MINAS GERAIS": ("TJMG", "MG"),
+    "DISTRITO FEDERAL": ("TJDFT", "DF"),
     "AMAZONAS": ("TJAM", "AM"),
     "MATO GROSSO DO SUL": ("TJMS", "MS"),
     "CEARA": ("TJCE", "CE"),
@@ -142,6 +154,29 @@ def sugerir_tj_para_uf(uf: str) -> str | None:
         return None
     eproc = [lbl for lbl in candidatos if TJ_SISTEMAS[lbl][0] == "eproc"]
     return (eproc or candidatos)[0]
+
+
+# Ordem de preferência por sistema no fallback entre tribunais da MESMA UF.
+# eproc e PJe expõem partes COM documento (necessário p/ pegar o réu); o e-SAJ
+# público não traz CPF/CNPJ → fica por último.
+_PRIORIDADE_SITE = {"eproc": 0, "pje": 1, "esaj": 2}
+# Override por UF: em MG os processos-alvo estão quase todos no PJe (o eproc tem
+# pouquíssimos), então tentar PJe primeiro evita uma consulta eproc inútil.
+_PRIORIDADE_SITE_POR_UF = {
+    "MG": {"pje": 0, "eproc": 1, "esaj": 2},
+}
+
+
+def candidatos_tj_para_uf(uf: str) -> list[str]:
+    """Todos os rótulos de TJ_SISTEMAS que atendem a UF, em ordem de preferência
+    para enriquecer (sistemas que trazem partes com documento primeiro).
+
+    Base do fallback pedido pelo usuário: se o processo não está num sistema,
+    tenta o próximo (eproc × e-SAJ × PJe). Lista vazia = UF sem rota suportada."""
+    uf = (uf or "").upper()
+    prioridade = _PRIORIDADE_SITE_POR_UF.get(uf, _PRIORIDADE_SITE)
+    candidatos = [lbl for lbl in TJ_SISTEMAS if uf_efetiva_tj(lbl) == uf]
+    return sorted(candidatos, key=lambda lbl: prioridade.get(TJ_SISTEMAS[lbl][0], 99))
 
 # OAB do advogado do escritório (Felipe Machado) por UF — usado para
 # autopreencher os campos OAB UF / OAB Nº ao selecionar um processo.

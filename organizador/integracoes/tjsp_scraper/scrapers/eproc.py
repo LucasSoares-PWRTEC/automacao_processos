@@ -40,6 +40,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from .base import TribunalScraper, criar_chrome_driver
+from .popup import AtribuicaoDetectadaError, detectar_atribuicao
 from ..credenciais import obter_credenciais
 from ..two_factor import gerar_codigo_totp
 from ..parser_processo import _classificar_tipo
@@ -397,6 +398,10 @@ class EprocScraper(TribunalScraper):
                 )
             )
         except Exception:
+            # Um modal de atribuição pode ter impedido a página de detalhes.
+            obs = detectar_atribuicao(self.driver)
+            if obs:
+                raise AtribuicaoDetectadaError(obs)
             self._screenshot("busca_sem_resposta")
             return None
 
@@ -404,6 +409,12 @@ class EprocScraper(TribunalScraper):
         if "processo não encontrado" in pagina.lower() or "processo nao encontrado" in pagina.lower():
             print(f"   eproc/{self._sigla} {numero_processo}: processo não encontrado.")
             return pagina
+
+        # Modal de "atribuir/vincular ao advogado"? NÃO confirma: fecha com
+        # segurança e aborta este processo (pedido do usuário).
+        obs = detectar_atribuicao(self.driver)
+        if obs:
+            raise AtribuicaoDetectadaError(obs)
 
         # Dá uma pequena folga para o JS popular a tabela de eventos
         time.sleep(0.5)

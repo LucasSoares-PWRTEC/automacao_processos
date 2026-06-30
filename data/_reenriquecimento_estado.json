@@ -1,0 +1,1343 @@
+{
+  "5000996-10.2022.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK MADRI EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "HIGOR HENRIQUE BENEDITO DE SOUZA",
+    "quando": "2026-06-28T23:58:21"
+  },
+  "5001216-50.2022.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "PETERSON SAULO VIANA",
+    "quando": "2026-06-28T23:58:28"
+  },
+  "0002752-83.2022.8.26.0127": {
+    "status": "ainda_sem_reu",
+    "uf": "SP",
+    "sistema": "TJSP — e-SAJ",
+    "tem_reu": false,
+    "autor": "Rpm1 Empreendimentos SPE Ltda.",
+    "reu": "",
+    "quando": "2026-06-29T00:19:34"
+  },
+  "0821821-97.2025.8.10.0001": {
+    "status": "ainda_sem_reu",
+    "uf": "MA",
+    "sistema": "TJMA — PJe",
+    "tem_reu": false,
+    "autor": "",
+    "reu": "",
+    "quando": "2026-06-29T00:24:32"
+  },
+  "5000347-91.2025.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "EMCCAMP INCORPORACAO PARQUE EUROPA SPE LTDA.",
+    "reu": "ANDREEW KENNEDY JANUARIO e JENNIFER KELE RODRIGUES",
+    "quando": "2026-06-29T00:01:10"
+  },
+  "5000559-13.2022.8.13.0049": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "DECMINAS DISTRIBUICAO E LOGISTICA S.A.",
+    "reu": "CASA SAO GERALDO LTDA",
+    "quando": "2026-06-29T00:01:17"
+  },
+  "5000850-82.2022.8.13.0511": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "DECMINAS DISTRIBUICAO E LOGISTICA S.A.",
+    "reu": "DROGARIA VITALIDADE EIRELI",
+    "quando": "2026-06-29T00:01:24"
+  },
+  "5001435-25.2023.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "RAIENE MARQUES ALVES",
+    "quando": "2026-06-29T00:01:31"
+  },
+  "5001529-28.2022.8.13.0529": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "DECMINAS DISTRIBUICAO E LOGISTICA S.A.",
+    "reu": "DROGAO AVENIDA ITAU DE MINAS LTDA",
+    "quando": "2026-06-29T00:01:39"
+  },
+  "5001601-91.2022.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "WALKIRIA GOMES DE JESUS, OLDAIR GOMES DA SILVA e JUNIO ALVES GOMES",
+    "quando": "2026-06-29T00:01:45"
+  },
+  "5001641-39.2023.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "POLIANA VASCONCELOS DIAS",
+    "quando": "2026-06-29T00:01:52"
+  },
+  "5001655-23.2023.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "LUIZ HENRIQUE DA SILVA BARROS e DAYANE MOREIRA DA CONCEICAO SILVA BARROS",
+    "quando": "2026-06-29T00:01:59"
+  },
+  "5001685-92.2022.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "HELOISA SANTOS LOPES e VANDERLEI LOPES",
+    "quando": "2026-06-29T00:02:06"
+  },
+  "5001790-40.2020.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "SEBASTIAO DO NASCIMENTO SANTOS",
+    "reu": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "quando": "2026-06-29T00:02:13"
+  },
+  "5001855-64.2022.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ELISANGELA DA SILVA GOMES",
+    "quando": "2026-06-29T00:02:20"
+  },
+  "5002050-49.2022.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK RUBI EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "DIOGO DA SILVA CORDEIRO e MARIA DE FATIMA RODRIGUES DA SILVA",
+    "quando": "2026-06-29T00:02:26"
+  },
+  "5002113-74.2022.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK RUBI EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "LUIZ ANDRE SARAIVA e ERICKA PEREIRA SANT ANA",
+    "quando": "2026-06-29T00:02:33"
+  },
+  "5002180-05.2023.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "AMANDA APARECIDA FRANCO",
+    "quando": "2026-06-29T00:02:40"
+  },
+  "5002200-93.2023.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ELIVELTON DE ALMEIDA RAMOS SANTOS e THAISMARA FAUSTINO RAMOS DOS SANTOS",
+    "quando": "2026-06-29T00:02:47"
+  },
+  "5002281-05.2021.8.13.0474": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "CPX DISTRIBUIDORA LTDA",
+    "reu": "ALEX COMERCIO DE PNEUS E SERVICOS LTDA - ME",
+    "quando": "2026-06-29T00:02:54"
+  },
+  "5002423-49.2022.8.13.0611": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "DECMINAS DISTRIBUICAO E LOGISTICA S.A.",
+    "reu": "LIMA E SANTOS COMERCIAL LTDA",
+    "quando": "2026-06-29T00:03:01"
+  },
+  "5002481-11.2023.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "HUGO STEPHANO SANTOS SOARES",
+    "quando": "2026-06-29T00:03:08"
+  },
+  "5002615-72.2022.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "JONAS SILVA DO CARMO",
+    "reu": "VIC ENGENHARIA S/A",
+    "quando": "2026-06-29T00:03:15"
+  },
+  "5002662-88.2022.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "INES GOMES FARIA e WELLINGTON DE SOUZA FIGUEIREDO",
+    "quando": "2026-06-29T00:03:22"
+  },
+  "5002891-06.2022.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK MADRI EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ANDREIA DE SOUSA BRANDAO e ELEANDRO VIANA SANTANA",
+    "quando": "2026-06-29T00:03:29"
+  },
+  "5003158-79.2023.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "GLAICON HENRIQUE DA SILVA",
+    "quando": "2026-06-29T00:03:36"
+  },
+  "5003188-13.2022.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "BRUNO CORREA GONDIM",
+    "quando": "2026-06-29T00:03:43"
+  },
+  "5003189-95.2022.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "RAPHAELLA RODRIGUES SOARES",
+    "quando": "2026-06-29T00:03:49"
+  },
+  "5003193-35.2022.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "CARLOS ROBERTO DUARTE e LUCIANA MARA PEREIRA DUARTE",
+    "quando": "2026-06-29T00:03:56"
+  },
+  "5003194-20.2022.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARILANE GOMES BARBOSA",
+    "quando": "2026-06-29T00:04:03"
+  },
+  "5003197-72.2022.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "FELIPE GONCALVES DE REZENDE",
+    "quando": "2026-06-29T00:04:10"
+  },
+  "5003330-80.2023.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "STEPHANY CRYS FERREIRA, HUDSON SILVA, MARTA MARIA RIBEIRO SILVA e EDVALDO TEODORO DA SILVA",
+    "quando": "2026-06-29T00:04:17"
+  },
+  "5003358-27.2022.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "DIANA RIBEIRO FIDELES",
+    "quando": "2026-06-29T00:04:23"
+  },
+  "5003417-36.2023.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "RONAN BASTOS DE JESUS",
+    "quando": "2026-06-29T00:04:30"
+  },
+  "5003555-45.2023.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARLON TULIO DE LIMA SOARES",
+    "quando": "2026-06-29T00:04:37"
+  },
+  "5003573-24.2023.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "TAMARA CRISTINA ALVES DA SILVA e LUANA SANCHES",
+    "quando": "2026-06-29T00:04:45"
+  },
+  "5003598-80.2023.8.13.0114": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER TOPAZIO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ADAILSON DE CASTRO EVANGELISTA",
+    "quando": "2026-06-29T00:04:52"
+  },
+  "5003651-18.2023.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "SOLANGE GONCALVES DE FREITAS",
+    "quando": "2026-06-29T00:04:58"
+  },
+  "5003660-77.2023.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "JULIO CESAR DE MENEZES XAVIER",
+    "quando": "2026-06-29T00:05:05"
+  },
+  "5003761-43.2022.8.13.0034": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "DECMINAS DISTRIBUICAO E LOGISTICA S.A.",
+    "reu": "VANESSA FIGUEIREDO MONTEIRO ARAUJO - ME",
+    "quando": "2026-06-29T00:05:12"
+  },
+  "5003795-10.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ROSILENE DA SILVA RIBEIRO e GERALDO CLEZE DO NASCIMENTO",
+    "quando": "2026-06-29T00:05:19"
+  },
+  "5004037-23.2022.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK RUBI EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "SARA CRISTINA MENDES MATOS e SILVANIA MENDES VIEIRA",
+    "quando": "2026-06-29T00:05:26"
+  },
+  "5004149-64.2022.8.13.0027": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER PARADISO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "WEBERTON DA SILVA MAGALHAES",
+    "quando": "2026-06-29T00:05:33"
+  },
+  "5004230-04.2023.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "FABIO VINICIUS PIMENTA",
+    "quando": "2026-06-29T00:05:41"
+  },
+  "5004363-21.2021.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "WALTER JUNIO PEREIRA",
+    "quando": "2026-06-29T00:05:48"
+  },
+  "5004461-02.2021.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "CRISTIANE CARLA CARDOSO SILVA",
+    "quando": "2026-06-29T00:05:54"
+  },
+  "5004524-27.2021.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "LUCAS HENRIQUE COUTINHO DE MOURA",
+    "quando": "2026-06-29T00:06:01"
+  },
+  "5004530-34.2021.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARIANA LUANA DOS SANTOS",
+    "quando": "2026-06-29T00:06:09"
+  },
+  "5004660-28.2021.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "GUILHERME LUCAS MARCAL",
+    "quando": "2026-06-29T00:06:16"
+  },
+  "5005229-93.2022.8.13.0114": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER TOPAZIO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ERICA DIAS DOS SANTOS e ROMEU DAS GRACAS GOUVEA",
+    "quando": "2026-06-29T00:06:23"
+  },
+  "5005486-54.2021.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "CHARLES RODRIGUES VALADARES",
+    "quando": "2026-06-29T00:06:32"
+  },
+  "5005488-24.2021.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARCIO DOS SANTOS RODRIGUES",
+    "quando": "2026-06-29T00:06:39"
+  },
+  "5005533-28.2021.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "GABRIEL GOMES DA SILVA, GUIOMAR MARIA PINTO e GISELLE DA CONCEICAO MARIA",
+    "quando": "2026-06-29T00:06:46"
+  },
+  "5005535-95.2021.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "HUDSON URYEL GARCIA DE SOUSA",
+    "quando": "2026-06-29T00:06:53"
+  },
+  "5005833-49.2022.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "CLAUDILENE APARECIDA DA SILVA PEDRO e MAURILIO CARDOSO LIMA PEDRO",
+    "quando": "2026-06-29T00:07:00"
+  },
+  "5005898-15.2023.8.13.0114": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER TOPAZIO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "JESSICA ELLEN RODRIGUES FERREIRA",
+    "quando": "2026-06-29T00:07:07"
+  },
+  "5005995-44.2022.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "CHAIENE DA SILVA LINO",
+    "quando": "2026-06-29T00:07:14"
+  },
+  "5006075-08.2022.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ALESSANDRO CARDOSO",
+    "quando": "2026-06-29T00:07:21"
+  },
+  "5006328-39.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "WANDER AFONSO GOMES BARBOSA",
+    "quando": "2026-06-29T00:07:29"
+  },
+  "5006329-24.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "IRIS ALVES BARBOSA",
+    "quando": "2026-06-29T00:07:36"
+  },
+  "5006651-98.2022.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "NATALIA BORGES FERREIRA e ELIER VICENTE DA SILVA",
+    "quando": "2026-06-29T00:07:43"
+  },
+  "5006655-38.2022.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "CARLA ADRIANA DE MOURA FERREIRA",
+    "quando": "2026-06-29T00:07:50"
+  },
+  "5006657-71.2023.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "SARAH DE SOUZA SANTOS",
+    "quando": "2026-06-29T00:07:57"
+  },
+  "5006658-90.2022.8.13.0148": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VP PALMITAL EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ANA PAULA GOMES e NATALIA CRISTINA GOMES",
+    "quando": "2026-06-29T00:08:04"
+  },
+  "5006908-22.2021.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARCOS ANTONIO DE MELO JUNIOR",
+    "quando": "2026-06-29T00:08:11"
+  },
+  "5007032-05.2021.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "VENANCIO CESAR CORREIA",
+    "quando": "2026-06-29T00:08:18"
+  },
+  "5007139-49.2021.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ANA KAREN LIMA SILVA",
+    "quando": "2026-06-29T00:08:26"
+  },
+  "5007181-39.2021.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "DALTON MACIEL FERREIRA",
+    "quando": "2026-06-29T00:08:33"
+  },
+  "5007222-65.2021.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA e MARCOS FELIPE DE SOUZA",
+    "reu": "MARCOS FELIPE DE SOUZA e MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "quando": "2026-06-29T00:30:13"
+  },
+  "5007275-84.2021.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "SHEYLA SILVANIA DE SOUZA MENDES, FRANKLIN MENDES EUZEBIO, LEANDRO DE DEUS SANTOS e SUELY SILVANIA SOUZA DE DEUS",
+    "quando": "2026-06-29T00:08:47"
+  },
+  "5007281-53.2021.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "VANDERLEIA MARQUES NICOLAU",
+    "quando": "2026-06-29T00:08:54"
+  },
+  "5007379-76.2021.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "CRISTINA MAGALHAES OLIVEIRA e WELLINGTON ROBSON DE OLIVEIRA",
+    "quando": "2026-06-29T00:09:01"
+  },
+  "5007610-19.2021.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "JULIANA FONTES QUEIROGA",
+    "reu": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "quando": "2026-06-29T00:09:08"
+  },
+  "5007758-36.2023.8.13.0701": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK MOINHO DAS AGUAS EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "NAIARA APARECIDA SILVA DOS SANTOS e DIEGO ANTONIO COSTA DE OLIVEIRA",
+    "quando": "2026-06-29T00:09:15"
+  },
+  "5007954-21.2023.8.13.0114": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER TOPAZIO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ADRIANA SIRQUEIRA SANTOS",
+    "quando": "2026-06-29T00:09:22"
+  },
+  "5007957-09.2022.8.13.0567": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "GISELLE DA CONCEICAO MARIA e GUIOMAR MARIA PINTO",
+    "quando": "2026-06-29T00:09:29"
+  },
+  "5008022-43.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "LUCIANO NUNES DE LIMA",
+    "quando": "2026-06-29T00:09:36"
+  },
+  "5008221-22.2022.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARIA SENHORA GOMES DE ASSIS e EDINEIA GOMES DE ASSIS",
+    "quando": "2026-06-29T00:09:43"
+  },
+  "5008245-93.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ROSIMEIRE FRANCISCA CUNHA DA SILVA e WELINGTON CARVALHO DA SILVA",
+    "quando": "2026-06-29T00:09:50"
+  },
+  "5008308-55.2022.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ADRIANA DOS SANTOS DE OLIVEIRA",
+    "quando": "2026-06-29T00:09:57"
+  },
+  "5008338-90.2022.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ANDRE LUIZ DA SILVA",
+    "quando": "2026-06-29T00:10:04"
+  },
+  "5008381-27.2022.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "BRUNO RIBEIRO ROCHA",
+    "quando": "2026-06-29T00:10:11"
+  },
+  "5008588-26.2022.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ELIO DE OLIVEIRA",
+    "quando": "2026-06-29T00:10:18"
+  },
+  "5008803-61.2021.8.13.0114": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER TOPAZIO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARLON MAX DO NASCIMENTO",
+    "quando": "2026-06-29T00:10:25"
+  },
+  "5009337-63.2022.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "AUGUSTO MELO FAGUNDES",
+    "quando": "2026-06-29T00:10:32"
+  },
+  "5009746-18.2023.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "EDENILSON SILVA REIS e CAMILO SILVA CARDOSO",
+    "quando": "2026-06-29T00:10:39"
+  },
+  "5009924-51.2023.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK RUBI EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "CRISTIANE MARQUES BARBOSA",
+    "quando": "2026-06-29T00:10:46"
+  },
+  "5009930-58.2023.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK RUBI EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "VANESSA CRISTINA PEREIRA DE FARIA",
+    "quando": "2026-06-29T00:10:53"
+  },
+  "5009952-19.2023.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK RUBI EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ANA CAROLINA DIAS REZENDE",
+    "quando": "2026-06-29T00:11:00"
+  },
+  "5009971-25.2023.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK RUBI EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "FRANCIELLY DE PAULA RIBEIRO e LUIZ CARLOS DA SILVA",
+    "quando": "2026-06-29T00:11:07"
+  },
+  "5010484-52.2023.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA e DANIELE MARTINS DE CASTRO GONCALVES",
+    "reu": "DANIELE MARTINS DE CASTRO GONCALVES e MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "quando": "2026-06-29T00:30:26"
+  },
+  "5010537-51.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "GRAZIELA FREITAS SILVA e ALISSON TIAGO FONSECA LOPES",
+    "quando": "2026-06-29T00:11:21"
+  },
+  "5010627-59.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "JOVELINO SILVESTRE DOS SANTOS",
+    "quando": "2026-06-29T00:11:28"
+  },
+  "5010638-88.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "GENESSI ANTONIO DE AGUIAR e JULIANA MARQUES DA SILVA",
+    "quando": "2026-06-29T00:11:35"
+  },
+  "5010704-68.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "JESSICA APARECIDA GONCALVES DOS ANJOS",
+    "quando": "2026-06-29T00:11:43"
+  },
+  "5010710-75.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "JOEL AMINADABE DA SILVA BISPO",
+    "quando": "2026-06-29T00:11:50"
+  },
+  "5010717-67.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ROBERTO DE JESUS VALE",
+    "quando": "2026-06-29T00:11:57"
+  },
+  "5010732-36.2023.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARCO RODRIGUES CORREIA",
+    "quando": "2026-06-29T00:12:04"
+  },
+  "5010936-45.2025.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "EMCCAMP INCORPORACAO PARQUE EUROPA SPE LTDA.",
+    "reu": "ROSILENE SANTANA ALVES e RAFAEL SANTANA ALVES",
+    "quando": "2026-06-29T00:12:11"
+  },
+  "5011125-15.2022.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARCO TULIO DA SILVA PAULA e ZEZELIA BISPO DE FARIAS",
+    "quando": "2026-06-29T00:12:18"
+  },
+  "5011216-85.2022.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "JOAO ANTONIO DE SOUZA GONCALVES",
+    "quando": "2026-06-29T00:12:25"
+  },
+  "5011224-62.2022.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARIA ROSANGELA MELO DE OLIVEIRA",
+    "quando": "2026-06-29T00:12:32"
+  },
+  "5011226-32.2022.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MILENE MACHADO DA SILVA",
+    "quando": "2026-06-29T00:12:39"
+  },
+  "5011324-62.2023.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA e RAQUEL SILVA DE OLIVEIRA",
+    "reu": "RAQUEL SILVA DE OLIVEIRA e MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "quando": "2026-06-29T00:30:39"
+  },
+  "5011421-17.2022.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "VANILDO NUNES BORGES",
+    "quando": "2026-06-29T00:12:53"
+  },
+  "5011422-02.2022.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "PRISCILA BRAGA DE ARAUJO",
+    "quando": "2026-06-29T00:13:01"
+  },
+  "5011558-72.2023.8.13.0701": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK MOINHO DAS AGUAS EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MARCOS TULLIO SANTANA NASCIMENTO",
+    "quando": "2026-06-29T00:13:08"
+  },
+  "5011966-82.2022.8.13.0027": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER PARADISO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ANA FLAVIA LOURENCO SANTOS",
+    "quando": "2026-06-29T00:13:16"
+  },
+  "5012432-76.2022.8.13.0027": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER PARADISO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "EULIMAR RODRIGUES DE NOVAIS SOUZA",
+    "quando": "2026-06-29T00:13:23"
+  },
+  "5012450-84.2022.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "WALISSON JUNIOR DA SILVA REIS e TAMIRES RODRIGUES DE OLIVEIRA",
+    "quando": "2026-06-29T00:13:30"
+  },
+  "5012512-15.2023.8.13.0024": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "CPX DISTRIBUIDORA LTDA",
+    "reu": "DIAS EMPREENDIMENTOS E TRANSPORTES LTDA",
+    "quando": "2026-06-29T00:13:38"
+  },
+  "5013119-83.2022.8.13.0114": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER TOPAZIO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "REGIANA CESARIO DA SILVA e WELLINGTON RODRIGUES MACHADO",
+    "quando": "2026-06-29T00:13:44"
+  },
+  "5013479-18.2022.8.13.0114": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER TOPAZIO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "JOAO HENRIQUE SANTOS DA SILVA e SAMARA GOMES DE OLIVEIRA SILVA",
+    "quando": "2026-06-29T00:13:51"
+  },
+  "5014608-53.2022.8.13.0245": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA LYON EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "VIVIANE DE OLIVEIRA DA SILVA e RENAN PEREIRA DA SILVA",
+    "quando": "2026-06-29T00:13:59"
+  },
+  "5014779-97.2022.8.13.0701": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK MOINHO DAS AGUAS EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ELIANE VILAS BOAS DA SILVA e JOAO PAULO DA SILVA",
+    "quando": "2026-06-29T00:14:06"
+  },
+  "5014783-37.2022.8.13.0701": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK MOINHO DAS AGUAS EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "BRUNA CONSTANCIO DE BESSA",
+    "quando": "2026-06-29T00:14:13"
+  },
+  "5014899-43.2022.8.13.0701": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLE PARK MOINHO DAS AGUAS EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "WILSON FLAVIO BERNARDO",
+    "quando": "2026-06-29T00:14:21"
+  },
+  "5016916-76.2021.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ADRIANE GLAYDES DIAS DA SILVA",
+    "quando": "2026-06-29T00:14:28"
+  },
+  "5016940-07.2021.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "ANDERSON PATRICK GUIMARAES FERNANDES",
+    "quando": "2026-06-29T00:14:36"
+  },
+  "5017238-95.2022.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "WALACE PEREIRA PAPAS e ALINE AGUIDA DOS SANTOS MACIEL PAPAS",
+    "quando": "2026-06-29T00:14:43"
+  },
+  "5017687-39.2023.8.13.0525": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MOVIDA PARTICIPACOES S.A.",
+    "reu": "TECNOCARGAS LOGISTICA E TRANSPORTES LTDA - ME",
+    "quando": "2026-06-29T00:14:50"
+  },
+  "5018657-19.2023.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "RENATO LEAL FILHO",
+    "quando": "2026-06-29T00:14:57"
+  },
+  "5018662-41.2023.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "AGATHA EDUARDA DOS SANTOS e LUCAS OLIVEIRA TORRES",
+    "quando": "2026-06-29T00:15:04"
+  },
+  "5018670-18.2023.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JOSE WENCESLAU PEREIRA e MARIA APARECIDA CHAVES PEREIRA",
+    "quando": "2026-06-29T00:15:11"
+  },
+  "5019635-59.2022.8.13.0231": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "DECMINAS DISTRIBUICAO E LOGISTICA S.A. e MULTI FORMATO DISTRIBUIDORA SOCIEDADE ANONIMA",
+    "reu": "CHA ALIMENTOS EIRELI",
+    "quando": "2026-06-29T00:15:19"
+  },
+  "5021029-34.2022.8.13.0027": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER PARADISO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "JOZENIL GERMANO DE OLIVEIRA, ANGELA DA SILVA SOARES DE OLIVEIRA e DARIO JORGE SABINO",
+    "quando": "2026-06-29T00:15:26"
+  },
+  "5021113-35.2022.8.13.0027": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER PARADISO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "PEDRO HENRIQUE DA SILVA OLIVEIRA",
+    "quando": "2026-06-29T00:15:34"
+  },
+  "5021436-45.2022.8.13.0672": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA MILAO EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "MATHEUS LOPES DE SOUSA, ROBERTO BARBOSA DE SOUSA e REJANE APARECIDA BATISTA LOPES DE SOUSA",
+    "quando": "2026-06-29T00:15:41"
+  },
+  "5022006-26.2022.8.13.0027": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "DECMINAS DISTRIBUICAO E LOGISTICA S.A.",
+    "reu": "FARMACIA EGG LTDA - EPP",
+    "quando": "2026-06-29T00:15:48"
+  },
+  "5024771-08.2022.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JEFFERSON JOSE VIEIRA DA SILVA e MIRIAM VIEIRA FERNANDES",
+    "quando": "2026-06-29T00:15:57"
+  },
+  "5025139-51.2023.8.13.0024": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "COMERCIAL DAHANA LIMITADA",
+    "reu": "BACALHAU BRASIL LTDA e PEDRO JORGE PIRES ALCOBIA",
+    "quando": "2026-06-29T00:16:04"
+  },
+  "5025195-84.2021.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "LIDIANE NATALI LEMOS GOMES e LEANDRO MARIANO VIEIRA ALVES",
+    "quando": "2026-06-29T00:16:12"
+  },
+  "5025199-24.2021.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SEVILHA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "DIEGO GABRIEL GONCALVES RODRIGUES",
+    "quando": "2026-06-29T00:16:19"
+  },
+  "5025425-25.2021.8.13.0145": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "CPX DISTRIBUIDORA LTDA",
+    "reu": "ERICK CAPUTO GOMES",
+    "quando": "2026-06-29T00:16:26"
+  },
+  "5026488-21.2023.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "JULIANA DE OLIVEIRA GUALBERTO",
+    "quando": "2026-06-29T00:16:33"
+  },
+  "5026857-49.2022.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "MARDEN DURANN JUNIOR e SHIRLEY DURANN MELGACO DE AVELLAR",
+    "quando": "2026-06-29T00:16:41"
+  },
+  "5026879-10.2022.8.13.0079": {
+    "status": "ainda_sem_reu",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": false,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "",
+    "quando": "2026-06-29T00:30:52"
+  },
+  "5027030-73.2022.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
+    "reu": "OLAVO UMBELINO DE ALMEIDA",
+    "quando": "2026-06-29T00:16:56"
+  },
+  "5029653-13.2022.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "CPX DISTRIBUIDORA LTDA",
+    "reu": "JOVANE SERGIO DE RESENDE - ME",
+    "quando": "2026-06-29T00:17:03"
+  },
+  "5052805-22.2024.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "EMCCAMP RESIDENCIAL S.A.",
+    "reu": "WEMERSON GONCALVES NAVES, TUANE CRISTINA MACHADO ROCHA NAVES e LARISSA CAROLINE DE MORAIS TOLEDO",
+    "quando": "2026-06-29T00:17:10"
+  },
+  "5053660-64.2025.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "EMCCAMP INCORPORACAO PARQUE EUROPA SPE LTDA.",
+    "reu": "MATHEUS FELIPE FERREIRA MARCOLINO e NATHALIA CRISTINA FERREIRA MARCOLINO",
+    "quando": "2026-06-29T00:17:17"
+  },
+  "5056281-39.2022.8.13.0079": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "CPX DISTRIBUIDORA LTDA",
+    "reu": "PONTUAL TRANSPORTE E LOGISTICA LTDA",
+    "quando": "2026-06-29T00:17:25"
+  },
+  "5145579-42.2024.8.13.0024": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "EMCCAMP RESIDENCIAL S.A.",
+    "reu": "RONNI FREIDE MOREIRA",
+    "quando": "2026-06-29T00:17:32"
+  },
+  "5171072-89.2022.8.13.0024": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "COMERCIAL DAHANA LIMITADA",
+    "reu": "DJG DISTRIBUIDORA E COMERCIO DE ALIMENTOS EIRELI",
+    "quando": "2026-06-29T00:17:39"
+  },
+  "5185799-53.2022.8.13.0024": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "DECMINAS DISTRIBUICAO E LOGISTICA S.A. e COMERCIAL DAHANA LIMITADA",
+    "reu": "SUPERMERCADOS DIA A DIA IGARAPE LTDA",
+    "quando": "2026-06-29T00:17:47"
+  },
+  "5216775-72.2024.8.13.0024": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "EMCCAMP RESIDENCIAL S.A.",
+    "reu": "DARFYNNY MENA MARQUES GOMES",
+    "quando": "2026-06-29T00:17:54"
+  },
+  "5216792-11.2024.8.13.0024": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "EMCCAMP RESIDENCIAL S.A.",
+    "reu": "FLAVIA CRISTINE PEREIRA DE PAULA SANTOS",
+    "quando": "2026-06-29T00:18:01"
+  },
+  "5217081-41.2024.8.13.0024": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "EMCCAMP RESIDENCIAL S.A.",
+    "reu": "GIULLY LOWISE SANTOS COSTA",
+    "quando": "2026-06-29T00:18:09"
+  },
+  "5218565-91.2024.8.13.0024": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — PJe",
+    "tem_reu": true,
+    "autor": "EMCCAMP RESIDENCIAL S.A.",
+    "reu": "LUCAS GUIMARAES SILVA",
+    "quando": "2026-06-29T00:18:17"
+  }
+}

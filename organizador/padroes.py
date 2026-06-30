@@ -41,8 +41,15 @@ TAGS_CONHECIDAS = ["Idoso", "Processo Migrado", "Prioridade", "Sigilo", "Segredo
 
 # Cabeçalho do bloco "Partes e Representantes" varia em função da classe:
 # AUTOR/RÉU (comum cível), EXEQUENTE/EXECUTADO (execução), REQUERENTE/REQUERIDO, EMBARGANTE/EMBARGADO.
-PAPEIS_ATIVO = ["AUTOR", "EXEQUENTE", "REQUERENTE", "EMBARGANTE", "AGRAVANTE", "IMPETRANTE", "RECLAMANTE", "SUSCITANTE"]
-PAPEIS_PASSIVO = ["RÉU", "REU", "EXECUTADO", "REQUERIDO", "EMBARGADO", "AGRAVADO", "IMPETRADO", "RECLAMADO", "SUSCITADO"]
+# Inclui as formas FEMININAS (EXECUTADA/REQUERIDA/RÉ…): o e-SAJ/PJe trazem o papel
+# flexionado por gênero e, sem elas, o réu (mulher) não era reconhecido em _autor/
+# _reus_joined → processo aparecia "sem réu" mesmo tendo o polo passivo preenchido.
+PAPEIS_ATIVO = ["AUTOR", "AUTORA", "EXEQUENTE", "REQUERENTE", "EMBARGANTE",
+                "AGRAVANTE", "IMPETRANTE", "RECLAMANTE", "SUSCITANTE"]
+PAPEIS_PASSIVO = ["RÉU", "REU", "RÉ", "RE", "EXECUTADO", "EXECUTADA",
+                  "REQUERIDO", "REQUERIDA", "EMBARGADO", "EMBARGADA",
+                  "AGRAVADO", "AGRAVADA", "IMPETRADO", "IMPETRADA",
+                  "RECLAMADO", "RECLAMADA", "SUSCITADO", "SUSCITADA"]
 
 # Rótulos/ruído que o PDF cola ao nome da parte (sem separador) e que precisam
 # ser removidos do início do nome capturado. Ex.: o eproc emite
