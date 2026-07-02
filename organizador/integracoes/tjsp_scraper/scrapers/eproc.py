@@ -167,14 +167,14 @@ class EprocScraper(TribunalScraper):
         # Em ambos o input de senha visível é o "masked" (type=text com classe
         # 'masked'); o type=password real fica hidden ao lado.
         try:
-            WebDriverWait(self.driver, 30).until(
+            WebDriverWait(self.driver, 60).until(
                 EC.visibility_of_element_located((By.ID, self._login_user_id))
             )
         except Exception:
             self._screenshot("login_form_nao_renderizou")
             raise RuntimeError(
                 f"eproc/{self._sigla}: form de login (#{self._login_user_id}) "
-                f"não renderizou em 30s."
+                f"não renderizou em 60s."
             )
 
         campo_user = self.driver.find_element(By.ID, self._login_user_id)

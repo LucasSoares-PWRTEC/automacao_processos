@@ -428,7 +428,7 @@ class PJEScraper(TribunalScraper):
             return False
 
         try:
-            estado = WebDriverWait(self.driver, 20).until(_estado_busca)
+            estado = WebDriverWait(self.driver, 60).until(_estado_busca)
         except Exception:
             self._dump_dom("busca: timeout sem link nem 0-resultados")
             self._screenshot("busca_timeout")
@@ -452,13 +452,16 @@ class PJEScraper(TribunalScraper):
         if obs:
             raise AtribuicaoDetectadaError(obs)
 
-        # PJe abre os autos em NOVA janela/aba — trocar o foco.
+        # PJe abre os autos em NOVA janela/aba — trocar o foco. A janela nova
+        # abre rápido quando vai abrir; 15s bastam (não vale esperar 45s à toa).
+        nova_janela = False
         try:
-            WebDriverWait(self.driver, 25).until(
+            WebDriverWait(self.driver, 15).until(
                 lambda d: len(d.window_handles) > len(janelas_antes)
             )
             nova = (set(self.driver.window_handles) - janelas_antes).pop()
             self.driver.switch_to.window(nova)
+            nova_janela = True
             print("🪟 PJe: troquei para a janela dos autos.")
         except Exception:
             # Não abriu nova janela — talvez navegou na mesma aba (ajax)
@@ -469,7 +472,9 @@ class PJEScraper(TribunalScraper):
         if obs:
             raise AtribuicaoDetectadaError(obs)
 
-        return self._coletar_timeline_e_documentos()
+        # Nova janela → autos podem demorar (75s). Sem nova janela → fast-fail
+        # (15s): esses processos quase nunca renderizam os autos na mesma aba.
+        return self._coletar_timeline_e_documentos(75 if nova_janela else 15)
 
     # ------------------------------------------------------------------
     # EXTRAÇÃO: timeline + TODOS os documentos
@@ -573,16 +578,21 @@ class PJEScraper(TribunalScraper):
         except Exception:
             return True  # sem botão = não há como avançar
 
-    def _coletar_timeline_e_documentos(self) -> Optional[str]:
+    def _coletar_timeline_e_documentos(self, timeout_timeline: int = 75) -> Optional[str]:
         """
         Estratégia OTIMIZADA (2026-05-20): lê a timeline e abre SÓ os
         documentos cujo rótulo contém termos do TRIGGER_DOC (Despacho,
         Decisão, Sentença, SISBAJUD/BACENJUD/RENAJUD, Alvará,
         Levantamento, Penhora, Bloqueio). A medição com "abrir todos
         os 98" custou 674s e não detectou mais nada que a timeline.
+
+        `timeout_timeline`: quanto esperar a timeline dos autos renderizar.
+        Generoso (75s) quando os autos abriram em nova janela (podem demorar);
+        curto quando NÃO abriu janela nova (fast-fail — o processo raramente
+        carrega na mesma aba, então não vale gastar 75s).
         """
         try:
-            WebDriverWait(self.driver, 40).until(
+            WebDriverWait(self.driver, timeout_timeline).until(
                 EC.presence_of_element_located((By.ID, self._ID_TIMELINE))
             )
         except Exception:
