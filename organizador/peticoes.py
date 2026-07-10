@@ -420,6 +420,54 @@ PLACEHOLDERS_AUTO: dict[str, tuple[str, ...]] = {
 }
 
 
+_RE_DO_S_EXECUTADO_S = re.compile(
+    r"(?<!\w)do\(s\)\s+executado\(s\)(?!\w)",
+    re.IGNORECASE,
+)
+_RE_EXECUTADO_S = re.compile(r"(?<!\w)executado\(s\)(?!\w)", re.IGNORECASE)
+
+
+def _preservar_caso_local(original: str, novo: str) -> str:
+    if original.isupper():
+        return novo.upper()
+    if original[:1].isupper():
+        return novo[:1].upper() + novo[1:]
+    return novo
+
+
+def _resolver_parenteticos_numero(
+    texto: str,
+    ctx: "Contexto | None",
+    multiplos_imoveis: bool,
+) -> str:
+    """Resolve formas legadas como "do(s) executado(s)" dos modelos .docx.
+
+    Mantemos isto restrito aos termos que precisam de decisão automática; outras
+    parentéticas, especialmente instruções manuais como "passível(is)", ficam
+    preservadas.
+    """
+    genero_reu = ctx.genero_reu if ctx else "m"
+    numero_reu = ctx.numero_reu if ctx else "s"
+    key_reu = genero_reu + numero_reu
+    prep_executado = {
+        "ms": "do", "fs": "da", "mp": "dos", "fp": "das",
+    }.get(key_reu, "do")
+    forma_executado = {
+        "ms": "executado", "fs": "executada",
+        "mp": "executados", "fp": "executadas",
+    }.get(key_reu, "executado")
+
+    def _repl_do_executado(m: re.Match) -> str:
+        return _preservar_caso_local(m.group(0), f"{prep_executado} {forma_executado}")
+
+    def _repl_executado(m: re.Match) -> str:
+        return _preservar_caso_local(m.group(0), forma_executado)
+
+    texto = _RE_DO_S_EXECUTADO_S.sub(_repl_do_executado, texto)
+    texto = _RE_EXECUTADO_S.sub(_repl_executado, texto)
+    return texto
+
+
 def _resolver_auto(
     ph: str,
     ctx: "Contexto | None",
@@ -484,7 +532,8 @@ def _aplicar_substituicoes(
             return m.group(0)
         return str(v).strip() or m.group(0)
 
-    return RE_PLACEHOLDER_TEMPLATE.sub(_repl, resultado)
+    resultado = RE_PLACEHOLDER_TEMPLATE.sub(_repl, resultado)
+    return _resolver_parenteticos_numero(resultado, ctx, multiplos_imoveis)
 
 
 def _cobertura_resolvivel(
@@ -524,6 +573,13 @@ def _cobertura_resolvivel(
         if " ou " in nome and _resolver_auto(nome, ctx, multiplos_imoveis) is not None:
             _marcar(m.start(), m.end())
         elif str(dados.get(nome) or "").strip():
+            _marcar(m.start(), m.end())
+
+    for padrao in (
+        _RE_DO_S_EXECUTADO_S,
+        _RE_EXECUTADO_S,
+    ):
+        for m in padrao.finditer(texto):
             _marcar(m.start(), m.end())
 
     return coberto

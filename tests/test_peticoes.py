@@ -91,6 +91,32 @@ def test_substituicoes_auto_imovel_no_texto():
     assert out == "penhora dos imóveis"
 
 
+def test_substituicoes_parentetico_do_s_executado_s_por_numero_de_reus():
+    assert op._aplicar_substituicoes(
+        "quinhões do(s) executado(s)",
+        {},
+        ctx=Contexto(numero_reu="s"),
+    ) == "quinhões do executado"
+    assert op._aplicar_substituicoes(
+        "quinhões do(s) executado(s)",
+        {},
+        ctx=Contexto(numero_reu="p"),
+    ) == "quinhões dos executados"
+
+
+def test_substituicoes_preserva_parentetico_do_s_imovel_is():
+    assert op._aplicar_substituicoes(
+        "direitos aquisitivos do(s) imóvel(is)",
+        {},
+        multiplos_imoveis=False,
+    ) == "direitos aquisitivos do(s) imóvel(is)"
+    assert op._aplicar_substituicoes(
+        "direitos aquisitivos do(s) imóvel(is)",
+        {},
+        multiplos_imoveis=True,
+    ) == "direitos aquisitivos do(s) imóvel(is)"
+
+
 def test_resolver_auto_reu_num():
     # "(parte ou partes)" flexiona por número de réus.
     assert op._resolver_auto("parte ou partes", Contexto(numero_reu="s"), False) == "parte"
@@ -299,6 +325,32 @@ def test_preencher_campos_docx_flexiona_papel_nu():
     ctx = Contexto(genero_reu="f", numero_reu="s")
     op._preencher_campos_docx(doc, {}, ctx=ctx)
     assert doc.paragraphs[0].text == "Citar a executada no prazo legal."
+
+
+def test_preencher_campos_docx_parentetico_executado_s_feminino_plural():
+    doc = docx.Document()
+    doc.add_paragraph("Respeitados os quinhões do(s) executado(s).")
+    ctx = Contexto(genero_reu="f", numero_reu="p")
+    op._preencher_campos_docx(doc, {}, ctx=ctx)
+    assert doc.paragraphs[0].text == "Respeitados os quinhões das executadas."
+
+
+def test_preencher_campos_docx_parentetico_executado_s_vermelho_com_citacao():
+    from docx.shared import RGBColor
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    p.add_run("Respeitados os quinhões ")
+    for texto in ("do", "(s)", " executado", "(s)"):
+        run = p.add_run(texto)
+        run.font.color.rgb = RGBColor(0xFF, 0x00, 0x00)
+    p.add_run(", conforme art. 835 do CPC.")
+
+    ctx = Contexto(genero_reu="f", numero_reu="p")
+    op._preencher_campos_docx(doc, {}, ctx=ctx)
+
+    assert doc.paragraphs[0].text == (
+        "Respeitados os quinhões das executadas, conforme art. 835 do CPC."
+    )
 
 
 def test_substituir_paragrafo_sem_runs_nao_falha():
