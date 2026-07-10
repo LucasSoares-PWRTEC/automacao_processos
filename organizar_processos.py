@@ -20,6 +20,7 @@ from organizador import (
     organizacao,
     padroes,
     parsing,
+    pesquisa,
     peticoes,
     scraper,
     texto,
@@ -31,7 +32,7 @@ from organizador.gui import main  # App e demais símbolos vêm via re-export ab
 # de nome repetido (não há colisão real — apenas re-imports do mesmo objeto).
 for _mod in (
     models, padroes, config, texto, flexao,
-    parsing, organizacao, scraper, peticoes, gui,
+    parsing, organizacao, pesquisa, scraper, peticoes, gui,
 ):
     globals().update(
         {_nome: _val for _nome, _val in vars(_mod).items() if not _nome.startswith("__")}

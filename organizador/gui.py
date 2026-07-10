@@ -50,8 +50,7 @@ def _salvar_ui_state(**campos) -> None:
 from .flexao import _construir_contexto
 from .models import Parte, Processo
 from .organizacao import (
-    _autor, _carregar_processos, _reus_joined, carregar_processos_base,
-    organizar_pasta, salvar_processo_metadados, uf_do_cnj,
+    _autor, _reus_joined, organizar_pasta, salvar_processo_metadados, uf_do_cnj,
 )
 from .padroes import RE_NUMERO_CNJ
 from .parsing import (
@@ -61,6 +60,9 @@ from .parsing import (
 from .peticoes import (
     PLACEHOLDERS_AUTO, PLACEHOLDERS_PETICAO,
     _extrair_placeholders_template, _template_eh_imobiliario, gerar_peticoes,
+)
+from .pesquisa import (
+    carregar_processos_pesquisa, filtrar_processos, linhas_tree_processos,
 )
 from .integracoes.tjsp_scraper.credenciais import listar_credenciais, salvar_credenciais
 from .scraper import (
@@ -235,6 +237,9 @@ class App(ttk.Window):
         self.var_multiplos_imoveis = tk.BooleanVar(value=False)
         self.var_gerar_pdf = tk.BooleanVar(value=_word_disponivel())
         self._pesquisa_log_queue: queue.Queue[str] = queue.Queue()
+        self._pesquisa_load_queue: queue.Queue = queue.Queue()
+        self._pesquisa_load_worker: threading.Thread | None = None
+        self._filtro_after_id: str | None = None
         self._gen_worker: threading.Thread | None = None
         self._busca_worker: threading.Thread | None = None
         self._busca_result_queue: queue.Queue = queue.Queue()
@@ -266,6 +271,7 @@ class App(ttk.Window):
         self._frame_imoveis: ttk.Frame | None = None
         self._chk_imoveis: ttk.Checkbutton | None = None
         self._scan_tpls_thread: threading.Thread | None = None
+        self._templates_dir_atual: Path | None = None
 
         # Espelha Secretaria ↔ Vara: alterar um campo replica no outro.
         # Flag de guarda evita loop infinito quando o trace dispara reciprocamente.
@@ -288,6 +294,7 @@ class App(ttk.Window):
         self._build_widgets()
         self.after(100, self._drain_ui_queues)
         self.after(100, self._drain_pesquisa_log_queue)
+        self.after(150, self._drain_pesquisa_load_result)
         self.after(150, self._drain_busca_result)
         self.after(150, self._atualizar_progresso_pesquisa)
         self.after(200, self._drain_notify_queue)
@@ -480,7 +487,7 @@ class App(ttk.Window):
         )
         ent_busca.grid(row=0, column=1, sticky="ew", padx=(0, 6), pady=2)
         # Filtra a lista a cada tecla; Enter dispara a busca (cache-first).
-        self.var_filtro.trace_add("write", lambda *_: self._filtrar_pesquisa())
+        self.var_filtro.trace_add("write", lambda *_: self._agendar_filtrar_pesquisa())
         ent_busca.bind("<Return>", lambda _e: self._buscar_online())
         ttk.Label(f_busca, text="TJ/Sistema:", font=_FONT_BASE).grid(
             row=0, column=2, sticky="e", padx=(8, 6), pady=2,
@@ -1585,25 +1592,37 @@ class App(ttk.Window):
         embutidos na release, sem duplicar por número. Prioridade: pasta base
         (curada) > cache de buscas online do usuário > base embutida (release),
         para que a busca do próprio usuário sempre prevaleça sobre o snapshot."""
+        return carregar_processos_pesquisa(
+            Path(self.var_pesquisa_base.get()),
+            PROCESSOS_ONLINE_DIR,
+            PROCESSOS_BASE_JSON,
+        )
+
+    def _iniciar_carregamento_pesquisa(self, silencioso: bool = False) -> None:
+        if self._pesquisa_load_worker and self._pesquisa_load_worker.is_alive():
+            return
         pasta = Path(self.var_pesquisa_base.get()).expanduser()
-        procs = _carregar_processos(pasta) if pasta.is_dir() else []
-        vistos = {p.numero for p in procs}
-        for fonte in (_carregar_processos(PROCESSOS_ONLINE_DIR),
-                      carregar_processos_base(PROCESSOS_BASE_JSON)):
-            for p in fonte:
-                if p.numero and p.numero not in vistos:
-                    procs.append(p)
-                    vistos.add(p.numero)
-        return procs
+        online_dir = PROCESSOS_ONLINE_DIR
+        base_json = PROCESSOS_BASE_JSON
+        if not silencioso:
+            self.var_status.set("Carregando processos...")
+            self._pesquisa_log_queue.put("Carregando lista de processos...\n")
+
+        def run() -> None:
+            try:
+                procs = carregar_processos_pesquisa(pasta, online_dir, base_json)
+                aprender_comarcas(procs)
+                self._pesquisa_load_queue.put(("ok", procs, silencioso))
+            except Exception as exc:
+                self._pesquisa_load_queue.put(("erro", str(exc), silencioso))
+
+        self._pesquisa_load_worker = threading.Thread(target=run, daemon=True)
+        self._pesquisa_load_worker.start()
 
     def _carregar_pesquisa_inicial(self) -> None:
         """Carga silenciosa no startup: popula a lista (base + buscados online),
         sem popup de erro quando a pasta base ainda não foi escolhida."""
-        procs = self._listar_processos()
-        if procs:
-            self._processos_carregados = procs
-            aprender_comarcas(procs)
-            self._preencher_tree(procs)
+        self._iniciar_carregamento_pesquisa(silencioso=True)
 
     def _recarregar_pesquisa(self) -> None:
         pasta = Path(self.var_pesquisa_base.get()).expanduser()
@@ -1611,12 +1630,28 @@ class App(ttk.Window):
             messagebox.showerror("Erro", f"Pasta não existe:\n{pasta}")
             return
         _salvar_ui_state(pesquisa_base=str(pasta))
-        # Pasta base + processos buscados online (lembrados entre execuções).
-        self._processos_carregados = self._listar_processos()
-        # Aprende código-de-origem CNJ → comarca destes processos (fallback de
-        # município para processos futuros sem comarca explícita).
-        aprender_comarcas(self._processos_carregados)
-        self._preencher_tree(self._processos_carregados)
+        self._iniciar_carregamento_pesquisa(silencioso=False)
+
+    def _drain_pesquisa_load_result(self) -> None:
+        try:
+            while True:
+                tipo, payload, silencioso = self._pesquisa_load_queue.get_nowait()
+                if tipo == "ok":
+                    procs = payload
+                    self._processos_carregados = procs
+                    self._filtrar_pesquisa()
+                    if not silencioso:
+                        self.var_status.set(f"{len(procs)} processo(s) carregado(s).")
+                        self._pesquisa_log_queue.put(
+                            f"Lista carregada: {len(procs)} processo(s).\n"
+                        )
+                elif not silencioso:
+                    self.var_status.set("Erro ao carregar processos.")
+                    self._notificar("Erro ao carregar processos", str(payload), nivel="error")
+        except queue.Empty:
+            pass
+        finally:
+            self.after(150, self._drain_pesquisa_load_result)
 
     def _buscar_online(self) -> None:
         """Dispara a busca do processo no TJ/sistema escolhido numa thread.
@@ -1790,31 +1825,20 @@ class App(ttk.Window):
     def _preencher_tree(self, processos: list[Processo]) -> None:
         for item in self.tree.get_children():
             self.tree.delete(item)
-        for idx, proc in enumerate(processos):
-            autor = _autor(proc)
-            reu = _reus_joined(proc)
-            proxima = ""
-            if proc.prazos_abertos:
-                proxima = proc.prazos_abertos[0].fim or "?"
-            tag = "oddrow" if idx % 2 else "evenrow"
-            self.tree.insert("", "end", iid=proc.numero, values=(
-                proc.numero, proc.classe, autor, reu,
-                proc.valor_causa, proc.ultima_movimentacao[:30], proxima,
-            ), tags=(tag,))
+        for iid, values, tag in linhas_tree_processos(processos):
+            self.tree.insert("", "end", iid=iid, values=values, tags=(tag,))
+
+    def _agendar_filtrar_pesquisa(self) -> None:
+        if self._filtro_after_id is not None:
+            with contextlib.suppress(Exception):
+                self.after_cancel(self._filtro_after_id)
+        self._filtro_after_id = self.after(120, self._filtrar_pesquisa)
 
     def _filtrar_pesquisa(self) -> None:
-        filtro = self.var_filtro.get().lower().strip()
-        if not filtro or not self._processos_carregados:
-            self._preencher_tree(self._processos_carregados)
-            return
-        filtrados = [
-            p for p in self._processos_carregados
-            if filtro in p.numero.lower()
-            or filtro in p.classe.lower()
-            or filtro in _autor(p).lower()
-            or filtro in _reus_joined(p).lower()
-        ]
-        self._preencher_tree(filtrados)
+        self._filtro_after_id = None
+        self._preencher_tree(
+            filtrar_processos(self._processos_carregados, self.var_filtro.get())
+        )
 
     def _toggle_modo_dev(self) -> None:
         """Persiste o modo dev e aplica a visibilidade na hora."""
@@ -2017,13 +2041,19 @@ class App(ttk.Window):
         # Preserva as marcações já feitas (ex.: o usuário escolheu modelos antes
         # de selecionar um processo) para não zerá-las ao reconstruir a lista.
         marcados = {p for p, v in self._templates_vars.items() if v.get()}
-        for w in self._templates_inner.winfo_children():
-            w.destroy()
-        self._templates_vars.clear()
         pasta = Path(self.var_pesquisa_base.get()).expanduser()
         templates_dir = pasta.parent / "Petições" if "Petições" in str(pasta.parent) else PASTA_PETICOES
         if not templates_dir.is_dir():
             templates_dir = PASTA_PETICOES
+        if templates_dir == self._templates_dir_atual and self._templates_vars:
+            self._scan_templates_em_background()
+            self._on_template_toggle()
+            return
+
+        for w in self._templates_inner.winfo_children():
+            w.destroy()
+        self._templates_vars.clear()
+        self._templates_dir_atual = templates_dir
         if templates_dir.is_dir():
             subdirs = sorted(
                 d for d in templates_dir.iterdir()
@@ -2553,7 +2583,11 @@ class App(ttk.Window):
 
         ttk.Label(frm, text="Local:", font=_FONT_BASE).grid(
             row=1, column=0, sticky="e", padx=(0, 6), pady=4)
-        var_local = tk.StringVar(value="")
+        # Pré-preenche o Local com o tribunal do processo (ex.: "TJMG"); editável.
+        tribunal = self.var_tribunal.get().strip()
+        if not tribunal and self._proc_selecionado is not None:
+            tribunal = self._proc_selecionado.tribunal or ""
+        var_local = tk.StringVar(value=tribunal)
         ttk.Entry(frm, textvariable=var_local, font=_FONT_BASE).grid(
             row=1, column=1, sticky="ew", pady=4)
 
@@ -2703,7 +2737,14 @@ class App(ttk.Window):
                     msg = (f"{total} tarefa(s) {'salva(s)' if salvou else 'preenchida(s) (não salvas)'} "
                            "no Autojur.")
                     self.var_status.set(f"Autojur: {msg}")
-                    self._notificar("Autojur", msg, nivel="info")
+                    # O navegador fica ABERTO para conferência — só fecha pelo
+                    # botão 'Fechar navegador' da aba Autojur.
+                    self._pesquisa_log_queue.put(
+                        f"✅ {msg} Navegador deixado ABERTO para validação "
+                        "(feche pela aba Autojur quando terminar).\n"
+                    )
+                    self._notificar("Autojur", msg + " Navegador aberto para conferência.",
+                                    nivel="info")
                 else:
                     self.var_status.set("Autojur: falha no envio.")
                     self._pesquisa_log_queue.put(f"! Erro no envio ao Autojur: {payload}\n")
@@ -2745,7 +2786,12 @@ class App(ttk.Window):
         sistema está rodando, sem percentual."""
         ativo = any(
             t is not None and t.is_alive()
-            for t in (self._busca_worker, self._gen_worker, self._scan_tpls_thread)
+            for t in (
+                self._busca_worker,
+                self._gen_worker,
+                self._scan_tpls_thread,
+                self._pesquisa_load_worker,
+            )
         )
         if ativo and not self._pesquisa_em_progresso:
             self._pesquisa_em_progresso = True
