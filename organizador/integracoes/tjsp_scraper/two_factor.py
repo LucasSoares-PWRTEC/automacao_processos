@@ -23,7 +23,7 @@ import pyotp
 from email.message import Message
 from email.header import decode_header
 from datetime import datetime, timezone, timedelta
-from typing import Optional
+from typing import Callable, Optional
 
 
 # Regex padrão: 6 dígitos isolados. Ajuste por tribunal se o formato for outro.
@@ -97,6 +97,7 @@ def obter_codigo_2fa_email(
     timeout_seg: int = 120,
     intervalo_seg: int = 5,
     pasta: str = "INBOX",
+    preprocessar: Optional[Callable[[str], str]] = None,
 ) -> Optional[str]:
     """
     Aguarda e retorna o código 2FA recebido por email.
@@ -113,6 +114,8 @@ def obter_codigo_2fa_email(
       timeout_seg    -> tempo máximo aguardando o email chegar
       intervalo_seg  -> intervalo entre tentativas de leitura
       pasta          -> pasta IMAP (padrão INBOX)
+      preprocessar   -> transforma o corpo antes do regex (ex.: remover tags
+                        HTML quando o email não tem parte text/plain)
 
     Retorna o código (str) ou None se estourar o timeout.
     """
@@ -126,10 +129,21 @@ def obter_codigo_2fa_email(
         # IMAP SEARCH SINCE só tem granularidade de DIA; filtramos a data/hora
         # exata no Python comparando o header Date de cada mensagem.
         data_busca = (desde - timedelta(days=1)).strftime("%d-%b-%Y")
+        # Filtra o REMETENTE no servidor (FROM é substring, case-insensitive):
+        # sem isso, uma caixa movimentada (dezenas de e-mails/dia) faz cada poll
+        # baixar o RFC822 inteiro de TODOS eles antes de descartar — o que fazia
+        # o 2FA "demorar" mesmo com o código já entregue. Com FROM, sobram só os
+        # poucos e-mails daquele remetente. O assunto/data/regex seguem no Python
+        # (assunto pode ter acento, que complica o SEARCH). Sem remetente, cai no
+        # comportamento antigo (só SINCE).
+        if remetente:
+            criterio = f'(SINCE "{data_busca}" FROM "{remetente}")'
+        else:
+            criterio = f'(SINCE "{data_busca}")'
 
         while time.time() < fim:
             conn.select(pasta)
-            status, dados = conn.search(None, f'(SINCE "{data_busca}")')
+            status, dados = conn.search(None, criterio)
             if status != "OK":
                 time.sleep(intervalo_seg)
                 continue
@@ -171,6 +185,8 @@ def obter_codigo_2fa_email(
                         continue
 
                 corpo = _extrair_corpo(msg)
+                if preprocessar is not None:
+                    corpo = preprocessar(corpo)
                 m = regex_codigo.search(corpo)
                 if m and (melhor_data is None or data_msg > melhor_data):
                     melhor_data = data_msg

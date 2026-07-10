@@ -166,6 +166,13 @@ class App(ttk.Window):
         # avançadas da busca (baixar docs, navegador invisível, modo debug) e a
         # seção 2FA das configurações. Desligado por padrão; lembrado entre sessões.
         self.var_modo_dev = tk.BooleanVar(value=bool(_ui_state.get("modo_dev", False)))
+        # Preferência global: salvar de fato as tarefas no Autojur. Desligada no
+        # teste manual (só preenche p/ conferência); ligada em produção. É o
+        # PADRÃO dos toggles de "Salvar" (modal de envio e aba Autojur); lembrada
+        # entre sessões, configurada em Configurações.
+        self.var_autojur_salvar_prod = tk.BooleanVar(
+            value=bool(_ui_state.get("autojur_salvar", False))
+        )
         self._dev_widgets_busca: list = []  # widgets avançados da aba Pesquisa
         # Barra única: filtra a lista ao vivo e, no Enter/botão, busca online
         # (só vai à web se o processo ainda não estiver carregado).
@@ -181,6 +188,30 @@ class App(ttk.Window):
         # Scraper retido em modo debug: mantém o navegador aberto (evita coleta
         # de lixo) e permite fechá-lo depois pelo botão "Fechar navegador debug".
         self._debug_scraper: object | None = None
+        # Estado da aba Autojur (dev): o scraper logado é retido com o navegador
+        # ABERTO (base para montar as próximas automações) até "Fechar navegador".
+        self._autojur_scraper: object | None = None
+        self._autojur_worker: threading.Thread | None = None
+        self._autojur_log_queue: queue.Queue[str] = queue.Queue()
+        self._autojur_result_queue: queue.Queue = queue.Queue()
+        # Campos da tarefa de Protocolo (aba Autojur).
+        self.var_autojur_processo = tk.StringVar(value="")
+        self.var_autojur_local = tk.StringVar(value="")
+        self.var_autojur_lote = tk.StringVar(value="dia seguinte")
+        self.var_autojur_pdf = tk.StringVar(value="")
+        # Default herdado da preferência global (Configurações → "Salvar no Autojur").
+        self.var_autojur_salvar = tk.BooleanVar(value=bool(self.var_autojur_salvar_prod.get()))
+        self._autojur_tarefa_worker: threading.Thread | None = None
+        self._autojur_tarefa_result_queue: queue.Queue = queue.Queue()
+        # Pedidos de escolha quando a busca traz >1 resultado: o worker enfileira
+        # (resultados, Event, box) e bloqueia no Event; a main thread mostra o
+        # modal e devolve o índice em box['idx'] (Tkinter só é seguro na main).
+        self._autojur_escolha_queue: queue.Queue = queue.Queue()
+        # Integração aba Petições -> Autojur: PDFs da última geração e o worker
+        # que cria as tarefas de Protocolo (1 por PDF) no processo selecionado.
+        self._ultimos_pdfs_gerados: list = []
+        self._envio_autojur_worker: threading.Thread | None = None
+        self._envio_autojur_result_queue: queue.Queue = queue.Queue()
         self.var_secretaria = tk.StringVar(value="")
         self.var_municipio = tk.StringVar(value="")
         self.var_estado = tk.StringVar(value="")
@@ -261,6 +292,11 @@ class App(ttk.Window):
         self.after(150, self._atualizar_progresso_pesquisa)
         self.after(200, self._drain_notify_queue)
         self.after(200, self._drain_gen_result_queue)
+        self.after(100, self._drain_autojur_log_queue)
+        self.after(150, self._drain_autojur_result)
+        self.after(150, self._drain_autojur_tarefa_result)
+        self.after(150, self._drain_autojur_escolha)
+        self.after(150, self._drain_envio_autojur_result)
         # Pré-carrega os processos já trabalhados (pasta base lembrada), para
         # adicionar novas petições a um processo existente sem recarregar à mão.
         self.after(300, self._carregar_pesquisa_inicial)
@@ -278,17 +314,21 @@ class App(ttk.Window):
 
         frm_org = ttk.Frame(nb, padding=8)
         frm_pesq = ttk.Frame(nb, padding=8)
+        frm_autojur = ttk.Frame(nb, padding=8)
         frm_config = ttk.Frame(nb, padding=8)
         nb.add(frm_org, text="  Organizador  ")
         nb.add(frm_pesq, text="  Pesquisa de Processo  ")
+        nb.add(frm_autojur, text="  Autojur  ")
         nb.add(frm_config, text="  Configurações  ")
         # Referências p/ mostrar/ocultar conforme o modo dev.
         self._nb = nb
         self._tab_org = frm_org
         self._tab_pesq = frm_pesq
+        self._tab_autojur = frm_autojur
 
         self._build_aba_organizador(frm_org)
         self._build_aba_pesquisa(frm_pesq)
+        self._build_aba_autojur(frm_autojur)
         self._build_aba_config(frm_config)
         self._aplicar_modo_dev()
 
@@ -785,6 +825,366 @@ class App(ttk.Window):
         )
         self.txt_pesquisa.pack(fill="x")
 
+    # -- aba Autojur (dev) --------------------------------------------------
+    def _build_aba_autojur(self, parent: ttk.Frame) -> None:
+        """Aba Autojur (visível só no modo dev): abre o navegador logado no
+        Autojur e o MANTÉM aberto, para montar as próximas automações em cima
+        da sessão viva. O login (2FA por e-mail automático) roda em thread
+        worker; o scraper fica retido em self._autojur_scraper até o usuário
+        clicar em "Fechar navegador"."""
+        sec = ttk.Labelframe(
+            parent, text="  Sessão  ", bootstyle="default", padding=(12, 8),
+        )
+        sec.pack(fill="x", pady=(0, 8))
+        ttk.Label(
+            sec,
+            text=("Abre o Chrome, faz o login no Autojur (o código de verificação "
+                  "é lido do e-mail automaticamente) e mantém o navegador aberto "
+                  "para uso/inspeção."),
+            font=_FONT_BASE, wraplength=900, justify="left",
+        ).pack(anchor="w", pady=(0, 8))
+
+        f_btn = ttk.Frame(sec)
+        f_btn.pack(fill="x")
+        self._btn_autojur_abrir = ttk.Button(
+            f_btn, text="🔐  Abrir Autojur (login)", command=self._autojur_abrir,
+            bootstyle="success", width=24,
+        )
+        self._btn_autojur_abrir.pack(side="left")
+        self._btn_autojur_fechar = ttk.Button(
+            f_btn, text="Fechar navegador", command=self._autojur_fechar,
+            bootstyle="warning-outline", width=18, state="disabled",
+        )
+        self._btn_autojur_fechar.pack(side="left", padx=(8, 0))
+        self.progress_autojur = ttk.Progressbar(
+            f_btn, orient="horizontal", mode="indeterminate",
+            bootstyle="info-striped",
+        )
+        self.progress_autojur.pack(side="left", fill="x", expand=True, padx=(12, 0))
+
+        # ── Criar tarefa de Protocolo ─────────────────────────────────────
+        sec_t = ttk.Labelframe(
+            parent, text="  Criar tarefa de Protocolo  ",
+            bootstyle="default", padding=(12, 8),
+        )
+        sec_t.pack(fill="x", pady=(0, 8))
+        grid = ttk.Frame(sec_t)
+        grid.pack(fill="x")
+        grid.columnconfigure(1, weight=1)
+
+        ttk.Label(grid, text="Nº processo:", font=_FONT_BASE).grid(
+            row=0, column=0, sticky="e", padx=(0, 6), pady=3)
+        ttk.Entry(grid, textvariable=self.var_autojur_processo, font=_FONT_BASE).grid(
+            row=0, column=1, columnspan=2, sticky="ew", pady=3)
+
+        ttk.Label(grid, text="Local:", font=_FONT_BASE).grid(
+            row=1, column=0, sticky="e", padx=(0, 6), pady=3)
+        ttk.Entry(grid, textvariable=self.var_autojur_local, font=_FONT_BASE).grid(
+            row=1, column=1, sticky="ew", pady=3)
+        ttk.Label(grid, text="Lote:", font=_FONT_BASE).grid(
+            row=1, column=2, sticky="e", padx=(8, 6), pady=3)
+        ttk.Combobox(
+            grid, textvariable=self.var_autojur_lote,
+            values=["iniciais", "urgente", "dia seguinte"],
+            state="readonly", width=14, font=_FONT_BASE,
+        ).grid(row=1, column=3, sticky="w", pady=3)
+
+        ttk.Label(grid, text="PDF (petição):", font=_FONT_BASE).grid(
+            row=2, column=0, sticky="e", padx=(0, 6), pady=3)
+        ttk.Entry(grid, textvariable=self.var_autojur_pdf, font=_FONT_BASE).grid(
+            row=2, column=1, columnspan=2, sticky="ew", pady=3)
+        ttk.Button(
+            grid, text="Escolher...", command=self._autojur_escolher_pdf,
+            bootstyle="outline-secondary", width=12,
+        ).grid(row=2, column=3, sticky="w", padx=(8, 0), pady=3)
+
+        ttk.Label(grid, text="Conteúdo:", font=_FONT_BASE).grid(
+            row=3, column=0, sticky="ne", padx=(0, 6), pady=3)
+        self.txt_autojur_conteudo = tk.Text(
+            grid, height=4, wrap="word", font=_FONT_BASE,
+            relief="flat", borderwidth=1, highlightthickness=1,
+            highlightcolor="#d0d5dd", highlightbackground="#d0d5dd",
+        )
+        self.txt_autojur_conteudo.grid(
+            row=3, column=1, columnspan=3, sticky="ew", pady=3)
+
+        f_acao = ttk.Frame(sec_t)
+        f_acao.pack(fill="x", pady=(6, 0))
+        self._btn_autojur_tarefa = ttk.Button(
+            f_acao, text="📝  Criar tarefa de Protocolo",
+            command=self._autojur_criar_tarefa, bootstyle="primary", width=28,
+            state="disabled",  # habilita após login
+        )
+        self._btn_autojur_tarefa.pack(side="left")
+        ttk.Checkbutton(
+            f_acao,
+            text="Salvar automaticamente (senão só preenche p/ conferência)",
+            variable=self.var_autojur_salvar, bootstyle="warning-round-toggle",
+        ).pack(side="left", padx=(12, 0))
+
+        # Log sempre visível: a aba é de desenvolvimento/exploração.
+        sec_log = ttk.Labelframe(
+            parent, text="  Log  ", bootstyle="default", padding=(12, 8),
+        )
+        sec_log.pack(fill="both", expand=True)
+        self.txt_autojur = tk.Text(
+            sec_log, height=14, wrap="word", state="disabled",
+            font=_FONT_MONO, bg="#fafbfc", relief="flat",
+            borderwidth=1, highlightthickness=1,
+            highlightcolor="#d0d5dd", highlightbackground="#d0d5dd",
+        )
+        self.txt_autojur.pack(fill="both", expand=True)
+
+    def _autojur_abrir(self) -> None:
+        """Abre o navegador e loga no Autojur em thread worker. O navegador
+        fica ABERTO (scraper retido), como no modo debug da busca online."""
+        if self._autojur_worker is not None and self._autojur_worker.is_alive():
+            return
+        if self._autojur_scraper is not None:
+            self._autojur_log_queue.put("O navegador do Autojur já está aberto.\n")
+            return
+        self._btn_autojur_abrir.configure(state="disabled")
+        self.progress_autojur.start(15)
+        self.var_status.set("Autojur: abrindo navegador e logando...")
+
+        def run() -> None:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+            writer = _LogWriter(self._autojur_log_queue.put)
+            try:
+                # Sob pythonw, sys.stdout é None; redireciona os print() do
+                # scraper para o log da aba (e evita que print() quebre).
+                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                    # O .env é carregado sob demanda (como na busca online) —
+                    # é dele que saem email_autojur/senha_autojur e o IMAP do 2FA.
+                    from dotenv import load_dotenv
+                    from .config import CONFIG_ENV_PATH
+                    from .scraper import _preparar_env_local
+                    _preparar_env_local()
+                    load_dotenv(CONFIG_ENV_PATH)
+                    # Import tardio: paga o custo do Selenium só ao usar a aba.
+                    from .integracoes.tjsp_scraper.scrapers.autojur import AutojurScraper
+                    scraper = AutojurScraper(headless=False)
+                    try:
+                        scraper.login()
+                    except Exception:
+                        scraper.fechar()
+                        raise
+                self._autojur_result_queue.put(("ok", scraper))
+            except Exception as exc:
+                self._autojur_result_queue.put(("erro", str(exc)))
+
+        self._autojur_worker = threading.Thread(target=run, daemon=True)
+        self._autojur_worker.start()
+
+    def _autojur_fechar(self) -> None:
+        """Fecha o navegador do Autojur (em thread, pois quit() pode demorar)."""
+        scraper = self._autojur_scraper
+        self._autojur_scraper = None
+        self._btn_autojur_fechar.configure(state="disabled")
+        self._btn_autojur_abrir.configure(state="normal")
+        self._btn_autojur_tarefa.configure(state="disabled")
+        if scraper is None:
+            return
+        self._autojur_log_queue.put("Fechando navegador do Autojur...\n")
+
+        def run() -> None:
+            with contextlib.suppress(Exception):
+                scraper.fechar()
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _drain_autojur_log_queue(self) -> None:
+        try:
+            while True:
+                msg = self._autojur_log_queue.get_nowait()
+                self.txt_autojur.configure(state="normal")
+                self.txt_autojur.insert("end", msg)
+                self.txt_autojur.see("end")
+                self.txt_autojur.configure(state="disabled")
+        except queue.Empty:
+            pass
+        self.after(100, self._drain_autojur_log_queue)
+
+    def _drain_autojur_result(self) -> None:
+        """Drena o resultado do login do Autojur na main thread."""
+        try:
+            while True:
+                tipo, payload = self._autojur_result_queue.get_nowait()
+                self.progress_autojur.stop()
+                if tipo == "ok":
+                    self._autojur_scraper = payload
+                    self._btn_autojur_fechar.configure(state="normal")
+                    self._btn_autojur_tarefa.configure(state="normal")
+                    self._autojur_log_queue.put(
+                        "Sessão logada — navegador aberto para os próximos passos.\n"
+                    )
+                    self.var_status.set("Autojur: sessão logada (navegador aberto).")
+                else:
+                    self._btn_autojur_abrir.configure(state="normal")
+                    self.var_status.set("Autojur: falha no login.")
+                    self._autojur_log_queue.put(f"! Erro no login do Autojur: {payload}\n")
+                    self._notificar("Autojur", str(payload), nivel="error")
+        except queue.Empty:
+            pass
+        finally:
+            self.after(150, self._drain_autojur_result)
+
+    def _autojur_escolher_pdf(self) -> None:
+        caminho = filedialog.askopenfilename(
+            title="Escolha o PDF da petição",
+            filetypes=[("PDF", "*.pdf"), ("Todos", "*.*")],
+        )
+        if caminho:
+            self.var_autojur_pdf.set(caminho)
+
+    def _autojur_criar_tarefa(self) -> None:
+        """Dispara a criação da tarefa de Protocolo no scraper logado (thread)."""
+        if self._autojur_scraper is None:
+            self._autojur_log_queue.put("! Faça login no Autojur primeiro.\n")
+            return
+        if self._autojur_tarefa_worker is not None and self._autojur_tarefa_worker.is_alive():
+            return
+
+        numero = self.var_autojur_processo.get().strip()
+        conteudo = self.txt_autojur_conteudo.get("1.0", "end").strip()
+        local = self.var_autojur_local.get().strip()
+        # rótulo da GUI ("dia seguinte") -> chave do scraper ("dia_seguinte")
+        lote = self.var_autojur_lote.get().strip().lower().replace(" ", "_")
+        pdf = self.var_autojur_pdf.get().strip() or None
+        salvar = bool(self.var_autojur_salvar.get())
+
+        if not numero:
+            self._autojur_log_queue.put("! Informe o número do processo.\n")
+            return
+        if not conteudo:
+            self._autojur_log_queue.put("! O campo Conteúdo é obrigatório.\n")
+            return
+
+        self._btn_autojur_tarefa.configure(state="disabled")
+        self.progress_autojur.start(15)
+        self.var_status.set("Autojur: criando tarefa de Protocolo...")
+        scraper = self._autojur_scraper
+
+        def run() -> None:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+            writer = _LogWriter(self._autojur_log_queue.put)
+            try:
+                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                    scraper.criar_tarefa_protocolo(
+                        numero_processo=numero,
+                        conteudo=conteudo,
+                        local=local,
+                        lote=lote,
+                        pdf_path=pdf,
+                        requer_protocolo=True,
+                        salvar=salvar,
+                        escolher_resultado=self._autojur_escolher_resultado,
+                        log=self._autojur_log_queue.put,
+                    )
+                self._autojur_tarefa_result_queue.put(("ok", salvar))
+            except Exception as exc:
+                self._autojur_tarefa_result_queue.put(("erro", str(exc)))
+
+        self._autojur_tarefa_worker = threading.Thread(target=run, daemon=True)
+        self._autojur_tarefa_worker.start()
+
+    def _drain_autojur_tarefa_result(self) -> None:
+        """Drena o resultado da criação de tarefa na main thread."""
+        try:
+            while True:
+                tipo, payload = self._autojur_tarefa_result_queue.get_nowait()
+                self.progress_autojur.stop()
+                self._btn_autojur_tarefa.configure(state="normal")
+                if tipo == "ok":
+                    salvou = bool(payload)
+                    msg = ("Tarefa salva no Autojur." if salvou
+                           else "Tarefa preenchida (não salva) — confira no navegador.")
+                    self.var_status.set(f"Autojur: {msg}")
+                    self._notificar("Autojur", msg, nivel="info")
+                else:
+                    self.var_status.set("Autojur: falha ao criar tarefa.")
+                    self._autojur_log_queue.put(f"! Erro ao criar tarefa: {payload}\n")
+                    self._notificar("Autojur", str(payload), nivel="error")
+        except queue.Empty:
+            pass
+        finally:
+            self.after(150, self._drain_autojur_tarefa_result)
+
+    def _autojur_escolher_resultado(self, resultados: list) -> int | None:
+        """Callback chamado pelo WORKER quando a busca traz >1 resultado.
+        Enfileira o pedido e BLOQUEIA até a main thread resolver o modal.
+        Retorna o índice escolhido, ou None se o usuário cancelar."""
+        ev = threading.Event()
+        box: dict = {}
+        self._autojur_escolha_queue.put((resultados, ev, box))
+        ev.wait(timeout=300)  # 5 min para a pessoa escolher
+        return box.get("idx")
+
+    def _drain_autojur_escolha(self) -> None:
+        """Mostra o modal de seleção na main thread quando o worker pede."""
+        try:
+            while True:
+                resultados, ev, box = self._autojur_escolha_queue.get_nowait()
+                self._modal_escolha_resultado(resultados, ev, box)
+        except queue.Empty:
+            pass
+        finally:
+            self.after(150, self._drain_autojur_escolha)
+
+    def _modal_escolha_resultado(self, resultados: list, ev, box: dict) -> None:
+        """Modal: a busca trouxe vários resultados; a pessoa escolhe qual abrir.
+        Ao confirmar, grava o índice em box['idx'] e libera o worker (ev.set())."""
+        top = tk.Toplevel(self)
+        top.title("Selecione a pasta")
+        top.transient(self)
+        top.grab_set()
+        top.geometry("720x360")
+
+        ttk.Label(
+            top,
+            text=(f"A busca retornou {len(resultados)} resultados. "
+                  "Selecione qual pasta abrir:"),
+            font=_FONT_BASE, wraplength=680,
+        ).pack(anchor="w", padx=12, pady=(12, 6))
+
+        var_sel = tk.IntVar(value=resultados[0]["indice"])
+        frm = ttk.Frame(top)
+        frm.pack(fill="both", expand=True, padx=12)
+        for r in resultados:
+            rotulo = f"Pasta {r['pasta']}  ·  {r['cnj']}"
+            if r["assunto"]:
+                rotulo += f"  ·  {r['assunto']}"
+            ttk.Radiobutton(
+                frm, text=rotulo, value=r["indice"], variable=var_sel,
+                bootstyle="primary",
+            ).pack(anchor="w", pady=3)
+
+        def confirmar() -> None:
+            box["idx"] = int(var_sel.get())
+            ev.set()
+            top.destroy()
+
+        def cancelar() -> None:
+            box["idx"] = None
+            ev.set()
+            top.destroy()
+
+        f_b = ttk.Frame(top)
+        f_b.pack(fill="x", padx=12, pady=12)
+        ttk.Button(f_b, text="Abrir selecionada", command=confirmar,
+                   bootstyle="success", width=18).pack(side="right")
+        ttk.Button(f_b, text="Cancelar", command=cancelar,
+                   bootstyle="secondary-outline", width=12).pack(side="right", padx=(0, 8))
+        top.protocol("WM_DELETE_WINDOW", cancelar)
+
     # -- aba Configurações (editor de senhas) ------------------------------
     def _build_aba_config(self, parent: ttk.Frame) -> None:
         """Aba para editar as senhas (credenciais dos tribunais + segredos de
@@ -863,6 +1263,10 @@ class App(ttk.Window):
             f_acoes, text="Modo desenvolvedor", variable=self.var_modo_dev,
             command=self._toggle_modo_dev, bootstyle="warning-round-toggle",
         ).pack(side="right")
+        ttk.Checkbutton(
+            f_acoes, text="Salvar tarefas no Autojur", variable=self.var_autojur_salvar_prod,
+            command=self._toggle_autojur_salvar, bootstyle="danger-round-toggle",
+        ).pack(side="right", padx=(0, 16))
 
         self._carregar_config_na_ui()
 
@@ -1417,16 +1821,29 @@ class App(ttk.Window):
         _salvar_ui_state(modo_dev=self.var_modo_dev.get())
         self._aplicar_modo_dev()
 
+    def _toggle_autojur_salvar(self) -> None:
+        """Persiste a preferência 'salvar no Autojur' e sincroniza o toggle da
+        aba Autojur (o modal de envio lê a preferência ao abrir)."""
+        ativo = bool(self.var_autojur_salvar_prod.get())
+        _salvar_ui_state(autojur_salvar=ativo)
+        with contextlib.suppress(Exception):
+            self.var_autojur_salvar.set(ativo)
+        self.var_status.set(
+            "Autojur: tarefas serão SALVAS." if ativo
+            else "Autojur: tarefas só preenchidas (não salvas)."
+        )
+
     def _aplicar_modo_dev(self) -> None:
         """Mostra/oculta os elementos avançados conforme o modo dev:
         aba Organizador, opções avançadas da busca e a seção 2FA das config."""
         dev = bool(self.var_modo_dev.get())
 
-        # Aba Organizador (preserva a posição usando o estado da aba).
+        # Abas Organizador e Autojur (preserva a posição usando o estado da aba).
         if getattr(self, "_nb", None) is not None:
             with contextlib.suppress(Exception):
                 self._nb.tab(self._tab_org, state="normal" if dev else "hidden")
-                if not dev and self._nb.select() == str(self._tab_org):
+                self._nb.tab(self._tab_autojur, state="normal" if dev else "hidden")
+                if not dev and self._nb.select() in (str(self._tab_org), str(self._tab_autojur)):
                     self._nb.select(self._tab_pesq)
 
         # Opções avançadas da busca (grid_remove preserva a posição ao reexibir).
@@ -2066,8 +2483,235 @@ class App(ttk.Window):
                 bootstyle="outline-secondary",
                 command=lambda p=pasta: os.startfile(p) if p.exists() else None,
             ).pack(fill="x", pady=(4, 0))
+
+        # Integração Autojur: guarda os PDFs gerados e oferece "Enviar ao Autojur"
+        # (1 tarefa de Protocolo por PDF). Só aparece se houver PDF (o protocolo
+        # anexa PDF) — se a pessoa gerou só .docx, orienta a ligar a opção PDF.
+        self._ultimos_pdfs_gerados = [
+            Path(a) for a in arquivos if Path(a).suffix.lower() == ".pdf"
+        ]
+        if self._ultimos_pdfs_gerados:
+            ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=(8, 4))
+            n = len(self._ultimos_pdfs_gerados)
+            ttk.Button(
+                frame,
+                text=f"🚀  Enviar ao Autojur ({n} tarefa{'s' if n > 1 else ''} de Protocolo)",
+                bootstyle="primary",
+                command=self._enviar_peticoes_autojur,
+            ).pack(fill="x", pady=(2, 0))
+
         if frame.winfo_manager() != "pack":
             frame.pack(fill="x", pady=(4, 0))
+
+    # -- Integração Petições -> Autojur ------------------------------------
+    def _numero_processo_atual(self) -> str:
+        """Número do processo selecionado (mesma fonte da geração de petições:
+        o campo editável 'numero', com fallback ao proc selecionado)."""
+        try:
+            n = self._det_vars["numero"].get().strip()
+        except Exception:
+            n = ""
+        if not n and self._proc_selecionado is not None:
+            n = self._proc_selecionado.numero or ""
+        return n
+
+    def _enviar_peticoes_autojur(self) -> None:
+        """Abre o modal de confirmação para enviar os PDFs gerados ao Autojur
+        (uma tarefa de Protocolo por PDF). O login é feito sob demanda."""
+        if self._envio_autojur_worker is not None and self._envio_autojur_worker.is_alive():
+            messagebox.showinfo("Autojur", "Já há um envio em andamento.")
+            return
+        pdfs = list(self._ultimos_pdfs_gerados)
+        if not pdfs:
+            messagebox.showwarning("Autojur", "Gere ao menos uma petição em PDF antes de enviar.")
+            return
+        numero = self._numero_processo_atual()
+        if not numero:
+            messagebox.showwarning(
+                "Autojur", "Selecione um processo (ou preencha o número) antes de enviar."
+            )
+            return
+        self._modal_enviar_autojur(pdfs, numero)
+
+    def _modal_enviar_autojur(self, pdfs: list, numero: str) -> None:
+        """Modal: confirma dados e dispara o envio ao Autojur (1 tarefa por PDF)."""
+        top = tk.Toplevel(self)
+        top.title("Enviar ao Autojur")
+        top.transient(self)
+        top.grab_set()
+        top.geometry("640x560")
+
+        frm = ttk.Frame(top, padding=12)
+        frm.pack(fill="both", expand=True)
+        frm.columnconfigure(1, weight=1)
+
+        ttk.Label(frm, text="Nº processo:", font=_FONT_BASE).grid(
+            row=0, column=0, sticky="e", padx=(0, 6), pady=4)
+        var_num = tk.StringVar(value=numero)
+        ttk.Entry(frm, textvariable=var_num, font=_FONT_BASE).grid(
+            row=0, column=1, sticky="ew", pady=4)
+
+        ttk.Label(frm, text="Local:", font=_FONT_BASE).grid(
+            row=1, column=0, sticky="e", padx=(0, 6), pady=4)
+        var_local = tk.StringVar(value="")
+        ttk.Entry(frm, textvariable=var_local, font=_FONT_BASE).grid(
+            row=1, column=1, sticky="ew", pady=4)
+
+        ttk.Label(frm, text="Lote:", font=_FONT_BASE).grid(
+            row=2, column=0, sticky="e", padx=(0, 6), pady=4)
+        var_lote = tk.StringVar(value="dia seguinte")
+        ttk.Combobox(
+            frm, textvariable=var_lote,
+            values=["iniciais", "urgente", "dia seguinte"],
+            state="readonly", font=_FONT_BASE,
+        ).grid(row=2, column=1, sticky="w", pady=4)
+
+        ttk.Label(frm, text="Conteúdo:", font=_FONT_BASE).grid(
+            row=3, column=0, sticky="ne", padx=(0, 6), pady=4)
+        txt_cont = tk.Text(frm, height=3, wrap="word", font=_FONT_BASE,
+                           relief="flat", borderwidth=1, highlightthickness=1,
+                           highlightcolor="#d0d5dd", highlightbackground="#d0d5dd")
+        txt_cont.insert("1.0", "Protocolo de peça processual")
+        txt_cont.grid(row=3, column=1, sticky="ew", pady=4)
+
+        ttk.Label(
+            frm, text=f"Petições a enviar ({len(pdfs)} — uma tarefa cada):",
+            font=_FONT_BOLD,
+        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 2))
+        vars_pdf: list = []
+        for i, pdf in enumerate(pdfs):
+            v = tk.BooleanVar(value=True)
+            vars_pdf.append((v, pdf))
+            ttk.Checkbutton(
+                frm, text=f"📄  {Path(pdf).name}", variable=v, bootstyle="info",
+            ).grid(row=5 + i, column=0, columnspan=2, sticky="w", pady=1)
+
+        base = 5 + len(pdfs)
+        # Default = preferência global (Configurações). No teste fica desligado;
+        # em produção, ligado. A pessoa ainda pode ajustar pontualmente aqui.
+        var_salvar = tk.BooleanVar(value=bool(self.var_autojur_salvar_prod.get()))
+        ttk.Checkbutton(
+            frm,
+            text="Salvar automaticamente no Autojur (senão só preenche p/ conferência)",
+            variable=var_salvar, bootstyle="warning-round-toggle",
+        ).grid(row=base, column=0, columnspan=2, sticky="w", pady=(10, 0))
+
+        f_b = ttk.Frame(top)
+        f_b.pack(fill="x", padx=12, pady=12)
+
+        def enviar() -> None:
+            selecionados = [pdf for v, pdf in vars_pdf if v.get()]
+            if not selecionados:
+                messagebox.showwarning("Autojur", "Marque ao menos um PDF.", parent=top)
+                return
+            dados = {
+                "numero": var_num.get().strip(),
+                "local": var_local.get().strip(),
+                "lote": var_lote.get().strip().lower().replace(" ", "_"),
+                "conteudo": txt_cont.get("1.0", "end").strip(),
+                "salvar": bool(var_salvar.get()),
+                "pdfs": selecionados,
+            }
+            if not dados["numero"]:
+                messagebox.showwarning("Autojur", "Informe o número do processo.", parent=top)
+                return
+            if not dados["conteudo"]:
+                messagebox.showwarning("Autojur", "O campo Conteúdo é obrigatório.", parent=top)
+                return
+            top.destroy()
+            self._disparar_envio_autojur(dados)
+
+        ttk.Button(f_b, text="🚀  Enviar ao Autojur", command=enviar,
+                   bootstyle="success", width=20).pack(side="right")
+        ttk.Button(f_b, text="Cancelar", command=top.destroy,
+                   bootstyle="secondary-outline", width=12).pack(side="right", padx=(0, 8))
+
+    def _garantir_autojur_logado(self):
+        """Retorna o scraper logado; se não houver sessão, faz login sob demanda.
+        Roda no WORKER (login é bloqueante ~2 min por causa do 2FA)."""
+        if self._autojur_scraper is not None:
+            return self._autojur_scraper
+        self._pesquisa_log_queue.put("Autojur: sem sessão — fazendo login (2FA por e-mail)...\n")
+        from dotenv import load_dotenv
+        from .config import CONFIG_ENV_PATH
+        from .scraper import _preparar_env_local
+        from .integracoes.tjsp_scraper.scrapers.autojur import AutojurScraper
+        _preparar_env_local()
+        load_dotenv(CONFIG_ENV_PATH)
+        scraper = AutojurScraper(headless=False)
+        try:
+            scraper.login()
+        except Exception:
+            scraper.fechar()
+            raise
+        self._autojur_scraper = scraper
+        # habilita os controles da aba Autojur (na main thread)
+        self.after(0, lambda: (
+            self._btn_autojur_fechar.configure(state="normal"),
+            self._btn_autojur_tarefa.configure(state="normal"),
+            self._btn_autojur_abrir.configure(state="disabled"),
+        ))
+        return scraper
+
+    def _disparar_envio_autojur(self, dados: dict) -> None:
+        """Worker: garante login e cria uma tarefa de Protocolo por PDF."""
+        self.progress_pesquisa.start(15)
+        self.var_status.set("Autojur: enviando petições...")
+
+        def run() -> None:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+            writer = _LogWriter(self._pesquisa_log_queue.put)
+            try:
+                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                    scraper = self._garantir_autojur_logado()
+                    pdfs = dados["pdfs"]
+                    total = len(pdfs)
+                    for i, pdf in enumerate(pdfs, 1):
+                        self._pesquisa_log_queue.put(
+                            f"[{i}/{total}] Autojur: tarefa para {Path(pdf).name}\n"
+                        )
+                        scraper.criar_tarefa_protocolo(
+                            numero_processo=dados["numero"],
+                            conteudo=dados["conteudo"],
+                            local=dados["local"],
+                            lote=dados["lote"],
+                            pdf_path=str(pdf),
+                            requer_protocolo=True,
+                            salvar=dados["salvar"],
+                            escolher_resultado=self._autojur_escolher_resultado,
+                            log=self._pesquisa_log_queue.put,
+                        )
+                self._envio_autojur_result_queue.put(("ok", (total, dados["salvar"])))
+            except Exception as exc:
+                self._envio_autojur_result_queue.put(("erro", str(exc)))
+
+        self._envio_autojur_worker = threading.Thread(target=run, daemon=True)
+        self._envio_autojur_worker.start()
+
+    def _drain_envio_autojur_result(self) -> None:
+        """Drena o resultado do envio de petições ao Autojur na main thread."""
+        try:
+            while True:
+                tipo, payload = self._envio_autojur_result_queue.get_nowait()
+                self.progress_pesquisa.stop()
+                if tipo == "ok":
+                    total, salvou = payload
+                    msg = (f"{total} tarefa(s) {'salva(s)' if salvou else 'preenchida(s) (não salvas)'} "
+                           "no Autojur.")
+                    self.var_status.set(f"Autojur: {msg}")
+                    self._notificar("Autojur", msg, nivel="info")
+                else:
+                    self.var_status.set("Autojur: falha no envio.")
+                    self._pesquisa_log_queue.put(f"! Erro no envio ao Autojur: {payload}\n")
+                    self._notificar("Autojur", str(payload), nivel="error")
+        except queue.Empty:
+            pass
+        finally:
+            self.after(150, self._drain_envio_autojur_result)
 
     def _drain_pesquisa_log_queue(self) -> None:
         try:
