@@ -974,6 +974,9 @@ class App(ttk.Window):
                     load_dotenv(CONFIG_ENV_PATH)
                     # Import tardio: paga o custo do Selenium só ao usar a aba.
                     from .integracoes.tjsp_scraper.scrapers.autojur import AutojurScraper
+                    # Aba Autojur é dev-only (ferramenta de inspeção): sempre
+                    # visível. O headless de produção vale para o envio de
+                    # petições (_garantir_autojur_logado), fora do modo dev.
                     scraper = AutojurScraper(headless=False)
                     try:
                         scraper.login()
@@ -2660,9 +2663,10 @@ class App(ttk.Window):
         ttk.Button(f_b, text="Cancelar", command=top.destroy,
                    bootstyle="secondary-outline", width=12).pack(side="right", padx=(0, 8))
 
-    def _garantir_autojur_logado(self):
+    def _garantir_autojur_logado(self, headless: bool = True):
         """Retorna o scraper logado; se não houver sessão, faz login sob demanda.
-        Roda no WORKER (login é bloqueante ~2 min por causa do 2FA)."""
+        Roda no WORKER (login é bloqueante ~2 min por causa do 2FA).
+        `headless`: navegador oculto (produção) ou visível (modo dev/debug)."""
         if self._autojur_scraper is not None:
             return self._autojur_scraper
         self._pesquisa_log_queue.put("Autojur: sem sessão — fazendo login (2FA por e-mail)...\n")
@@ -2672,7 +2676,7 @@ class App(ttk.Window):
         from .integracoes.tjsp_scraper.scrapers.autojur import AutojurScraper
         _preparar_env_local()
         load_dotenv(CONFIG_ENV_PATH)
-        scraper = AutojurScraper(headless=False)
+        scraper = AutojurScraper(headless=headless)
         try:
             scraper.login()
         except Exception:
@@ -2691,6 +2695,9 @@ class App(ttk.Window):
         """Worker: garante login e cria uma tarefa de Protocolo por PDF."""
         self.progress_pesquisa.start(15)
         self.var_status.set("Autojur: enviando petições...")
+        # Produção: navegador OCULTO (headless). No modo desenvolvedor, visível
+        # para depuração. Lido aqui (main thread) — Tkinter não é thread-safe.
+        headless = not bool(self.var_modo_dev.get())
 
         def run() -> None:
             try:
@@ -2701,7 +2708,7 @@ class App(ttk.Window):
             writer = _LogWriter(self._pesquisa_log_queue.put)
             try:
                 with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
-                    scraper = self._garantir_autojur_logado()
+                    scraper = self._garantir_autojur_logado(headless=headless)
                     pdfs = dados["pdfs"]
                     total = len(pdfs)
                     for i, pdf in enumerate(pdfs, 1):
