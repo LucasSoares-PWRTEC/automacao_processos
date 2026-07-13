@@ -34,6 +34,9 @@ RE_PLACEHOLDER_TEMPLATE = re.compile(
 # (Apenas afeta a detecção de "campos desconhecidos" da GUI; a geração já as preserva.)
 _PLACEHOLDERS_IGNORADOS = {
     "assinado eletronicamente",
+    # Princípio jurídico citado no corpo do texto ("registro de penhora
+    # (cooperação e eficiência) nos respectivos autos"), não um campo a preencher.
+    "cooperação e eficiência",
 }
 
 

@@ -12,7 +12,7 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, font as tkfont, messagebox
 
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
@@ -212,6 +212,10 @@ class App(ttk.Window):
         # Integração aba Petições -> Autojur: PDFs da última geração e o worker
         # que cria as tarefas de Protocolo (1 por PDF) no processo selecionado.
         self._ultimos_pdfs_gerados: list = []
+        # Lista completa dos arquivos da última geração (docx + pdf), usada para
+        # re-renderizar o painel após reconverter um Word editado para PDF.
+        self._ultimos_arquivos_gerados: list = []
+        self._pdf_reconv_worker: threading.Thread | None = None
         self._envio_autojur_worker: threading.Thread | None = None
         self._envio_autojur_result_queue: queue.Queue = queue.Queue()
         self.var_secretaria = tk.StringVar(value="")
@@ -272,6 +276,9 @@ class App(ttk.Window):
         self._chk_imoveis: ttk.Checkbutton | None = None
         self._scan_tpls_thread: threading.Thread | None = None
         self._templates_dir_atual: Path | None = None
+        # Checkbuttons de petição + seu texto original (para requebrar ao redimensionar).
+        self._templates_checkbtns: list[tuple[ttk.Checkbutton, str]] = []
+        self._templates_ncols = 1
 
         # Espelha Secretaria ↔ Vara: alterar um campo replica no outro.
         # Flag de guarda evita loop infinito quando o trace dispara reciprocamente.
@@ -544,6 +551,8 @@ class App(ttk.Window):
         f_templates.pack(fill="x", expand=False, pady=(0, 4))
         self._templates_inner = ttk.Frame(f_templates, padding=4)
         self._templates_inner.pack(fill="both", expand=True)
+        # Requebra o texto dos checkbuttons de petição quando a área muda de largura.
+        self._templates_inner.bind("<Configure>", self._requebrar_templates)
 
         f_btn_t = ttk.Frame(parent)
         f_btn_t.pack(fill="x", pady=(0, 6))
@@ -2056,6 +2065,7 @@ class App(ttk.Window):
         for w in self._templates_inner.winfo_children():
             w.destroy()
         self._templates_vars.clear()
+        self._templates_checkbtns.clear()
         self._templates_dir_atual = templates_dir
         if templates_dir.is_dir():
             subdirs = sorted(
@@ -2101,13 +2111,53 @@ class App(ttk.Window):
                     for f in fatia:
                         var = tk.BooleanVar(value=f in marcados)
                         self._templates_vars[f] = var
-                        ttk.Checkbutton(
+                        chk = ttk.Checkbutton(
                             col, text=f.stem, variable=var,
                             command=self._on_template_toggle, bootstyle="info",
-                        ).pack(anchor="w", pady=2)
+                        )
+                        chk.pack(anchor="w", pady=2)
+                        self._templates_checkbtns.append((chk, f.stem))
                     col_idx += 1
+            self._templates_ncols = max(1, col_idx)
+        self._requebrar_templates()
         self._scan_templates_em_background()
         self._on_template_toggle()
+
+    def _requebrar_templates(self, event=None) -> None:
+        """Insere quebras de linha nos textos dos checkbuttons de petição para
+        que caibam na largura da coluna (ttk.Checkbutton não suporta wraplength).
+        Reavaliado a cada <Configure> da área e ao recarregar os modelos."""
+        if not self._templates_checkbtns:
+            return
+        largura = event.width if event is not None else self._templates_inner.winfo_width()
+        if largura <= 1:
+            return
+        # Largura útil por coluna: desconta o espaçamento entre colunas (padx 16),
+        # o indicador do checkbox e uma folga (~34px no total).
+        col_px = max(60, int(largura / self._templates_ncols) - 34)
+        fonte = tkfont.nametofont("TkDefaultFont")
+        for chk, texto in self._templates_checkbtns:
+            novo = self._quebrar_para_largura(texto, col_px, fonte)
+            if chk.cget("text") != novo:
+                chk.configure(text=novo)
+
+    @staticmethod
+    def _quebrar_para_largura(texto: str, largura_px: int, fonte: tkfont.Font) -> str:
+        """Quebra `texto` em linhas cuja largura renderizada não exceda `largura_px`."""
+        if fonte.measure(texto) <= largura_px:
+            return texto
+        linhas: list[str] = []
+        atual = ""
+        for palavra in texto.split(" "):
+            candidato = f"{atual} {palavra}".strip()
+            if atual and fonte.measure(candidato) > largura_px:
+                linhas.append(atual)
+                atual = palavra
+            else:
+                atual = candidato
+        if atual:
+            linhas.append(atual)
+        return "\n".join(linhas)
 
     def _marcar_todos_templates(self) -> None:
         for var in self._templates_vars.values():
@@ -2493,6 +2543,18 @@ class App(ttk.Window):
             w.destroy()
         if not arquivos:
             return
+        # Guarda a lista completa (docx + pdf) para permitir re-renderizar o
+        # painel após reconverter um Word editado para PDF.
+        self._ultimos_arquivos_gerados = [Path(a) for a in arquivos]
+        word_ok = _word_disponivel()
+        # Paths de PDF já presentes — define o rótulo do botão por arquivo
+        # (Atualizar vs Gerar) e evita duplicar ao reconverter.
+        pdfs_presentes = {
+            Path(a).resolve()
+            for a in arquivos
+            if Path(a).suffix.lower() == ".pdf"
+        }
+        docs_docx = [Path(a) for a in arquivos if Path(a).suffix.lower() == ".docx"]
         ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=(6, 4))
         ttk.Label(
             frame, text="Arquivos gerados:", font=_FONT_BOLD,
@@ -2500,21 +2562,44 @@ class App(ttk.Window):
         for arq in arquivos:
             f_row = ttk.Frame(frame)
             f_row.pack(fill="x", pady=1)
-            icone = "📄" if Path(arq).suffix.lower() == ".pdf" else "📝"
+            arq_path = Path(arq)
+            is_docx = arq_path.suffix.lower() == ".docx"
+            icone = "📄" if arq_path.suffix.lower() == ".pdf" else "📝"
             ttk.Label(
-                f_row, text=f"{icone}  {Path(arq).name}", font=_FONT_BASE,
+                f_row, text=f"{icone}  {arq_path.name}", font=_FONT_BASE,
                 anchor="w",
             ).pack(side="left", fill="x", expand=True)
             ttk.Button(
                 f_row, text="Abrir", width=8, bootstyle="outline-info",
                 command=lambda a=arq: os.startfile(a) if Path(a).exists() else None,
             ).pack(side="right", padx=(4, 0))
+            # Botão por arquivo: (re)converte este .docx para PDF, refletindo
+            # edições manuais feitas no Word. Só se o Word estiver disponível.
+            if is_docx and word_ok:
+                tem_pdf = arq_path.with_suffix(".pdf").resolve() in pdfs_presentes
+                ttk.Button(
+                    f_row,
+                    text="🔄 Atualizar PDF" if tem_pdf else "📄 Gerar PDF",
+                    width=16,
+                    bootstyle="outline-info" if tem_pdf else "outline-secondary",
+                    command=lambda d=arq_path: self._reconverter_pdf([d]),
+                ).pack(side="right", padx=(4, 0))
         pasta = Path(arquivos[0]).parent if arquivos else None
         if pasta:
             ttk.Button(
                 frame, text="📁  Abrir pasta de destino",
                 bootstyle="outline-secondary",
                 command=lambda p=pasta: os.startfile(p) if p.exists() else None,
+            ).pack(fill="x", pady=(4, 0))
+
+        # Botão geral: reconverte todos os .docx da lista de uma vez (após
+        # editar um ou mais Words). Só aparece se houver .docx e Word disponível.
+        if docs_docx and word_ok:
+            ttk.Button(
+                frame,
+                text="🔄  Reconverter Word(s) editado(s) para PDF",
+                bootstyle="outline-info",
+                command=lambda ds=list(docs_docx): self._reconverter_pdf(ds),
             ).pack(fill="x", pady=(4, 0))
 
         # Integração Autojur: guarda os PDFs gerados e oferece "Enviar ao Autojur"
@@ -2535,6 +2620,57 @@ class App(ttk.Window):
 
         if frame.winfo_manager() != "pack":
             frame.pack(fill="x", pady=(4, 0))
+
+    def _reconverter_pdf(self, docx_paths: list) -> None:
+        """(Re)converte um ou mais .docx para PDF em background, refletindo
+        edições manuais feitas no Word, e re-renderiza o painel de resultados.
+
+        A conversão (Word/COM) trava a UI por alguns segundos, então roda numa
+        daemon thread; o painel é atualizado via _gen_result_queue (main thread).
+        """
+        if self._pdf_reconv_worker and self._pdf_reconv_worker.is_alive():
+            return
+        docs = [Path(d) for d in docx_paths]
+        if not docs:
+            return
+        n = len(docs)
+        self._pesquisa_log_queue.put(
+            f"Convertendo {n} Word{'s' if n > 1 else ''} para PDF ...\n"
+        )
+        # Snapshot da lista atual para reconstruir a lista de arquivos ao final.
+        base = list(self._ultimos_arquivos_gerados)
+
+        def run() -> None:
+            try:
+                novos_pdfs: list[Path] = []
+                for docx_path in docs:
+                    try:
+                        pdf = _converter_docx_para_pdf(docx_path)
+                        novos_pdfs.append(pdf)
+                        self._pesquisa_log_queue.put(f"  PDF atualizado: {pdf.name}\n")
+                    except Exception as exc:
+                        self._pesquisa_log_queue.put(
+                            f"  ERRO ao gerar PDF de {docx_path.name}: {exc}\n"
+                        )
+                # Lista atualizada = base ∪ pdfs (re)gerados, sem duplicar.
+                # Um docx editado sobrescreve o pdf de mesmo path (já em base);
+                # um pdf novo é acrescentado.
+                atuais = {Path(a).resolve() for a in base}
+                todos = list(base)
+                for pdf in novos_pdfs:
+                    if pdf.resolve() not in atuais:
+                        todos.append(pdf)
+                        atuais.add(pdf.resolve())
+                self._pesquisa_log_queue.put("\nConcluído.\n")
+                self._gen_result_queue.put(todos)
+                with contextlib.suppress(Exception):
+                    self.bell()
+            except Exception as exc:
+                self._pesquisa_log_queue.put(f"\nERRO: {exc}\n")
+                self._notificar("Erro ao converter para PDF", str(exc), nivel="error")
+
+        self._pdf_reconv_worker = threading.Thread(target=run, daemon=True)
+        self._pdf_reconv_worker.start()
 
     # -- Integração Petições -> Autojur ------------------------------------
     def _numero_processo_atual(self) -> str:
