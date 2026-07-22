@@ -14,6 +14,10 @@ config/*.local.*
 # Screenshots de diagnóstico dos scrapers (artefatos descartáveis)
 organizador/integracoes/data/_debug/
 
+# Fontes .doc dos modelos (Word), origem para conversão .docx em Petições/.
+# Mantidas localmente como fonte editável; o app usa os .docx já convertidos.
+modelos_origem_word/
+
 # Segredos do auto-updater — NUNCA commitar
 secrets/
 updater/_token.py

@@ -19,7 +19,7 @@ from docx.text.paragraph import Paragraph
 from docx.shared import Pt
 
 from .config import LINE_SPACING, SPACE_AFTER_PT
-from .flexao import _classificar_paragrafos, _flex_judicial_treatment, _inflexionar_texto, _norm_paragrafo, _strip_accents
+from .flexao import _classificar_paragrafos, _flex_judicial_treatment, _inflexionar_texto, _norm_paragrafo, _resolver_disjuncoes_flexao, _strip_accents
 from .models import Contexto, Processo
 
 
@@ -104,7 +104,9 @@ def _extrair_placeholders_template(template_path: Path) -> set[str]:
             # dígito é literal, não campo — exceto se for placeholder mapeado.
             if ph not in PLACEHOLDERS_PETICAO and ph not in PLACEHOLDERS_AUTO:
                 anterior = texto[: m.start()].rstrip()
-                if anterior and anterior[-1].isdigit():
+                # Número por extenso após dígito ou "%": "10 (dez) dias",
+                # "30% (trinta por cento)" — literal, não campo.
+                if anterior and (anterior[-1].isdigit() or anterior[-1] == "%"):
                     continue
             encontrados.add(ph)
         # Campos editáveis "(Campo editável no sistema - X)" viram um campo na GUI
@@ -360,9 +362,6 @@ PLACEHOLDERS_PETICAO = {
     # Match é case-insensitive; mantemos com e sem acento.
     "oab do estado de tramitação do processo": "oab_completa",
     "oab do estado de tramitacao do processo": "oab_completa",
-    # Penhora salarial — campos novos.
-    "o empregador xxx": "empregador",
-    "trinta por cento": "percentual",
 }
 
 
@@ -536,7 +535,12 @@ def _aplicar_substituicoes(
         return str(v).strip() or m.group(0)
 
     resultado = RE_PLACEHOLDER_TEMPLATE.sub(_repl, resultado)
-    return _resolver_parenteticos_numero(resultado, ctx, multiplos_imoveis)
+    resultado = _resolver_parenteticos_numero(resultado, ctx, multiplos_imoveis)
+    # Disjunções de concordância "(do ou dos ou da ou das)", "(executado ou
+    # executada ou executados ou executadas)" etc. — resolvidas por último, pois
+    # as disjunções mapeadas ao NOME do réu (PLACEHOLDERS_PETICAO, ex.: "(réu ou
+    # réus)") já foram trocadas acima; aqui sobra só a concordância gramatical.
+    return _resolver_disjuncoes_flexao(resultado, ctx)
 
 
 def _cobertura_resolvivel(

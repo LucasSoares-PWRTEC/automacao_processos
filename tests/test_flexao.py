@@ -359,3 +359,61 @@ def test_classificar_paragrafos_header_body_closing():
     assert zonas[0] == "HEADER"
     assert zonas[2] == "BODY"
     assert zonas[3] == "CLOSING"
+
+
+# --------------------------------------------------------------------------
+# _resolver_disjuncoes_flexao — disjunções "(X ou Y [ou Z ou W])"
+# --------------------------------------------------------------------------
+
+
+def _ctx(gr, nr, ga="m", na="s"):
+    return Contexto(genero_reu=gr, numero_reu=nr, genero_autor=ga, numero_autor=na)
+
+
+def test_disjuncao_preposicao_4vias_por_genero_numero():
+    R = op._resolver_disjuncoes_flexao
+    assert R("(do ou dos ou da ou das)", _ctx("m", "s")) == "do"
+    assert R("(do ou dos ou da ou das)", _ctx("m", "p")) == "dos"
+    assert R("(do ou dos ou da ou das)", _ctx("f", "s")) == "da"
+    assert R("(do ou dos ou da ou das)", _ctx("f", "p")) == "das"
+
+
+def test_disjuncao_independe_da_ordem():
+    R = op._resolver_disjuncoes_flexao
+    assert R("(da ou das ou do ou dos)", _ctx("m", "s")) == "do"
+    assert R("(do ou da ou dos ou das)", _ctx("f", "p")) == "das"
+
+
+def test_disjuncao_artigo_e_pela():
+    R = op._resolver_disjuncoes_flexao
+    assert R("(o ou a ou os ou as)", _ctx("m", "s")) == "o"
+    assert R("(o ou a ou os ou as)", _ctx("f", "p")) == "as"
+    assert R("(pela ou pelo ou pelos ou pelas)", _ctx("m", "s")) == "pelo"
+
+
+def test_disjuncao_substantivo_preserva_caixa():
+    R = op._resolver_disjuncoes_flexao
+    assert R("(executado ou executada ou executados ou executadas)", _ctx("f", "p")) == "executadas"
+    # Capitalização do modelo é mantida.
+    assert R("(Executado ou Executada ou Executados ou Executadas)", _ctx("m", "s")) == "Executado"
+    assert R("(devedor ou devedora ou devedores ou devedoras)", _ctx("f", "s")) == "devedora"
+
+
+def test_disjuncao_2vias_so_numero_mantem_genero_ofertado():
+    # Modelo ofertou só formas femininas: resolve o número, mantém o feminino.
+    R = op._resolver_disjuncoes_flexao
+    assert R("(pela ou pelas)", _ctx("m", "s")) == "pela"
+    assert R("(pela ou pelas)", _ctx("m", "p")) == "pelas"
+
+
+def test_disjuncao_nao_toca_parenteticas_comuns():
+    R = op._resolver_disjuncoes_flexao
+    assert R("(sim ou não)", _ctx("m", "s")) == "(sim ou não)"
+    assert R("(cooperação e eficiência)", _ctx("m", "s")) == "(cooperação e eficiência)"
+    # Sem contexto, não mexe.
+    assert R("(do ou dos ou da ou das)", None) == "(do ou dos ou da ou das)"
+
+
+def test_disjuncao_autor_usa_contexto_do_autor():
+    R = op._resolver_disjuncoes_flexao
+    assert R("(autor ou autora ou autores ou autoras)", _ctx("m", "p", ga="f", na="s")) == "autora"

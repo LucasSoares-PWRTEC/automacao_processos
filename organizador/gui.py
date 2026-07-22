@@ -231,8 +231,6 @@ class App(ttk.Window):
         self.var_endereco_foro = tk.StringVar(value="")
         self.var_juiz = tk.StringVar(value="")
         self.var_assunto = tk.StringVar(value="")
-        self.var_empregador = tk.StringVar(value="")
-        self.var_percentual = tk.StringVar(value="")
         self._entries_auto: dict[str, tk.Entry] = {}
         self._processos_carregados: list[Processo] = []
         self._proc_selecionado: Processo | None = None
@@ -700,8 +698,6 @@ class App(ttk.Window):
             ("endereco_foro", "Endereço do foro:"),
             ("juiz", "Juiz:"),
             ("assunto", "Assunto:"),
-            ("empregador", "O empregador:"),
-            ("percentual", "Percentual (penhora):"),
         ]
         # Layout em 2 colunas (4 colunas de grid: rótulo, entry, rótulo, entry)
         # para a seção ocupar ~metade da altura. As colunas de entry (1 e 3)
@@ -2439,8 +2435,8 @@ class App(ttk.Window):
 
         # Campos obrigatórios vazios (dos modelos selecionados): destaca em
         # vermelho e, se houver algum, pede confirmação antes de gerar — senão a
-        # petição sairia com o placeholder cru (ex.: "(o empregador xxx)" na
-        # Penhora salarial, que fica literal quando o campo não é preenchido).
+        # petição sairia com o campo cru no lugar (ex.: o endereço no "Mandado de
+        # penhora de bens", que fica em branco quando o campo não é preenchido).
         rotulos_faltantes = self._rotulos_campos_faltantes()
         if rotulos_faltantes:
             lista = "\n".join(f"  • {r}" for r in rotulos_faltantes)
@@ -2448,8 +2444,8 @@ class App(ttk.Window):
                 "Campos obrigatórios vazios",
                 "Os campos abaixo são exigidos pelos modelos selecionados e estão "
                 f"vazios:\n\n{lista}\n\n"
-                "Se prosseguir, o texto correspondente sairá com o marcador cru "
-                "no lugar (ex.: \"(o empregador xxx)\").\n\nGerar mesmo assim?",
+                "Se prosseguir, o texto correspondente sairá em branco ou com o "
+                "marcador cru no lugar.\n\nGerar mesmo assim?",
                 icon="warning",
                 default="no",
             )
@@ -2497,8 +2493,6 @@ class App(ttk.Window):
             "endereco_foro": self.var_endereco_foro.get() or proc.foro_endereco,
             "juiz_edit": self.var_juiz.get() or proc.juiz,
             "assunto_edit": self.var_assunto.get() or proc.assunto,
-            "empregador": self.var_empregador.get(),
-            "percentual": self.var_percentual.get(),
         }
         for ph, (_, _, var) in self._dinamicos.items():
             val = var.get().strip()

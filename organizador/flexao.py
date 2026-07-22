@@ -291,3 +291,69 @@ def _inflexionar_texto(texto: str, ctx: Contexto | None) -> str:
         return _preservar_caso(forma_orig, forma_nova)
 
     return _RE_BARE_ROLE.sub(_replace_bare, texto)
+
+
+# ---------------------------------------------------------------------------
+# Disjunções "(X ou Y [ou Z ou W])" de gênero×número
+# ---------------------------------------------------------------------------
+# Modelos novos escrevem a concordância como uma disjunção que enumera as
+# formas, ex.: "(do ou dos ou da ou das)", "(executado ou executada ou
+# executados ou executadas)", "(o ou a ou os ou as)". A ordem das formas varia
+# entre modelos e algumas vêm capitalizadas / com mais de 40 chars, então o
+# regex de placeholder não as pega. Aqui identificamos a família morfológica
+# (preposição/artigo ou substantivo de papel) pelo CONJUNTO de formas ofertadas
+# — independente de ordem/caixa — e escolhemos a que casa o gênero+número do
+# polo. Preposições/artigos concordam com o réu (execução contra o executado);
+# substantivos de papel já sabem seu lado por ROLE_TO_SIDE.
+_FAMILIAS_DISJUNCAO: list[tuple[dict[str, str], str]] = (
+    [(fam, "reu") for fam in PREP_FAMILIAS]
+    + [(FLEXOES[base], ROLE_TO_SIDE[base]) for base in FLEXOES]
+)
+
+# Parentética com ao menos um " ou " separando as formas (case-insensitive).
+_RE_DISJUNCAO_FLEXAO = re.compile(r"\(([^()]{2,150})\)")
+_RE_SEP_OU = re.compile(r"\s+ou\s+", re.IGNORECASE)
+
+
+def _escolher_forma_disjuncao(alts: list[str], ctx: "Contexto") -> str | None:
+    """Dada a lista de formas ofertadas, devolve a que concorda com o contexto
+    (mantendo a caixa que o modelo escreveu), ou None se não for uma disjunção
+    de concordância reconhecida (deixa o texto intacto nesse caso)."""
+    norm = [_strip_accents(a).lower() for a in alts]
+    for forms, side in _FAMILIAS_DISJUNCAO:
+        fam_norm = {_strip_accents(v).lower(): k for k, v in forms.items()}
+        if not all(n in fam_norm for n in norm):
+            continue
+        keys = [fam_norm[n] for n in norm]  # ex.: ['fs','fp','ms','mp']
+        g = ctx.genero_autor if side == "autor" else ctx.genero_reu
+        num = ctx.numero_autor if side == "autor" else ctx.numero_reu
+        target = g + num
+        if target in keys:
+            return alts[keys.index(target)]
+        # Alvo não ofertado (ex.: modelo só deu formas femininas): casa pelo
+        # número desejado, mantendo o gênero que o modelo escolheu; senão gênero.
+        for i, k in enumerate(keys):
+            if k[1] == num:
+                return alts[i]
+        for i, k in enumerate(keys):
+            if k[0] == g:
+                return alts[i]
+        return alts[0]
+    return None
+
+
+def _resolver_disjuncoes_flexao(texto: str, ctx: "Contexto | None") -> str:
+    """Resolve as disjunções de concordância "(X ou Y ...)" pelo gênero+número
+    do polo. Não toca parentéticas que não sejam disjunções de formas conhecidas
+    (ex.: "(sim ou não)", instruções manuais)."""
+    if ctx is None or not texto:
+        return texto
+
+    def _repl(m: re.Match) -> str:
+        partes = [p.strip() for p in _RE_SEP_OU.split(m.group(1).strip())]
+        if len(partes) < 2 or any(not p for p in partes):
+            return m.group(0)
+        escolhido = _escolher_forma_disjuncao(partes, ctx)
+        return escolhido if escolhido is not None else m.group(0)
+
+    return _RE_DISJUNCAO_FLEXAO.sub(_repl, texto)

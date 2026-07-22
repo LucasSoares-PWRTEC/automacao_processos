@@ -189,11 +189,23 @@ def test_extrair_ignora_literais_nao_sao_campos(tmp_path):
 def test_extrair_mantem_placeholder_mapeado_mesmo_apos_digito(tmp_path):
     # Placeholder mapeado precedido de dígito NÃO é descartado (guarda do filtro).
     doc = docx.Document()
-    doc.add_paragraph("no percentual de 30 (trinta por cento)")
+    doc.add_paragraph("autos 30 (número do processo)")
     p = tmp_path / "modelo2.docx"
     doc.save(str(p))
     phs = op._extrair_placeholders_template(p)
-    assert "trinta por cento" in phs
+    assert "número do processo" in phs
+
+
+def test_extrair_ignora_numero_por_extenso_apos_digito_ou_percent(tmp_path):
+    # Número por extenso após dígito ou "%" é literal, não campo a preencher.
+    doc = docx.Document()
+    doc.add_paragraph("penhora de 30% (trinta por cento) dos recebíveis")
+    doc.add_paragraph("prazo de 10 (dez) dias")
+    p = tmp_path / "modelo_literais.docx"
+    doc.save(str(p))
+    phs = op._extrair_placeholders_template(p)
+    assert "trinta por cento" not in phs
+    assert "dez" not in phs
 
 
 def test_extrair_placeholder_dentro_de_tabela(tmp_path):
