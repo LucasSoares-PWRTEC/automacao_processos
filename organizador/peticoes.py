@@ -727,7 +727,8 @@ def _reescrever_preservando_formato(paragrafo, texto_original: str, texto_final:
     for tag, i1, i2, j1, j2 in sm.get_opcodes():
         if tag == "equal":
             for k in range(j2 - j1):
-                fmts_final[j1 + k] = fmts_orig[i1 + k]
+                if i1 + k < len(fmts_orig):
+                    fmts_final[j1 + k] = fmts_orig[i1 + k]
         elif tag in ("replace", "insert"):
             # Valor inserido/substituído herda o formato do início da região
             # original correspondente (o do placeholder, quando é uma troca).
@@ -878,7 +879,14 @@ def _substituir_paragrafo(
     if RE_CAMPO_EDITAVEL.search(paragrafo.text):
         _aplicar_campo_editavel(paragrafo, dados)
         return
-    texto_original = paragrafo.text
+    # Base de trabalho = concatenação dos runs, NÃO paragrafo.text. Runs dentro de
+    # hyperlink (ex.: e-mails clicáveis) entram em paragrafo.text mas não em
+    # paragrafo.runs; usar paragrafo.text deixaria texto_original mais longo que o
+    # que o loop de mascaramento e a cobertura percorrem, fazendo texto_final
+    # divergir sempre e a reescrita estourar (IndexError) ou duplicar o link.
+    # Com a concatenação dos runs, parágrafos assim caem no early-return e ficam
+    # intactos; a substituição só age no que os runs de fato contêm.
+    texto_original = "".join(run.text for run in paragrafo.runs)
 
     # Mascara os runs vermelhos (instruções de preenchimento manual) com
     # sentinelas, para que a substituição/flexão não os altere.

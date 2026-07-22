@@ -2324,6 +2324,17 @@ class App(ttk.Window):
                 faltantes.append(atr)
         return faltantes
 
+    def _rotulos_campos_faltantes(self) -> list[str]:
+        """Rótulos legíveis dos campos obrigatórios vazios (editáveis conhecidos +
+        campos adicionais/placeholders novos). Usado para avisar antes de gerar."""
+        rotulos: list[str] = []
+        for atr in self._destacar_campos_faltantes():
+            rotulos.append(self._rotulos_edit.get(atr, atr).rstrip(":"))
+        for ph, (_, _, var) in self._dinamicos.items():
+            if ph in self._campos_desconhecidos and not (var.get() or "").strip():
+                rotulos.append(ph.capitalize())
+        return rotulos
+
     def _atualizar_campo_imoveis(self) -> None:
         if self._frame_imoveis is None:
             return
@@ -2426,9 +2437,25 @@ class App(ttk.Window):
             messagebox.showwarning("Aviso", "Selecione ao menos um modelo de petição.")
             return
 
-        # Campos editáveis obrigatórios vazios: apenas destaca em vermelho
-        # (sem bloquear a geração).
-        self._destacar_campos_faltantes()
+        # Campos obrigatórios vazios (dos modelos selecionados): destaca em
+        # vermelho e, se houver algum, pede confirmação antes de gerar — senão a
+        # petição sairia com o placeholder cru (ex.: "(o empregador xxx)" na
+        # Penhora salarial, que fica literal quando o campo não é preenchido).
+        rotulos_faltantes = self._rotulos_campos_faltantes()
+        if rotulos_faltantes:
+            lista = "\n".join(f"  • {r}" for r in rotulos_faltantes)
+            prosseguir = messagebox.askyesno(
+                "Campos obrigatórios vazios",
+                "Os campos abaixo são exigidos pelos modelos selecionados e estão "
+                f"vazios:\n\n{lista}\n\n"
+                "Se prosseguir, o texto correspondente sairá com o marcador cru "
+                "no lugar (ex.: \"(o empregador xxx)\").\n\nGerar mesmo assim?",
+                icon="warning",
+                default="no",
+            )
+            if not prosseguir:
+                self._pesquisa_log_queue.put("Geração cancelada: campos obrigatórios vazios.\n")
+                return
 
         self._pesquisa_log_queue.put(
             f"Gerando {len(templates_sel)} petição(ões) para "
