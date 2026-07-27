@@ -342,6 +342,26 @@ def _escolher_forma_disjuncao(alts: list[str], ctx: "Contexto") -> str | None:
     return None
 
 
+def _eh_disjuncao_flexao(texto: str) -> bool:
+    """True se `texto` (sem parênteses) é uma disjunção de concordância cujas
+    formas pertencem TODAS a uma mesma família conhecida (preposição/artigo ou
+    substantivo de papel) — ou seja, o sistema resolve por gênero+número do polo
+    sem precisar de input manual. Independe de contexto/caixa/ordem das formas.
+
+    Ex.: "o ou a ou os ou as", "pela ou pelo ou pelos ou pelas",
+    "do ou dos ou da ou das". NÃO casa "sim ou não" nem instruções livres.
+    """
+    partes = [p.strip() for p in _RE_SEP_OU.split((texto or "").strip())]
+    if len(partes) < 2 or any(not p for p in partes):
+        return False
+    norm = [_strip_accents(a).lower() for a in partes]
+    for forms, _side in _FAMILIAS_DISJUNCAO:
+        fam_norm = {_strip_accents(v).lower() for v in forms.values()}
+        if all(n in fam_norm for n in norm):
+            return True
+    return False
+
+
 def _resolver_disjuncoes_flexao(texto: str, ctx: "Contexto | None") -> str:
     """Resolve as disjunções de concordância "(X ou Y ...)" pelo gênero+número
     do polo. Não toca parentéticas que não sejam disjunções de formas conhecidas

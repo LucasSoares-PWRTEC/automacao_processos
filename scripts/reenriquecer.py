@@ -80,6 +80,9 @@ from organizador.padroes import (  # noqa: E402
     RE_NUMERO_CNJ,
 )
 from organizador.scraper import _consultar_e_extrair  # noqa: E402
+# Núcleo reaproveitável (pool de sessão + merge/persistência) mora agora no
+# pacote, em organizador.monitoramento — o monitoramento periódico usa o mesmo.
+from organizador.monitoramento import PoolScrapers, _merge_e_salvar  # noqa: E402
 
 # --- caminhos -------------------------------------------------------------
 ESTADO_JSON = _RAIZ / "data" / "_reenriquecimento_estado.json"
@@ -227,73 +230,9 @@ def _selecionar_nao_mapeados(carteira_filtro: str | None = None,
     return alvos
 
 
-# --- pool de scrapers (1 login por sistema) -------------------------------
-class PoolScrapers:
-    def __init__(self, headless: bool):
-        self.headless = headless
-        self._scrapers: dict[str, object] = {}
-        self._login_falhou: set[str] = set()
-
-    def obter(self, tj_label: str):
-        """Devolve um scraper logado para o sistema (cria+loga 1x; reusa depois).
-        Levanta RuntimeError se o login desse sistema já falhou nesta corrida."""
-        if tj_label in self._login_falhou:
-            raise RuntimeError(f"login de {tj_label} já falhou nesta corrida")
-        if tj_label in self._scrapers:
-            return self._scrapers[tj_label]
-        site, estado, url, perfil = TJ_SISTEMAS[tj_label]
-        print(f"   🔐 abrindo e logando em {tj_label} (1ª vez nesta corrida)...")
-        try:
-            scraper = criar_scraper(
-                site=site, estado=estado, url=url,
-                headless=self.headless, perfil=perfil,
-            )
-            scraper.login()
-        except Exception as exc:
-            self._login_falhou.add(tj_label)
-            raise RuntimeError(f"falha ao logar em {tj_label}: {exc}") from exc
-        self._scrapers[tj_label] = scraper
-        return scraper
-
-    def fechar_todos(self):
-        for tj_label, scraper in self._scrapers.items():
-            try:
-                scraper.fechar()
-            except Exception:
-                pass
-        self._scrapers.clear()
-
-
-# --- merge + persistência -------------------------------------------------
-def _merge_e_salvar(numero: str, online_proc, existing: dict | None,
-                    tags_extra=("Reenriquecido v2",)):
-    """Mescla os dados online (base) com o cache atual (backfill) e grava no cache
-    e em Desktop/Processos. `existing=None` (processo novo) salva o online direto.
-    `tags_extra` são adicionadas (ex.: 'Mapeamento: <cliente>' p/ os novos).
-    Devolve o Processo mesclado."""
-    if existing:
-        existing_proc = _dict_para_processo(existing)
-        # base = online (fresco, traz o réu); novo = cache (backfill dos vazios,
-        # preserva tag Mapeamento e valor_causa). _merge_processos troca as partes
-        # pelo conjunto de maior "score" (o online agora inclui o polo passivo).
-        merged = _merge_processos(online_proc, existing_proc, "")
-    else:
-        merged = online_proc
-    for tag in tags_extra:
-        if tag and tag not in merged.tags:
-            merged.tags.append(tag)
-    _derivar_agregados(merged)
-
-    # 1) cache (mesmo caminho do metadados.json existente → sobrescreve/atualiza)
-    salvar_processo_metadados(merged, PROCESSOS_ONLINE_DIR)
-    # 2) Desktop/Processos: metadados.json + resumo.txt
-    pasta = Path(PASTA_PADRAO) / _nome_pasta(numero)
-    pasta.mkdir(parents=True, exist_ok=True)
-    (pasta / "metadados.json").write_text(
-        json.dumps(asdict(merged), ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    (pasta / "resumo.txt").write_text(_resumo_txt(merged), encoding="utf-8")
-    return merged
+# PoolScrapers e _merge_e_salvar foram movidos para organizador.monitoramento
+# (importados acima) — o monitoramento periódico reusa o mesmo pool de sessão e a
+# mesma persistência no cache. Aqui ficam só o modo carteira/Excel e o CLI.
 
 
 # --- relatórios .md / .csv ------------------------------------------------

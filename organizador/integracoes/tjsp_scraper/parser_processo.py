@@ -161,9 +161,28 @@ def _split_comarca_vara(orgao: str) -> tuple[str, str]:
     m_v = re.search(r"((?:Ju[íi]zo[^\-/]*?)?\d+ª\s*Vara[^-/]*?)(?:\s+da\s+Comarca|\s*$)", orgao, re.I)
     if m_v:
         vara = _normaliza(m_v.group(1))
-    elif "Vara" in orgao:
-        # Fallback: pega tudo antes de 'da Comarca'
-        vara = _normaliza(orgao.split("da Comarca")[0])
+    else:
+        # Órgãos sem "Nª Vara" numerada (CEJUSC, Juizado Especial, Vara Única,
+        # Juízo Único, Plantão etc.): a vara é o próprio nome do órgão, sem o
+        # sufixo de localidade "da Comarca/Regional/Foro de X" — o modelo de
+        # petição já acrescenta a comarca. Ex.: "Juízo do CEJUSC da Comarca de
+        # Vespasiano" → "Juízo do CEJUSC".
+        resto = re.split(
+            r"\s+d[ao]\s+(?:Comarca|Regional|Foro|Subse[çc][ãa]o|Se[çc][ãa]o)\b",
+            orgao, maxsplit=1, flags=re.I,
+        )[0]
+        resto = _normaliza(resto)
+        # Só aceita se sobrar um NOME de órgão (evita devolver a própria comarca
+        # quando o órgão vem sem prefixo, ex.: apenas "Comarca de X").
+        if (
+            resto
+            and resto.lower() != comarca.lower()
+            and re.search(
+                r"(?i)\b(ju[íi]zo|juizado|cejusc?|central|vara|turma|col[ée]gio|foro|plant[ãa]o)\b",
+                resto,
+            )
+        ):
+            vara = resto
     return comarca, vara
 
 

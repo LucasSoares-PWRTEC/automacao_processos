@@ -10,6 +10,10 @@ python-dotenv
 selenium
 unidecode
 webdriver-manager
+# Monitoramento periódico: leitura das planilhas Google via conta de serviço
+# (organizador.sheets). AuthorizedSession usa requests por baixo.
+google-auth
+requests
 
 # O scraper segue opcional em uso: as dependências acima só são exigidas
 # quando a busca online é acionada.

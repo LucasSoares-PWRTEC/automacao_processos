@@ -48,6 +48,11 @@ COMARCAS_CACHE_PATH = APP_DATA_DIR / "comarcas_por_origem.json"
 # Estado da UI lembrado entre execuções (pastas base/destino da aba Pesquisa),
 # para pré-carregar os processos já trabalhados ao reabrir o app.
 UI_STATE_PATH = APP_DATA_DIR / "ui_state.json"
+# Perfil persistente do Chrome usado SÓ pelo Autojur: guarda cookies/dispositivo
+# confiável entre sessões para pular o 2FA "novo dispositivo" nas próximas vezes
+# (login cai de ~3-4 min para segundos). A busca online usa perfil temporário
+# próprio — um perfil do Chrome só pode ser aberto por um processo por vez.
+AUTOJUR_PROFILE_DIR = APP_DATA_DIR / "autojur_profile"
 # Processos trazidos pela busca online são persistidos aqui (um
 # <numero>/metadados.json por processo) para reaparecerem na lista ao reabrir.
 PROCESSOS_ONLINE_DIR = APP_DATA_DIR / "processos_online"
@@ -57,6 +62,12 @@ PROCESSOS_ONLINE_DIR = APP_DATA_DIR / "processos_online"
 # pasta base e que o cache de buscas online do próprio usuário.
 PROCESSOS_BASE_JSON = _RAIZ / "data" / "processos_base.json.gz"
 PASTA_PETICOES = _RAIZ / "Petições"
+# Conta de serviço do Google (somente leitura das planilhas de credores). Fica na
+# raiz do projeto (=_MEIPASS no exe); override por GOOGLE_CREDENTIALS_FILE. Usada
+# por organizador.sheets para o monitoramento periódico planilhas → mapeamento.
+GOOGLE_SA_PATH = Path(
+    os.getenv("GOOGLE_CREDENTIALS_FILE") or (_RAIZ / "token_google_api.json")
+)
 CONFIG_DIR = _RAIZ / "config"
 CONFIG_ENV_PATH = CONFIG_DIR / ".env"
 CONFIG_ENV_EXAMPLE_PATH = CONFIG_DIR / ".env.example"

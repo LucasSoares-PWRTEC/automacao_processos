@@ -37,6 +37,12 @@ _PLACEHOLDERS_IGNORADOS = {
     # Princípio jurídico citado no corpo do texto ("registro de penhora
     # (cooperação e eficiência) nos respectivos autos"), não um campo a preencher.
     "cooperação e eficiência",
+    # Anotações editoriais em citações de jurisprudência (ex.: "...súmula em
+    # 04/07/2025) (destaquei)"). São literais, nunca campos a preencher.
+    "destaquei", "destacamos", "destaquem",
+    "grifei", "grifamos", "grifo nosso", "grifos nossos", "grifo meu",
+    "sem grifo no original", "sem grifos no original",
+    "negritei", "negritamos", "sublinhei", "sublinhamos",
 }
 
 
@@ -89,13 +95,31 @@ def _template_eh_imobiliario(nome_arquivo: str) -> bool:
     return any(p in n for p in alvos)
 
 
+def _texto_sem_vermelho(paragrafo) -> str:
+    """Texto do parágrafo com os trechos VERMELHOS (preenchimento manual)
+    trocados por espaços do mesmo tamanho.
+
+    Vermelho é preenchido pelo advogado no Word (a geração o preserva verbatim,
+    não substitui) — então NÃO deve virar campo no app. Ex.: em 'Penhora
+    salarial', '...empregador (xxx), endereço: xxx' está em vermelho e o '(xxx)'
+    não pode aparecer como campo obrigatório. Manter o tamanho preserva as
+    posições p/ a heurística de 'número por extenso após dígito'.
+    """
+    partes: list[str] = []
+    for r in paragrafo.runs:
+        partes.append(" " * len(r.text) if _eh_run_vermelho(r) else r.text)
+    return "".join(partes)
+
+
 def _extrair_placeholders_template(template_path: Path) -> set[str]:
-    """Lê o template e devolve os placeholders crus (em minúsculo, sem parênteses)."""
+    """Lê o template e devolve os placeholders crus (em minúsculo, sem parênteses).
+    Ignora o que está em vermelho (preenchimento manual — não é campo do app)."""
     docx_path = _obter_docx_cacheado(template_path)
     doc = Document(str(docx_path))
     encontrados: set[str] = set()
 
-    def _scan(texto: str) -> None:
+    def _scan(paragrafo) -> None:
+        texto = _texto_sem_vermelho(paragrafo)
         for m in RE_PLACEHOLDER_TEMPLATE.finditer(texto):
             ph = m.group(1).strip().lower()
             if ph in _PLACEHOLDERS_IGNORADOS:
@@ -115,12 +139,12 @@ def _extrair_placeholders_template(template_path: Path) -> set[str]:
             encontrados.add(_campo_editavel_rotulo(m.group(1)))
 
     for p in doc.paragraphs:
-        _scan(p.text)
+        _scan(p)
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for p in cell.paragraphs:
-                    _scan(p.text)
+                    _scan(p)
     return encontrados
 
 
@@ -620,6 +644,13 @@ _RE_DATA_FECHAMENTO = re.compile(
     r"(?i)(\bDe\s+.+?,\s*)\d{1,2}\s+de\s+(?:" + "|".join(_MESES) + r")\s+de\s+\d{4}\.?"
 )
 
+# Identifica a linha de local + data do fecho JÁ transformada (com ou sem "De")
+# pela terminação em data por extenso. Usada para tirar o negrito indevido da
+# UF nessa linha; só aplicada na zona CLOSING, então não toca datas do corpo.
+_RE_LINHA_LOCAL_DATA = re.compile(
+    r"(?i)\d{1,2}\s+de\s+(?:" + "|".join(_MESES) + r")\s+de\s+\d{4}\.?\s*$"
+)
+
 
 def _data_por_extenso(data: "_date | None" = None) -> str:
     """Data no formato brasileiro 'D de mês de AAAA' (sem zero à esquerda)."""
@@ -973,6 +1004,32 @@ def _aplicar_negrito(paragrafo) -> None:
         run.font.bold = True
 
 
+def _forcar_maiusculas(paragrafo) -> None:
+    """Força o texto de todos os runs a caixa alta (endereçamento/HEADER).
+
+    Garante o cabeçalho 100% em maiúsculas mesmo quando parte do texto veio da
+    reescrita de trechos vermelhos/sentinela — que são reinseridos verbatim e
+    escapariam do .upper() feito em _montar_header_enderecamento.
+    """
+    for run in paragrafo.runs:
+        if run.text and run.text != run.text.upper():
+            run.text = run.text.upper()
+
+
+def _desnegritar_local_data(paragrafo) -> None:
+    """Remove o negrito da linha de local + data do fecho (ex.: 'Comarca/UF, 23
+    de julho de 2026').
+
+    A UF dessa linha não deve ficar em negrito; a reescrita pesada da linha
+    (colapso de local + troca de data) pode fazê-la herdar o negrito do
+    contexto. Escopo restrito à linha de local+data (não toca a fórmula de
+    fecho nem a assinatura/OAB).
+    """
+    for run in paragrafo.runs:
+        if run.text.strip():
+            run.font.bold = False
+
+
 def _padronizar_espacamento(paragrafo) -> None:
     pf = paragrafo.paragraph_format
     if not paragrafo.text.strip():
@@ -1077,6 +1134,9 @@ def _preencher_campos_docx(
         _remover_highlight_amarelo(paragrafo)
         if zona == "HEADER":
             _aplicar_negrito(paragrafo)
+            _forcar_maiusculas(paragrafo)
+        elif zona == "CLOSING" and _RE_LINHA_LOCAL_DATA.search(paragrafo.text):
+            _desnegritar_local_data(paragrafo)
         _padronizar_espacamento(paragrafo)
 
     for tabela in doc.tables:

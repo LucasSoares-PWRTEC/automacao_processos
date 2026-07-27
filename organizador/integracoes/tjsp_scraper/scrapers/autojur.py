@@ -30,6 +30,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import StaleElementReferenceException
 
 from .base import TribunalScraper, criar_chrome_driver
 from ..two_factor import obter_codigo_2fa_email
@@ -56,6 +57,10 @@ SEL_LOTE = '[data-id="formDetalhesTarefa:ff-lote:cmb-lotes"]'
 SEL_TIPO_DOC = '[data-id="ged-panel-component-tarefa:ged-body:form-upload:select-tipo-documento"]'
 SEL_UPLOAD_INPUT = "ged-panel-component-tarefa:ged-body:form-upload:btn-upload_input"
 SEL_PAINEL_GED = "ged-panel-component-tarefa:conteudo"
+# Botão "Requer Protocolo" de cada documento anexado (um por linha; id termina
+# em ":<linha>:btnProtocoloGed"). O estado é o ícone: fa-square (não marcado) ->
+# fa-check-square (marcado). O title some ao marcar, por isso miramos pelo id.
+SEL_BTN_PROTOCOLO_GED = 'a[id*="btnProtocoloGed"]'
 
 # Valores fixos do fluxo de protocolo.
 TIPO_EVENTO_PADRAO = "Controladoria Jurídica - CVA"
@@ -92,9 +97,9 @@ _DEBUG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "_debug"
 
 class AutojurScraper(TribunalScraper):
 
-    def __init__(self, headless: bool = False):
+    def __init__(self, headless: bool = False, user_data_dir: Optional[str] = None):
         super().__init__(estado="", url=URL_LOGIN, headless=headless)
-        self.driver = criar_chrome_driver(headless=headless)
+        self.driver = criar_chrome_driver(headless=headless, user_data_dir=user_data_dir)
         self.wait = WebDriverWait(self.driver, 20)
 
     # ------------------------------------------------------------------
@@ -309,6 +314,21 @@ class AutojurScraper(TribunalScraper):
 
         print(f"🔐 Autojur: logando como {usuario} ...")
         self.driver.get(URL_LOGIN)
+
+        # Perfil persistente já autenticado? O Autojur redireciona para fora do
+        # login.jsf e NÃO renderiza o formulário — nesse caso pulamos credenciais
+        # e 2FA. Espera curta por UMA das condições (já-logado OU form presente)
+        # para não travar 30s esperando um form que não vai aparecer.
+        fim_check = time.time() + 8
+        while time.time() < fim_check:
+            if self._parece_logado():
+                self._fechar_avisos()
+                self._logado = True
+                print("✅ Autojur: sessão reaproveitada do perfil (sem novo 2FA).")
+                return
+            if self._visivel(By.ID, "login-form-novo:username") is not None:
+                break
+            time.sleep(0.5)
 
         try:
             campo_user = WebDriverWait(self.driver, 30).until(
@@ -600,6 +620,7 @@ class AutojurScraper(TribunalScraper):
         local: str = "",
         lote: str = "dia_seguinte",
         pdf_path: Optional[str] = None,
+        pdf_paths: Optional[list] = None,
         requer_protocolo: bool = True,
         salvar: bool = False,
         tipo_evento: str = TIPO_EVENTO_PADRAO,
@@ -608,11 +629,16 @@ class AutojurScraper(TribunalScraper):
         escolher_resultado: Optional[Callable[[list], Optional[int]]] = None,
         log: Callable[[str], None] = print,
     ) -> None:
-        """Cria uma tarefa de Protocolo no processo, anexando o PDF da petição.
+        """Cria UMA tarefa de Protocolo no processo, anexando o(s) PDF(s).
 
         Reproduz o fluxo validado ao vivo (11 passos). Requer login() feito.
         Com `salvar=False` (padrão) deixa o formulário preenchido e ABERTO para
         conferência humana; com `salvar=True` clica em "Salvar" ao final.
+
+        Anexos: quando há MAIS DE UM arquivo, todos entram na MESMA tarefa —
+        o passo de anexo é repetido por arquivo (NÃO se cria uma tarefa por
+        PDF). Passe `pdf_paths` (lista) para múltiplos; `pdf_path` (str) é
+        aceito para um único (compatibilidade).
 
         lote: 'iniciais' | 'urgente' | 'dia_seguinte'.
 
@@ -627,12 +653,19 @@ class AutojurScraper(TribunalScraper):
             raise ValueError(f"lote deve ser um de {LOTES}, não {lote!r}.")
         if not conteudo or not conteudo.strip():
             raise ValueError("Autojur: 'conteudo' é obrigatório.")
-        if pdf_path is not None:
-            p = Path(pdf_path)
+        # Normaliza a lista de anexos (aceita `pdf_paths` lista OU `pdf_path`
+        # único). Todos vão para a MESMA tarefa.
+        pdfs: list[str] = []
+        if pdf_paths:
+            pdfs = [str(x) for x in pdf_paths if x]
+        elif pdf_path:
+            pdfs = [str(pdf_path)]
+        for pp in pdfs:
+            p = Path(pp)
             if not p.is_file():
-                raise FileNotFoundError(f"PDF não encontrado: {pdf_path}")
+                raise FileNotFoundError(f"PDF não encontrado: {pp}")
             if p.suffix.lower() != ".pdf":
-                raise ValueError(f"O anexo deve ser PDF: {pdf_path}")
+                raise ValueError(f"O anexo deve ser PDF: {pp}")
 
         log(f"📝 Autojur: criando tarefa de {evento} em {numero_processo} ...")
         # Passos 1–2: busca (sem abrir).
@@ -683,38 +716,76 @@ class AutojurScraper(TribunalScraper):
             log(f"   • Tipo de Documento: {tipo_documento}")
             self._bootstrap_select(SEL_TIPO_DOC, tipo_documento, log=log)
 
-            if pdf_path is not None:
-                log(f"   • Anexando PDF: {Path(pdf_path).name}")
-                inp = self.driver.find_element(By.ID, SEL_UPLOAD_INPUT)
-                self.driver.execute_script(
-                    "arguments[0].style.display='block';"
-                    "arguments[0].style.visibility='visible';"
-                    "arguments[0].style.opacity=1;"
-                    "arguments[0].removeAttribute('hidden');", inp
-                )
-                inp.send_keys(str(Path(pdf_path).resolve()))
+            if pdfs:
+                # Anexa TODOS os PDFs na mesma tarefa, repetindo o passo de
+                # upload por arquivo (o tipo de documento já foi escolhido acima).
+                for i, pp in enumerate(pdfs, 1):
+                    log(f"   • Anexando PDF ({i}/{len(pdfs)}): {Path(pp).name}")
+                    inp = self.driver.find_element(By.ID, SEL_UPLOAD_INPUT)
+                    self.driver.execute_script(
+                        "arguments[0].style.display='block';"
+                        "arguments[0].style.visibility='visible';"
+                        "arguments[0].style.opacity=1;"
+                        "arguments[0].removeAttribute('hidden');", inp
+                    )
+                    inp.send_keys(str(Path(pp).resolve()))
 
-                nome_base = Path(pdf_path).stem.lower()[:12]
+                    nome_base = Path(pp).stem.lower()[:12]
 
-                def _subiu(d):
-                    txt = d.find_element(By.TAG_NAME, "body").text.lower()
-                    return nome_base in txt and "nenhum arquivo encontrado" not in txt
+                    def _subiu(d, nb=nome_base):
+                        txt = d.find_element(By.TAG_NAME, "body").text.lower()
+                        return nb in txt and "nenhum arquivo encontrado" not in txt
 
-                WebDriverWait(self.driver, 60).until(_subiu)
-                time.sleep(1.5)
-                log("   • PDF anexado")
+                    WebDriverWait(self.driver, 60).until(_subiu)
+                    time.sleep(1.5)
+                    log("   • PDF anexado")
 
                 if requer_protocolo:
-                    painel = self.driver.find_element(By.ID, SEL_PAINEL_GED)
-                    alvo = painel.find_elements(
-                        By.CSS_SELECTOR, 'a[title="Requer Protocolo"]')
-                    if not alvo:
-                        raise RuntimeError("Autojur: âncora 'Requer Protocolo' não encontrada.")
-                    self.driver.execute_script(
-                        "arguments[0].scrollIntoView({block:'center'});", alvo[0])
-                    alvo[0].click()
-                    time.sleep(1.5)
-                    log("   • 'Requer Protocolo' marcado")
+                    # Marca "Requer Protocolo" de CADA documento anexado. O botão
+                    # por linha (SEL_BTN_PROTOCOLO_GED) alterna o ícone
+                    # fa-square -> fa-check-square e dispara AJAX que re-renderiza
+                    # a lista (o title some). Por isso: identificamos os botões
+                    # pelo id, checamos o estado pelo ÍCONE e clicamos só os ainda
+                    # NÃO marcados — re-consultando a cada passo (idempotente).
+                    def _botoes_protocolo():
+                        painel = self.driver.find_element(By.ID, SEL_PAINEL_GED)
+                        return painel.find_elements(
+                            By.CSS_SELECTOR, SEL_BTN_PROTOCOLO_GED)
+
+                    def _pendentes():
+                        pend = []
+                        for b in _botoes_protocolo():
+                            try:
+                                html = b.get_attribute("innerHTML") or ""
+                            except StaleElementReferenceException:
+                                continue
+                            if "fa-check-square" not in html:
+                                pend.append(b)
+                        return pend
+
+                    total_docs = len(_botoes_protocolo())
+                    if total_docs == 0:
+                        raise RuntimeError("Autojur: botão 'Requer Protocolo' não encontrado.")
+                    for _ in range(total_docs * 3):  # limite de segurança
+                        pend = _pendentes()
+                        if not pend:
+                            break
+                        n_pend = len(pend)
+                        try:
+                            self.driver.execute_script(
+                                "arguments[0].scrollIntoView({block:'center'});", pend[0])
+                            pend[0].click()
+                        except StaleElementReferenceException:
+                            continue
+                        # Espera o ícone virar check-square (nº de pendentes cai).
+                        try:
+                            WebDriverWait(self.driver, 10).until(
+                                lambda d: len(_pendentes()) < n_pend)
+                        except Exception:
+                            time.sleep(1.0)
+                    restantes = len(_pendentes())
+                    log(f"   • 'Requer Protocolo' marcado "
+                        f"({total_docs - restantes}/{total_docs} doc(s))")
             elif requer_protocolo:
                 log("   ⚠️ requer_protocolo ignorado (nenhum PDF anexado).")
 

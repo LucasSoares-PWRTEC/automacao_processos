@@ -1339,5 +1339,14 @@
     "autor": "EMCCAMP RESIDENCIAL S.A.",
     "reu": "LUCAS GUIMARAES SILVA",
     "quando": "2026-06-29T00:18:17"
+  },
+  "1002937-24.2026.8.13.0290": {
+    "status": "enriquecido",
+    "uf": "MG",
+    "sistema": "TJMG — eproc",
+    "tem_reu": true,
+    "autor": "MASTER TOWER SIENA EMPREENDIMENTOS IMOBILIARIOS SPE LTDA",
+    "reu": "RONAN BASTOS DE JESUS",
+    "quando": "2026-07-27T14:10:53"
   }
 }

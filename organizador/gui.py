@@ -47,7 +47,7 @@ def _salvar_ui_state(**campos) -> None:
         )
     except Exception:
         pass
-from .flexao import _construir_contexto
+from .flexao import _construir_contexto, _eh_disjuncao_flexao
 from .models import Parte, Processo
 from .organizacao import (
     _autor, _reus_joined, organizar_pasta, salvar_processo_metadados, uf_do_cnj,
@@ -175,6 +175,18 @@ class App(ttk.Window):
         self.var_autojur_salvar_prod = tk.BooleanVar(
             value=bool(_ui_state.get("autojur_salvar", False))
         )
+        # Visualizar o navegador do Autojur mesmo em produção (independe do modo
+        # dev). O navegador é SEMPRE visível quando "salvar" está desligado
+        # (conferência); este toggle força visível também com "salvar" ligado.
+        self.var_autojur_visualizar = tk.BooleanVar(
+            value=bool(_ui_state.get("autojur_visualizar", False))
+        )
+        # Pré-login: loga no Autojur OCULTO em 2º plano ao abrir o app, para a
+        # sessão já estar pronta na hora de gerar a tarefa (vira visível sob
+        # demanda p/ conferência). Ligado por padrão; lembrado entre sessões.
+        self.var_autojur_prelogin = tk.BooleanVar(
+            value=bool(_ui_state.get("autojur_prelogin", True))
+        )
         self._dev_widgets_busca: list = []  # widgets avançados da aba Pesquisa
         # Barra única: filtra a lista ao vivo e, no Enter/botão, busca online
         # (só vai à web se o processo ainda não estiver carregado).
@@ -193,6 +205,13 @@ class App(ttk.Window):
         # Estado da aba Autojur (dev): o scraper logado é retido com o navegador
         # ABERTO (base para montar as próximas automações) até "Fechar navegador".
         self._autojur_scraper: object | None = None
+        # Visibilidade com que o scraper retido foi criado (headless True/False):
+        # se um envio precisar de visibilidade diferente, recriamos o navegador.
+        self._autojur_scraper_headless: bool | None = None
+        # Serializa a criação/relogin do scraper entre o worker de pré-login e o
+        # de envio (evita abrir dois navegadores concorrentes no mesmo perfil).
+        self._autojur_login_lock = threading.Lock()
+        self._autojur_prelogin_worker: threading.Thread | None = None
         self._autojur_worker: threading.Thread | None = None
         self._autojur_log_queue: queue.Queue[str] = queue.Queue()
         self._autojur_result_queue: queue.Queue = queue.Queue()
@@ -246,6 +265,12 @@ class App(ttk.Window):
         self._busca_worker: threading.Thread | None = None
         self._busca_result_queue: queue.Queue = queue.Queue()
         self._gen_result_queue: queue.Queue = queue.Queue()
+        # Monitoramento (planilhas → mapeamento de sistema): worker em 2º plano,
+        # fila de resultado e Event de cancelamento (botão "Parar"). O motor é
+        # organizador.monitoramento.rodar_passada().
+        self._monitor_worker: threading.Thread | None = None
+        self._monitor_result_queue: queue.Queue = queue.Queue()
+        self._monitor_cancel: threading.Event = threading.Event()
         # Notificações de conclusão (popup + som + status). Fila thread-safe:
         # workers chamam _notificar(); o popup é mostrado na main thread.
         # _notify_busy evita empilhar diálogos durante o loop modal aninhado.
@@ -301,6 +326,7 @@ class App(ttk.Window):
         self.after(100, self._drain_pesquisa_log_queue)
         self.after(150, self._drain_pesquisa_load_result)
         self.after(150, self._drain_busca_result)
+        self.after(200, self._drain_monitor_result)
         self.after(150, self._atualizar_progresso_pesquisa)
         self.after(200, self._drain_notify_queue)
         self.after(200, self._drain_gen_result_queue)
@@ -319,6 +345,11 @@ class App(ttk.Window):
         # modo --auto, que só mostra a janela se houver versão nova (caso contrário
         # sai sem exibir nada). Assim o usuário não precisa abrir o Atualizador.
         self.after(1500, self._verificar_atualizacao_silenciosa)
+        # Monitoramento semanal: na abertura, se já se passaram ≥ 7 dias desde a
+        # última passada bem-sucedida, dispara uma sincronização das planilhas em
+        # silêncio (cadência semanal). Pode ser acionado a qualquer momento pelo
+        # botão "Sincronizar planilhas & mapear" na aba Pesquisa.
+        self.after(2500, self._verificar_monitoramento_semanal)
 
     def _build_widgets(self) -> None:
         nb = ttk.Notebook(self, bootstyle="primary")
@@ -540,6 +571,31 @@ class App(ttk.Window):
         self._dev_widgets_busca = [
             chk_forcar, chk_docs, chk_headless, lbl_debug, cbo_debug, self._btn_fechar_debug,
         ]
+
+        # ── Seção: Monitoramento (planilhas → mapeamento de sistema) ────
+        section_mon = ttk.Labelframe(
+            parent, text="  Monitoramento (planilhas)  ", bootstyle="default",
+            padding=(12, 8),
+        )
+        section_mon.pack(fill="x", pady=(0, 6))
+        f_mon = ttk.Frame(section_mon)
+        f_mon.pack(fill="x")
+        ttk.Label(
+            f_mon,
+            text="Lê as planilhas de credores, pula os processos já mapeados e "
+                 "busca os novos nos tribunais.",
+            font=_FONT_BASE, wraplength=360, justify="left",
+        ).pack(side="left", fill="x", expand=True)
+        self._btn_monitor_parar = ttk.Button(
+            f_mon, text="Parar", command=self._parar_monitoramento,
+            bootstyle="danger-outline", width=8, state="disabled",
+        )
+        self._btn_monitor_parar.pack(side="right")
+        self._btn_monitor = ttk.Button(
+            f_mon, text="🔄  Sincronizar planilhas & mapear",
+            command=self._iniciar_monitoramento, bootstyle="success", width=32,
+        )
+        self._btn_monitor.pack(side="right", padx=(0, 8))
 
         # ── Modelos de petição (full-width, acima do painel de processos) ─
         f_templates = ttk.Labelframe(
@@ -952,9 +1008,23 @@ class App(ttk.Window):
         fica ABERTO (scraper retido), como no modo debug da busca online."""
         if self._autojur_worker is not None and self._autojur_worker.is_alive():
             return
-        if self._autojur_scraper is not None:
-            self._autojur_log_queue.put("O navegador do Autojur já está aberto.\n")
+        # Evita abrir um 2º Chrome no MESMO perfil persistente enquanto o
+        # pré-login ainda loga (o perfil só aceita um processo por vez).
+        pre = self._autojur_prelogin_worker
+        if pre is not None and pre.is_alive():
+            self._autojur_log_queue.put(
+                "Autojur: pré-login em andamento — aguarde alguns segundos.\n"
+            )
             return
+        if self._autojur_scraper is not None:
+            if self._sessao_autojur_viva(self._autojur_scraper):
+                self._autojur_log_queue.put("O navegador do Autojur já está aberto.\n")
+                return
+            # Sessão retida morreu (navegador fechado por fora): descarta e reabre.
+            with contextlib.suppress(Exception):
+                self._autojur_scraper.fechar()
+            self._autojur_scraper = None
+            self._autojur_scraper_headless = None
         self._btn_autojur_abrir.configure(state="disabled")
         self.progress_autojur.start(15)
         self.var_status.set("Autojur: abrindo navegador e logando...")
@@ -973,7 +1043,7 @@ class App(ttk.Window):
                     # O .env é carregado sob demanda (como na busca online) —
                     # é dele que saem email_autojur/senha_autojur e o IMAP do 2FA.
                     from dotenv import load_dotenv
-                    from .config import CONFIG_ENV_PATH
+                    from .config import CONFIG_ENV_PATH, AUTOJUR_PROFILE_DIR
                     from .scraper import _preparar_env_local
                     _preparar_env_local()
                     load_dotenv(CONFIG_ENV_PATH)
@@ -982,7 +1052,11 @@ class App(ttk.Window):
                     # Aba Autojur é dev-only (ferramenta de inspeção): sempre
                     # visível. O headless de produção vale para o envio de
                     # petições (_garantir_autojur_logado), fora do modo dev.
-                    scraper = AutojurScraper(headless=False)
+                    # Mesmo perfil persistente do envio: pula o 2FA nas próximas.
+                    AUTOJUR_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+                    scraper = AutojurScraper(
+                        headless=False, user_data_dir=str(AUTOJUR_PROFILE_DIR),
+                    )
                     try:
                         scraper.login()
                     except Exception:
@@ -999,6 +1073,7 @@ class App(ttk.Window):
         """Fecha o navegador do Autojur (em thread, pois quit() pode demorar)."""
         scraper = self._autojur_scraper
         self._autojur_scraper = None
+        self._autojur_scraper_headless = None
         self._btn_autojur_fechar.configure(state="disabled")
         self._btn_autojur_abrir.configure(state="normal")
         self._btn_autojur_tarefa.configure(state="disabled")
@@ -1032,6 +1107,9 @@ class App(ttk.Window):
                 self.progress_autojur.stop()
                 if tipo == "ok":
                     self._autojur_scraper = payload
+                    # Aba Autojur abre sempre visível (headless=False): registra
+                    # p/ o envio saber se precisa recriar por visibilidade.
+                    self._autojur_scraper_headless = False
                     self._btn_autojur_fechar.configure(state="normal")
                     self._btn_autojur_tarefa.configure(state="normal")
                     self._autojur_log_queue.put(
@@ -1058,8 +1136,17 @@ class App(ttk.Window):
 
     def _autojur_criar_tarefa(self) -> None:
         """Dispara a criação da tarefa de Protocolo no scraper logado (thread)."""
-        if self._autojur_scraper is None:
-            self._autojur_log_queue.put("! Faça login no Autojur primeiro.\n")
+        if self._autojur_scraper is None or not self._sessao_autojur_viva(self._autojur_scraper):
+            if self._autojur_scraper is not None:
+                with contextlib.suppress(Exception):
+                    self._autojur_scraper.fechar()
+                self._autojur_scraper = None
+                self._autojur_scraper_headless = None
+                self._btn_autojur_abrir.configure(state="normal")
+                self._btn_autojur_tarefa.configure(state="disabled")
+            self._autojur_log_queue.put(
+                "! Sessão do Autojur indisponível — clique em 'Abrir navegador'.\n"
+            )
             return
         if self._autojur_tarefa_worker is not None and self._autojur_tarefa_worker.is_alive():
             return
@@ -1281,6 +1368,14 @@ class App(ttk.Window):
         ttk.Checkbutton(
             f_acoes, text="Salvar tarefas no Autojur", variable=self.var_autojur_salvar_prod,
             command=self._toggle_autojur_salvar, bootstyle="danger-round-toggle",
+        ).pack(side="right", padx=(0, 16))
+        ttk.Checkbutton(
+            f_acoes, text="Visualizar navegador do Autojur", variable=self.var_autojur_visualizar,
+            command=self._toggle_autojur_visualizar, bootstyle="info-round-toggle",
+        ).pack(side="right", padx=(0, 16))
+        ttk.Checkbutton(
+            f_acoes, text="Pré-logar no Autojur ao abrir (oculto)", variable=self.var_autojur_prelogin,
+            command=self._toggle_autojur_prelogin, bootstyle="success-round-toggle",
         ).pack(side="right", padx=(0, 16))
 
         self._carregar_config_na_ui()
@@ -1830,6 +1925,121 @@ class App(ttk.Window):
         finally:
             self.after(150, self._drain_busca_result)
 
+    # -- monitoramento: planilhas → mapeamento de sistema ------------------
+    def _iniciar_monitoramento(self, auto: bool = False) -> None:
+        """Dispara uma passada de monitoramento (planilhas → mapeamento) numa
+        thread. Lê as planilhas, pula os já mapeados e raspa os pendentes.
+
+        ``auto=True`` = disparo silencioso semanal: não abre pop-up de erro nem
+        avisa quando as planilhas já estão em dia."""
+        if self._monitor_worker and self._monitor_worker.is_alive():
+            if not auto:
+                self.var_status.set("Monitoramento já está rodando.")
+            return
+        self._monitor_cancel.clear()
+        self._btn_monitor.configure(state="disabled")
+        self._btn_monitor_parar.configure(state="normal")
+        self.var_status.set("Sincronizando planilhas e mapeando processos...")
+        self._pesquisa_log_queue.put(
+            "\n=== Monitoramento: planilhas → mapeamento de sistema ===\n"
+        )
+        headless = self.var_busca_headless.get()
+
+        def _log(msg: str) -> None:
+            self._pesquisa_log_queue.put(msg + "\n")
+
+        def run() -> None:
+            # COM precisa ser inicializado por thread (selenium/win32 podem usar).
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+            writer = _LogWriter(self._pesquisa_log_queue.put)
+            try:
+                # Sob pythonw, sys.stdout é None: redireciona os print() do motor/
+                # scraper para o log da aba (e evita que print() quebre).
+                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                    from organizador import monitoramento
+                    resumo = monitoramento.rodar_passada(
+                        headless=headless, log=_log, cancel=self._monitor_cancel,
+                    )
+                self._monitor_result_queue.put(("ok", resumo, auto))
+            except Exception as exc:
+                self._monitor_result_queue.put(("erro", str(exc), auto))
+
+        self._monitor_worker = threading.Thread(target=run, daemon=True)
+        self._monitor_worker.start()
+
+    def _parar_monitoramento(self) -> None:
+        """Sinaliza o cancelamento; a passada para no próximo processo (o atual
+        termina para não deixar a sessão do navegador num estado sujo)."""
+        self._monitor_cancel.set()
+        self._btn_monitor_parar.configure(state="disabled")
+        self.var_status.set("Parando o monitoramento após o processo atual...")
+        self._pesquisa_log_queue.put(
+            "⏹️ parada solicitada — aguardando o processo atual terminar...\n"
+        )
+
+    def _drain_monitor_result(self) -> None:
+        """Drena o resultado do monitoramento na main thread (Tkinter não é
+        thread-safe): reabilita os botões, avisa e recarrega a lista."""
+        try:
+            while True:
+                tipo, payload, auto = self._monitor_result_queue.get_nowait()
+                self._btn_monitor.configure(state="normal")
+                self._btn_monitor_parar.configure(state="disabled")
+                if tipo == "ok":
+                    r = payload
+                    msg = (f"{r.get('mapeados_agora', 0)} mapeados agora • "
+                           f"{r.get('nao_encontrados', 0)} não encontrados • "
+                           f"{r.get('ja_mapeados', 0)} já estavam mapeados "
+                           f"(de {r.get('total', 0)} nas planilhas).")
+                    self.var_status.set("Monitoramento concluído: " + msg)
+                    self._pesquisa_log_queue.put("✔️ " + msg + "\n")
+                    # Novos processos no cache → recarrega a lista p/ aparecerem.
+                    if r.get("mapeados_agora"):
+                        with contextlib.suppress(Exception):
+                            self._recarregar_pesquisa()
+                    # Só notifica se foi manual OU se houve trabalho (evita pop-up
+                    # no disparo semanal silencioso quando já está tudo em dia).
+                    if not auto or r.get("mapeados_agora"):
+                        self._notificar("Monitoramento", msg, nivel="info")
+                    from datetime import datetime as _dt
+                    _salvar_ui_state(
+                        ultimo_monitoramento=_dt.now().isoformat(timespec="seconds")
+                    )
+                else:
+                    self._pesquisa_log_queue.put(f"! Erro no monitoramento: {payload}\n")
+                    self.var_status.set("Monitoramento: erro (ver detalhes).")
+                    if not auto:
+                        self._notificar("Monitoramento", str(payload), nivel="error")
+        except queue.Empty:
+            pass
+        finally:
+            self.after(200, self._drain_monitor_result)
+
+    def _verificar_monitoramento_semanal(self) -> None:
+        """Na abertura do app, dispara o monitoramento em silêncio se já se
+        passaram ≥ 7 dias desde a última passada bem-sucedida (cadência semanal).
+        Best-effort: qualquer falha é ignorada (nunca trava a abertura)."""
+        try:
+            from datetime import datetime, timedelta
+            ultimo = _carregar_ui_state().get("ultimo_monitoramento")
+            if ultimo:
+                try:
+                    quando = datetime.fromisoformat(ultimo)
+                except ValueError:
+                    quando = None
+                if quando is not None and (datetime.now() - quando) < timedelta(days=7):
+                    return  # ainda dentro da janela semanal
+            self._pesquisa_log_queue.put(
+                "🗓️ monitoramento semanal: iniciando passada automática...\n"
+            )
+            self._iniciar_monitoramento(auto=True)
+        except Exception:
+            pass
+
     def _preencher_tree(self, processos: list[Processo]) -> None:
         for item in self.tree.get_children():
             self.tree.delete(item)
@@ -1864,6 +2074,37 @@ class App(ttk.Window):
             "Autojur: tarefas serão SALVAS." if ativo
             else "Autojur: tarefas só preenchidas (não salvas)."
         )
+
+    def _toggle_autojur_visualizar(self) -> None:
+        """Persiste a preferência de visualizar o navegador do Autojur."""
+        ativo = bool(self.var_autojur_visualizar.get())
+        _salvar_ui_state(autojur_visualizar=ativo)
+        self.var_status.set(
+            "Autojur: navegador VISÍVEL." if ativo
+            else "Autojur: navegador oculto (salvo em conferência)."
+        )
+
+    def _toggle_autojur_prelogin(self) -> None:
+        """Persiste a preferência de pré-login; se ligada agora, aquece já."""
+        ativo = bool(self.var_autojur_prelogin.get())
+        _salvar_ui_state(autojur_prelogin=ativo)
+        if ativo:
+            self._iniciar_prelogin_autojur()
+            self.var_status.set("Autojur: pré-login em 2º plano...")
+        else:
+            self.var_status.set("Autojur: pré-login desligado.")
+
+    def _autojur_headless(self, salvar: bool, visualizar: bool | None = None) -> bool:
+        """Regra única de visibilidade do navegador do Autojur.
+
+        Fica VISÍVEL (headless=False) sempre que: `salvar` está desligado (a
+        pessoa vai conferir os dados), OU "Visualizar navegador" está ligado,
+        OU o modo desenvolvedor está ligado. Caso contrário roda oculto.
+        """
+        if visualizar is None:
+            visualizar = bool(self.var_autojur_visualizar.get())
+        visivel = (not salvar) or visualizar or bool(self.var_modo_dev.get())
+        return not visivel
 
     def _aplicar_modo_dev(self) -> None:
         """Mostra/oculta os elementos avançados conforme o modo dev:
@@ -2242,6 +2483,11 @@ class App(ttk.Window):
                     obrigatorias.add(PLACEHOLDERS_PETICAO[ph])
                 elif ph in PLACEHOLDERS_AUTO:
                     # Resolvido automaticamente — não pede ao usuário.
+                    continue
+                elif _eh_disjuncao_flexao(ph):
+                    # Disjunção de concordância (ex.: "o ou a ou os ou as",
+                    # "pela ou pelo ou pelos ou pelas") — o sistema resolve por
+                    # gênero+número do polo na geração; não pede ao usuário.
                     continue
                 else:
                     desconhecidos.add(ph)
@@ -2624,8 +2870,8 @@ class App(ttk.Window):
             ).pack(fill="x", pady=(4, 0))
 
         # Integração Autojur: guarda os PDFs gerados e oferece "Enviar ao Autojur"
-        # (1 tarefa de Protocolo por PDF). Só aparece se houver PDF (o protocolo
-        # anexa PDF) — se a pessoa gerou só .docx, orienta a ligar a opção PDF.
+        # (1 tarefa de Protocolo com TODOS os PDFs anexados). Só aparece se houver
+        # PDF (o protocolo anexa PDF) — se gerou só .docx, orienta a ligar o PDF.
         self._ultimos_pdfs_gerados = [
             Path(a) for a in arquivos if Path(a).suffix.lower() == ".pdf"
         ]
@@ -2634,7 +2880,7 @@ class App(ttk.Window):
             n = len(self._ultimos_pdfs_gerados)
             ttk.Button(
                 frame,
-                text=f"🚀  Enviar ao Autojur ({n} tarefa{'s' if n > 1 else ''} de Protocolo)",
+                text=f"🚀  Enviar ao Autojur (1 tarefa · {n} anexo{'s' if n > 1 else ''})",
                 bootstyle="primary",
                 command=self._enviar_peticoes_autojur,
             ).pack(fill="x", pady=(2, 0))
@@ -2729,7 +2975,7 @@ class App(ttk.Window):
         top.title("Enviar ao Autojur")
         top.transient(self)
         top.grab_set()
-        top.geometry("640x560")
+        top.geometry("640x600")
 
         frm = ttk.Frame(top, padding=12)
         frm.pack(fill="both", expand=True)
@@ -2768,19 +3014,51 @@ class App(ttk.Window):
         txt_cont.insert("1.0", "Protocolo de peça processual")
         txt_cont.grid(row=3, column=1, sticky="ew", pady=4)
 
-        ttk.Label(
-            frm, text=f"Petições a enviar ({len(pdfs)} — uma tarefa cada):",
-            font=_FONT_BOLD,
-        ).grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 2))
-        vars_pdf: list = []
-        for i, pdf in enumerate(pdfs):
-            v = tk.BooleanVar(value=True)
-            vars_pdf.append((v, pdf))
-            ttk.Checkbutton(
-                frm, text=f"📄  {Path(pdf).name}", variable=v, bootstyle="info",
-            ).grid(row=5 + i, column=0, columnspan=2, sticky="w", pady=1)
+        # Cabeçalho da lista (contador dinâmico) + lista de PDFs em container
+        # próprio, para poder anexar arquivos extras sem quebrar o layout.
+        lbl_lista = ttk.Label(frm, font=_FONT_BOLD)
+        lbl_lista.grid(row=4, column=0, sticky="w", pady=(8, 2))
 
-        base = 5 + len(pdfs)
+        frm_pdfs = ttk.Frame(frm)
+        frm_pdfs.grid(row=5, column=0, columnspan=2, sticky="ew")
+
+        # Fonte da verdade da lista (mutável): [ (BooleanVar marcado?, caminho) ].
+        vars_pdf: list = [(tk.BooleanVar(value=True), pdf) for pdf in pdfs]
+
+        def _render_pdfs() -> None:
+            for w in frm_pdfs.winfo_children():
+                w.destroy()
+            for i, (v, pdf) in enumerate(vars_pdf):
+                ttk.Checkbutton(
+                    frm_pdfs, text=f"📄  {Path(pdf).name}", variable=v, bootstyle="info",
+                ).grid(row=i, column=0, sticky="w", pady=1)
+            lbl_lista.configure(
+                text=f"Arquivos a anexar ({len(vars_pdf)} — todos em UMA tarefa):"
+            )
+
+        def _adicionar_arquivo() -> None:
+            caminhos = filedialog.askopenfilenames(
+                parent=top, title="Adicionar arquivo(s) ao envio",
+                filetypes=[("PDF", "*.pdf"), ("Todos", "*.*")],
+            )
+            existentes = {str(p) for _, p in vars_pdf}
+            novos = 0
+            for c in caminhos:
+                if c and str(c) not in existentes:
+                    vars_pdf.append((tk.BooleanVar(value=True), c))
+                    existentes.add(str(c))
+                    novos += 1
+            if novos:
+                _render_pdfs()
+
+        ttk.Button(
+            frm, text="➕  Adicionar arquivo", command=_adicionar_arquivo,
+            bootstyle="outline-primary", width=20,
+        ).grid(row=4, column=1, sticky="e", pady=(8, 2))
+
+        _render_pdfs()
+
+        base = 6
         # Default = preferência global (Configurações). No teste fica desligado;
         # em produção, ligado. A pessoa ainda pode ajustar pontualmente aqui.
         var_salvar = tk.BooleanVar(value=bool(self.var_autojur_salvar_prod.get()))
@@ -2789,6 +3067,14 @@ class App(ttk.Window):
             text="Salvar automaticamente no Autojur (senão só preenche p/ conferência)",
             variable=var_salvar, bootstyle="warning-round-toggle",
         ).grid(row=base, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        # Visualizar o navegador (default = preferência global). Com "salvar"
+        # desligado o navegador já é sempre visível, independentemente daqui.
+        var_visualizar = tk.BooleanVar(value=bool(self.var_autojur_visualizar.get()))
+        ttk.Checkbutton(
+            frm,
+            text="Visualizar navegador (mostra o Chrome mesmo salvando)",
+            variable=var_visualizar, bootstyle="info-round-toggle",
+        ).grid(row=base + 1, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         f_b = ttk.Frame(top)
         f_b.pack(fill="x", padx=12, pady=12)
@@ -2804,6 +3090,7 @@ class App(ttk.Window):
                 "lote": var_lote.get().strip().lower().replace(" ", "_"),
                 "conteudo": txt_cont.get("1.0", "end").strip(),
                 "salvar": bool(var_salvar.get()),
+                "visualizar": bool(var_visualizar.get()),
                 "pdfs": selecionados,
             }
             if not dados["numero"]:
@@ -2820,41 +3107,112 @@ class App(ttk.Window):
         ttk.Button(f_b, text="Cancelar", command=top.destroy,
                    bootstyle="secondary-outline", width=12).pack(side="right", padx=(0, 8))
 
-    def _garantir_autojur_logado(self, headless: bool = True):
-        """Retorna o scraper logado; se não houver sessão, faz login sob demanda.
-        Roda no WORKER (login é bloqueante ~2 min por causa do 2FA).
-        `headless`: navegador oculto (produção) ou visível (modo dev/debug)."""
-        if self._autojur_scraper is not None:
-            return self._autojur_scraper
-        self._pesquisa_log_queue.put("Autojur: sem sessão — fazendo login (2FA por e-mail)...\n")
-        from dotenv import load_dotenv
-        from .config import CONFIG_ENV_PATH
-        from .scraper import _preparar_env_local
-        from .integracoes.tjsp_scraper.scrapers.autojur import AutojurScraper
-        _preparar_env_local()
-        load_dotenv(CONFIG_ENV_PATH)
-        scraper = AutojurScraper(headless=headless)
+    @staticmethod
+    def _sessao_autojur_viva(scraper) -> bool:
+        """A sessão retida ainda está viva? (navegador aberto e conectado).
+        Uma chamada barata ao driver levanta se a sessão morreu — 'invalid
+        session id' / 'not connected to DevTools' quando o Chrome foi fechado
+        por fora, crashou ou teve o processo morto."""
         try:
-            scraper.login()
+            _ = scraper.driver.window_handles
+            return True
         except Exception:
-            scraper.fechar()
-            raise
-        self._autojur_scraper = scraper
-        # habilita os controles da aba Autojur (na main thread)
-        self.after(0, lambda: (
-            self._btn_autojur_fechar.configure(state="normal"),
-            self._btn_autojur_tarefa.configure(state="normal"),
-            self._btn_autojur_abrir.configure(state="disabled"),
-        ))
-        return scraper
+            return False
+
+    def _garantir_autojur_logado(self, headless: bool = True):
+        """Retorna o scraper logado; se não houver sessão (ou ela morreu), faz
+        login sob demanda. Roda no WORKER (login é bloqueante — 2FA por e-mail
+        só na 1ª vez, pois o perfil persistente dispensa o 2FA nas seguintes).
+        `headless`: visibilidade desejada. Se já há uma sessão com visibilidade
+        diferente (ou morta), o navegador é recriado (barato com perfil
+        persistente)."""
+        from .config import AUTOJUR_PROFILE_DIR
+        # Serializa criação/relogin (pré-login x envio não podem correr juntos).
+        with self._autojur_login_lock:
+            if self._autojur_scraper is not None:
+                if (self._autojur_scraper_headless == headless
+                        and self._sessao_autojur_viva(self._autojur_scraper)):
+                    return self._autojur_scraper
+                # Visibilidade mudou OU a sessão morreu (navegador fechado por
+                # fora / crash): fecha (se der) e recria — barato com o perfil
+                # persistente (sem novo 2FA).
+                self._pesquisa_log_queue.put(
+                    "Autojur: sessão indisponível — reabrindo o navegador...\n"
+                )
+                with contextlib.suppress(Exception):
+                    self._autojur_scraper.fechar()
+                self._autojur_scraper = None
+                self._autojur_scraper_headless = None
+            self._pesquisa_log_queue.put(
+                "Autojur: sem sessão — logando (2FA por e-mail só na 1ª vez)...\n"
+            )
+            from dotenv import load_dotenv
+            from .config import CONFIG_ENV_PATH
+            from .scraper import _preparar_env_local
+            from .integracoes.tjsp_scraper.scrapers.autojur import AutojurScraper
+            _preparar_env_local()
+            load_dotenv(CONFIG_ENV_PATH)
+            AUTOJUR_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+            scraper = AutojurScraper(
+                headless=headless, user_data_dir=str(AUTOJUR_PROFILE_DIR),
+            )
+            try:
+                scraper.login()
+            except Exception:
+                scraper.fechar()
+                raise
+            self._autojur_scraper = scraper
+            self._autojur_scraper_headless = headless
+            # habilita os controles da aba Autojur (na main thread)
+            self.after(0, lambda: (
+                self._btn_autojur_fechar.configure(state="normal"),
+                self._btn_autojur_tarefa.configure(state="normal"),
+                self._btn_autojur_abrir.configure(state="disabled"),
+            ))
+            return scraper
+
+    def _iniciar_prelogin_autojur(self) -> None:
+        """Aquece a sessão do Autojur em 2º plano (worker daemon), sem travar a
+        GUI. Reutiliza _garantir_autojur_logado (idempotente + lock).
+
+        Sobe SEMPRE OCULTO (headless): a sessão fica pronta em background. Só
+        quando o envio precisar de conferência (salvar=False / Visualizar
+        navegador) é que o navegador é recriado visível — em segundos, pois o
+        perfil persistente dispensa novo 2FA."""
+        w = self._autojur_prelogin_worker
+        if w is not None and w.is_alive():
+            return
+        if self._autojur_scraper is not None:
+            return
+        headless = True  # pré-login sempre oculto; vira visível sob demanda
+
+        def run() -> None:
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+            except Exception:
+                pass
+            writer = _LogWriter(self._pesquisa_log_queue.put)
+            try:
+                with contextlib.redirect_stdout(writer), contextlib.redirect_stderr(writer):
+                    self._garantir_autojur_logado(headless=headless)
+                self._pesquisa_log_queue.put("✅ Autojur: sessão pré-logada e pronta.\n")
+            except Exception as exc:
+                self._pesquisa_log_queue.put(f"Autojur: pré-login falhou: {exc}\n")
+
+        self._autojur_prelogin_worker = threading.Thread(target=run, daemon=True)
+        self._autojur_prelogin_worker.start()
 
     def _disparar_envio_autojur(self, dados: dict) -> None:
         """Worker: garante login e cria uma tarefa de Protocolo por PDF."""
         self.progress_pesquisa.start(15)
         self.var_status.set("Autojur: enviando petições...")
-        # Produção: navegador OCULTO (headless). No modo desenvolvedor, visível
-        # para depuração. Lido aqui (main thread) — Tkinter não é thread-safe.
-        headless = not bool(self.var_modo_dev.get())
+        # Visibilidade pela regra única: visível quando NÃO salvar (conferência),
+        # quando "Visualizar navegador" está ligado ou no modo dev; senão oculto.
+        # Lido aqui (main thread) — Tkinter não é thread-safe.
+        headless = self._autojur_headless(
+            salvar=bool(dados.get("salvar")), visualizar=dados.get("visualizar"),
+        )
 
         def run() -> None:
             try:
@@ -2868,21 +3226,21 @@ class App(ttk.Window):
                     scraper = self._garantir_autojur_logado(headless=headless)
                     pdfs = dados["pdfs"]
                     total = len(pdfs)
-                    for i, pdf in enumerate(pdfs, 1):
-                        self._pesquisa_log_queue.put(
-                            f"[{i}/{total}] Autojur: tarefa para {Path(pdf).name}\n"
-                        )
-                        scraper.criar_tarefa_protocolo(
-                            numero_processo=dados["numero"],
-                            conteudo=dados["conteudo"],
-                            local=dados["local"],
-                            lote=dados["lote"],
-                            pdf_path=str(pdf),
-                            requer_protocolo=True,
-                            salvar=dados["salvar"],
-                            escolher_resultado=self._autojur_escolher_resultado,
-                            log=self._pesquisa_log_queue.put,
-                        )
+                    # UMA tarefa com TODOS os anexos (não uma tarefa por PDF).
+                    self._pesquisa_log_queue.put(
+                        f"Autojur: criando 1 tarefa com {total} anexo(s)...\n"
+                    )
+                    scraper.criar_tarefa_protocolo(
+                        numero_processo=dados["numero"],
+                        conteudo=dados["conteudo"],
+                        local=dados["local"],
+                        lote=dados["lote"],
+                        pdf_paths=[str(p) for p in pdfs],
+                        requer_protocolo=True,
+                        salvar=dados["salvar"],
+                        escolher_resultado=self._autojur_escolher_resultado,
+                        log=self._pesquisa_log_queue.put,
+                    )
                 self._envio_autojur_result_queue.put(("ok", (total, dados["salvar"])))
             except Exception as exc:
                 self._envio_autojur_result_queue.put(("erro", str(exc)))
@@ -2898,8 +3256,9 @@ class App(ttk.Window):
                 self.progress_pesquisa.stop()
                 if tipo == "ok":
                     total, salvou = payload
-                    msg = (f"{total} tarefa(s) {'salva(s)' if salvou else 'preenchida(s) (não salvas)'} "
-                           "no Autojur.")
+                    estado_tarefa = "salva" if salvou else "preenchida (não salva)"
+                    msg = (f"1 tarefa {estado_tarefa} no Autojur "
+                           f"com {total} anexo(s).")
                     self.var_status.set(f"Autojur: {msg}")
                     # O navegador fica ABERTO para conferência — só fecha pelo
                     # botão 'Fechar navegador' da aba Autojur.
@@ -2997,4 +3356,8 @@ class App(ttk.Window):
 
 def main() -> None:
     app = App()
+    # Pré-login do Autojur em 2º plano, se ligado (aquece a sessão sem travar a
+    # GUI; na 1ª vez pede o 2FA por e-mail, depois o perfil persistente pula).
+    if bool(app.var_autojur_prelogin.get()):
+        app._iniciar_prelogin_autojur()
     app.mainloop()
