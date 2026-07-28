@@ -15,8 +15,10 @@ from .padroes import PAPEIS_ATIVO, PAPEIS_PASSIVO
 # Heurística de seções da petição. HEADER = endereçamento; CLOSING = fórmula de
 # fechamento ("Termos em que pede deferimento"); BODY = todo o resto.
 RE_ENDERECAMENTO = re.compile(
-    r"^\s*(EXCELENT[IÍ]SSIM|MERIT[IÍ]SSIM|AO\s+JU[IÍ]ZO|JU[IÍ]Z(\(A\))?|VARA\s+|"
-    r"FORO\s+|COMARCA\s+|TRIBUNAL\s+)",
+    # "AO JUÍZO", "AO DOUTO JUÍZO", "AO EGRÉGIO JUÍZO", "AO MM. JUÍZO" — aceita um
+    # adjetivo/pronome de tratamento opcional entre "AO" e "JUÍZO".
+    r"^\s*(EXCELENT[IÍ]SSIM|MERIT[IÍ]SSIM|AO\s+(?:\w+\.?\s+)?JU[IÍ]ZO|JU[IÍ]Z(\(A\))?|"
+    r"VARA\s+|FORO\s+|COMARCA\s+|TRIBUNAL\s+)",
     re.IGNORECASE,
 )
 RE_FECHAMENTO = re.compile(
@@ -67,6 +69,11 @@ def _strip_accents(s: str) -> str:
     return "".join(
         c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c)
     )
+
+
+# Preposições/artigos sem acento (à/às → a/as), p/ testar a palavra que antecede
+# um papel processual "solto" na flexão do BODY.
+_PREPS_NORM: set[str] = {_strip_accents(p).lower() for p in TODAS_PREPS}
 
 
 def _detectar_genero(nome: str, tipo: str) -> str:
@@ -250,6 +257,22 @@ def _flex_judicial_treatment(texto: str, ctx: Contexto | None) -> str:
     return texto
 
 
+# "parte(s)" imediatamente antes de um papel processual: o papel vira adjetivo
+# e concorda com "parte" (feminino), no número da própria "parte" — não no nº
+# de autores/réus do processo. Ex.: "a parte exequente" fica singular mesmo com
+# vários exequentes; "as partes executadas" fica plural.
+_RE_PARTE_ANTES = re.compile(r"\b(partes?)\s+$", re.IGNORECASE)
+
+
+def _concordancia_com_parte(texto: str, ini: int) -> str | None:
+    """Se o trecho antes de `ini` termina em 'parte '/'partes ', devolve o número
+    ('s'/'p') com que o papel deve concordar; senão, None."""
+    m = _RE_PARTE_ANTES.search(texto[:ini])
+    if not m:
+        return None
+    return "p" if m.group(1).lower() == "partes" else "s"
+
+
 def _inflexionar_texto(texto: str, ctx: Contexto | None) -> str:
     """Aplica flexão sobre vocabulário controlado, preservando capitalização."""
     if not ctx or not texto:
@@ -285,6 +308,20 @@ def _inflexionar_texto(texto: str, ctx: Contexto | None) -> str:
         side = ROLE_TO_SIDE.get(base)
         if not side:
             return m.group(0)
+        # "a parte exequente"/"a parte executada": aqui o papel é ADJETIVO de
+        # "parte" (fem.), então concorda com "parte" — NÃO com o nº de autores/
+        # réus. Sem isto, autor no plural gerava "a parte exequentes" (errado).
+        num_parte = _concordancia_com_parte(m.string, m.start())
+        if num_parte is not None:
+            return _preservar_caso(forma_orig, FLEXOES[base]["f" + num_parte])
+        # Fora do caso "parte <papel>": só flexiona quando o papel é o NÚCLEO
+        # nominal — i.e. no início da oração ou logo após artigo/preposição
+        # ("os executados", "do devedor"). Se vier logo após outra palavra, o
+        # termo é adjetivo/composto e NÃO deve flexionar (ex.: "saldo devedor",
+        # que senão viraria "saldo devedores" com réu no plural).
+        mprev = re.search(r"([0-9A-Za-zÀ-ÿ]+)\W*$", m.string[: m.start()])
+        if mprev and _strip_accents(mprev.group(1)).lower() not in _PREPS_NORM:
+            return m.group(0)
         g = ctx.genero_autor if side == "autor" else ctx.genero_reu
         n = ctx.numero_autor if side == "autor" else ctx.numero_reu
         forma_nova = FLEXOES[base][g + n]
@@ -315,6 +352,42 @@ _RE_DISJUNCAO_FLEXAO = re.compile(r"\(([^()]{2,150})\)")
 _RE_SEP_OU = re.compile(r"\s+ou\s+", re.IGNORECASE)
 
 
+# Sufixo → chave gênero×número do paradigma regular de adjetivo/particípio.
+_SUFIXO_PARA_KEY: dict[str, str] = {"os": "mp", "as": "fp", "o": "ms", "a": "fs"}
+
+
+def _paradigma_genero_numero(alts: list[str]) -> dict[str, str] | None:
+    """Se `alts` são as 4 formas de um paradigma regular gênero×número de um
+    MESMO lema terminando em -o/-a/-os/-as (ex.: qualificado / qualificada /
+    qualificados / qualificadas), devolve {'ms','fs','mp','fp' -> forma original}.
+    Senão, None.
+
+    Restrito ao paradigma completo de 4 vias: enumerar as quatro formas só faz
+    sentido como disjunção de concordância, então é seguro resolver sem input
+    manual. Disjunções de 2 vias (ex.: "dia ou dias") ficam de fora — poderiam
+    ser enumerações comuns, não concordância, e são tratadas só para as famílias
+    conhecidas (preposições/artigos e papéis de FLEXOES)."""
+    if len(alts) != 4:
+        return None
+    mapa: dict[str, str] = {}
+    stems: set[str] = set()
+    for a in alts:
+        norm = _strip_accents(a).lower()
+        for suf in ("os", "as", "o", "a"):  # mais longos primeiro
+            if norm.endswith(suf) and len(norm) - len(suf) >= 3:
+                key = _SUFIXO_PARA_KEY[suf]
+                if key in mapa:  # sufixo repetido: não é o paradigma esperado
+                    return None
+                mapa[key] = a
+                stems.add(norm[: len(norm) - len(suf)])
+                break
+        else:
+            return None
+    if len(stems) != 1 or set(mapa) != {"ms", "fs", "mp", "fp"}:
+        return None
+    return mapa
+
+
 def _escolher_forma_disjuncao(alts: list[str], ctx: "Contexto") -> str | None:
     """Dada a lista de formas ofertadas, devolve a que concorda com o contexto
     (mantendo a caixa que o modelo escreveu), ou None se não for uma disjunção
@@ -339,6 +412,14 @@ def _escolher_forma_disjuncao(alts: list[str], ctx: "Contexto") -> str | None:
             if k[0] == g:
                 return alts[i]
         return alts[0]
+    # Fora do vocabulário conhecido: paradigma regular de 4 vias (particípio/
+    # adjetivo, ex.: "qualificado ou qualificados ou qualificada ou qualificadas").
+    # Concorda com o réu — mesmo default das preposições, e o caso real destes
+    # modelos ("com (os réus), também já qualificados").
+    mapa = _paradigma_genero_numero(alts)
+    if mapa is not None:
+        alvo = ctx.genero_reu + ctx.numero_reu
+        return mapa.get(alvo, mapa["ms"])
     return None
 
 
@@ -359,7 +440,9 @@ def _eh_disjuncao_flexao(texto: str) -> bool:
         fam_norm = {_strip_accents(v).lower() for v in forms.values()}
         if all(n in fam_norm for n in norm):
             return True
-    return False
+    # Paradigma regular de 4 vias fora do vocabulário (ex.: "qualificado ou
+    # qualificados ou qualificada ou qualificadas") — também é auto-resolvido.
+    return _paradigma_genero_numero(partes) is not None
 
 
 def _resolver_disjuncoes_flexao(texto: str, ctx: "Contexto | None") -> str:

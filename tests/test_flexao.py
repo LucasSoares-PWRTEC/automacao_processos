@@ -104,6 +104,27 @@ def test_inflexionar_artigo_inicial_maiusculo_nao_vira_allcaps():
     assert op._inflexionar_texto("O executado foi intimado.", ctx) == "Os executados foi intimado."
 
 
+def test_inflexionar_nao_flexiona_papel_como_adjetivo():
+    # "saldo devedor": "devedor" é adjetivo de "saldo", não a parte processual.
+    # Com réu no plural, NÃO pode virar "saldo devedores".
+    ctx = Contexto(genero_reu="m", numero_reu="p")
+    assert op._inflexionar_texto(
+        "pagamento do saldo devedor no valor", ctx
+    ) == "pagamento do saldo devedor no valor"
+
+
+def test_inflexionar_papel_apos_artigo_ainda_flexiona():
+    # Núcleo nominal após artigo continua flexionando normalmente.
+    ctx = Contexto(genero_reu="m", numero_reu="p")
+    assert op._inflexionar_texto("os Executado não cumpriram", ctx) == "os Executados não cumpriram"
+
+
+def test_inflexionar_papel_no_inicio_da_oracao_ainda_flexiona():
+    # Sem palavra anterior (início), o papel é o núcleo e flexiona.
+    ctx = Contexto(genero_reu="m", numero_reu="p")
+    assert op._inflexionar_texto("Executado foi intimado", ctx) == "Executados foi intimado"
+
+
 def test_inflexionar_pula_citacao_legal():
     ctx = Contexto(genero_autor="f", numero_autor="s")
     texto = "conforme art. 5º o autor"
@@ -417,3 +438,31 @@ def test_disjuncao_nao_toca_parenteticas_comuns():
 def test_disjuncao_autor_usa_contexto_do_autor():
     R = op._resolver_disjuncoes_flexao
     assert R("(autor ou autora ou autores ou autoras)", _ctx("m", "p", ga="f", na="s")) == "autora"
+
+
+def test_disjuncao_participio_generico_4vias_concorda_com_reu():
+    # Particípio/adjetivo fora do vocabulário (não está em FLEXOES): paradigma
+    # regular de 4 vias -o/-a/-os/-as é resolvido pelo gênero+número do réu.
+    R = op._resolver_disjuncoes_flexao
+    disj = "(qualificado ou qualificados ou qualificada ou qualificadas)"
+    assert R(disj, _ctx("m", "p")) == "qualificados"
+    assert R(disj, _ctx("m", "s")) == "qualificado"
+    assert R(disj, _ctx("f", "s")) == "qualificada"
+    assert R(disj, _ctx("f", "p")) == "qualificadas"
+
+
+def test_disjuncao_generico_independe_da_ordem_e_da_caixa():
+    R = op._resolver_disjuncoes_flexao
+    assert R("(Citada ou Citado ou Citadas ou Citados)", _ctx("m", "p")) == "Citados"
+
+
+def test_disjuncao_generico_so_4vias_nao_toca_2vias():
+    # Enumeração de 2 vias fora do vocabulário pode ser lista comum, não
+    # concordância — não é tocada (ex.: "dia ou dias").
+    R = op._resolver_disjuncoes_flexao
+    assert R("(dia ou dias)", _ctx("m", "p")) == "(dia ou dias)"
+
+
+def test_eh_disjuncao_flexao_reconhece_participio_generico():
+    assert op._eh_disjuncao_flexao("qualificado ou qualificados ou qualificada ou qualificadas") is True
+    assert op._eh_disjuncao_flexao("dia ou dias") is False
