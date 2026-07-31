@@ -56,6 +56,11 @@ AUTOJUR_PROFILE_DIR = APP_DATA_DIR / "autojur_profile"
 # Processos trazidos pela busca online são persistidos aqui (um
 # <numero>/metadados.json por processo) para reaparecerem na lista ao reabrir.
 PROCESSOS_ONLINE_DIR = APP_DATA_DIR / "processos_online"
+# Índice de RESUMO (só campos de exibição/filtro) de todos os processos já no
+# sistema, atualizado incrementalmente por mtime. Torna a carga da lista da aba
+# Pesquisa quase instantânea: sem ele, todos os metadados.json seriam relidos e
+# parseados a cada abertura. O Processo completo é carregado sob demanda.
+PROCESSOS_INDICE_JSON = APP_DATA_DIR / "processos_indice.json"
 # Processos pré-carregados EMBUTIDOS na release (JSON consolidado, gzip), para
 # aparecerem já populados em qualquer máquina onde o app for instalado. Fica em
 # _RAIZ (=_MEIPASS no exe), como config/ e Petições/. Prioridade menor que a

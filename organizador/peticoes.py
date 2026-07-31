@@ -372,7 +372,9 @@ PLACEHOLDERS_PETICAO = {
     "réu ou réus": "reu",
     "reu ou reus": "reu",
     "ré ou rés ou réu ou réus": "reu",
-    "nome ou nomes": "reu",
+    # NB: "(nome ou nomes)" NÃO entra aqui de propósito — não deve virar o nome do
+    # réu. É tratado só em PLACEHOLDERS_AUTO ("nome"/"nomes" por número de réus),
+    # ex.: SERASAJUD "inclusão dos nomes dos executados".
     "executado ou executados": "reu",
     "devedor ou devedores": "reu",
     "empresa ou empresas": "reu",
@@ -714,6 +716,17 @@ def _eh_run_vermelho(run) -> bool:
     return r >= 0x80 and g <= 0x60 and b <= 0x60
 
 
+def _eh_run_roxo(run) -> bool:
+    """O run usa marca-texto ROXO/ROSA?
+
+    Convenção dos modelos: dentro do trecho roxo, as VARIÁVEIS de conteúdo
+    (placeholders de PLACEHOLDERS_PETICAO, ex.: "(nome ou nomes)") ficam
+    LITERAIS — o advogado as preenche à mão — enquanto as conjugações ao redor
+    ("(do ou dos)", "(executado ou executados ...)") são resolvidas normalmente.
+    """
+    return run.font.highlight_color in (WD_COLOR_INDEX.PINK, WD_COLOR_INDEX.VIOLET)
+
+
 def _aplicar_formato_base(destino_run, base_run) -> None:
     """Copia formatação de caractere do run base (sem highlight nem cor)."""
     destino_run.bold = base_run.bold
@@ -801,47 +814,51 @@ def _reescrever_preservando_formato(paragrafo, texto_original: str, texto_final:
 # Sentinelas em área de uso privado do Unicode: mascaram os trechos vermelhos
 # (preenchimento manual) durante substituição/flexão para que passem intactos —
 # nem o regex de placeholders nem a flexão os tocam — e voltem verbatim depois.
+_SENT_ABRE = ""
+_SENT_FECHA = ""
 _RE_SENTINELA = re.compile("(\\d+)")
 
 
 def _reescrever_runs(
     paragrafo,
     texto_mascarado: str,
-    vermelhos: list[tuple[str, object]],
+    preservados: list[tuple[str, object, object]],
 ) -> None:
-    """Reescreve o parágrafo a partir do texto (ainda com sentinelas), trocando
-    cada sentinela pelo trecho vermelho original e mantendo-o em vermelho."""
+    """Reescreve o parágrafo (ainda com sentinelas), trocando cada sentinela pelo
+    trecho preservado original: os vermelhos voltam com sua cor (preenchimento
+    manual); os roxos/rosas voltam com o marca-texto (variável a preencher). Cada
+    entrada de `preservados` é (texto, cor_rgb | None, marca_texto | None)."""
     # Usa um run não-vermelho como base de formatação (cor padrão do corpo).
     base = next(
         (r for r in paragrafo.runs if not _eh_run_vermelho(r)),
         paragrafo.runs[0],
     )
 
-    pedacos: list[tuple[str, object]] = []
+    pedacos: list[tuple[str, object, object]] = []
     pos = 0
     for m in _RE_SENTINELA.finditer(texto_mascarado):
         if m.start() > pos:
-            pedacos.append((texto_mascarado[pos:m.start()], None))
-        txt, rgb = vermelhos[int(m.group(1))]
-        pedacos.append((txt, rgb))
+            pedacos.append((texto_mascarado[pos:m.start()], None, None))
+        pedacos.append(preservados[int(m.group(1))])
         pos = m.end()
     if pos < len(texto_mascarado):
-        pedacos.append((texto_mascarado[pos:], None))
+        pedacos.append((texto_mascarado[pos:], None, None))
     if not pedacos:
-        pedacos.append((texto_mascarado, None))
+        pedacos.append((texto_mascarado, None, None))
+
+    def _aplica_cor_hl(run, rgb, hl) -> None:
+        run.font.highlight_color = hl  # None limpa; PINK/VIOLET preserva o roxo
+        if rgb is not None:
+            run.font.color.rgb = rgb
 
     for run in paragrafo.runs:
         run.text = ""
     base.text = pedacos[0][0]
-    base.font.highlight_color = None
-    if pedacos[0][1] is not None:
-        base.font.color.rgb = pedacos[0][1]
-    for texto_pedaco, rgb in pedacos[1:]:
+    _aplica_cor_hl(base, pedacos[0][1], pedacos[0][2])
+    for texto_pedaco, rgb, hl in pedacos[1:]:
         novo = paragrafo.add_run(texto_pedaco)
         _aplicar_formato_base(novo, base)
-        novo.font.highlight_color = None
-        if rgb is not None:
-            novo.font.color.rgb = rgb
+        _aplica_cor_hl(novo, rgb, hl)
 
 
 def _aplicar_campo_editavel(paragrafo, dados: dict) -> None:
@@ -928,36 +945,68 @@ def _substituir_paragrafo(
     coberto = _cobertura_resolvivel(
         texto_original, dados, ctx=ctx, multiplos_imoveis=multiplos_imoveis,
     )
-    vermelhos: list[tuple[str, object]] = []
+    # Runs com marca-texto ROXO/ROSA: as VARIÁVEIS de conteúdo dentro deles
+    # (placeholders de PLACEHOLDERS_PETICAO, ex.: "(nome ou nomes)") ficam
+    # LITERAIS; só as conjugações ao redor são resolvidas. Marca os caracteres
+    # dessas variáveis para mascará-las como preenchimento manual.
+    roxo_arr: list[bool] = []
+    for run in paragrafo.runs:
+        roxo_arr.extend([_eh_run_roxo(run)] * len(run.text))
+    preservar_roxo = [False] * len(texto_original)
+    if any(roxo_arr):
+        for _ph in PLACEHOLDERS_PETICAO:
+            for m in re.finditer(r"\(" + re.escape(_ph) + r"\)", texto_original, re.IGNORECASE):
+                if all(roxo_arr[i] for i in range(m.start(), m.end())):
+                    for i in range(m.start(), m.end()):
+                        preservar_roxo[i] = True
+
+    # Cada preservado é (texto, cor_rgb | None, marca_texto | None): vermelho leva
+    # cor; roxo leva marca-texto; ambos passam intactos pela substituição/flexão.
+    preservados: list[tuple[str, object, object]] = []
     partes: list[str] = []
     seg_chars: list[str] = []
     seg_rgb: object = None
+    seg_hl: object = None
+    seg_tipo: object = None
 
     def _flush_segmento() -> None:
-        nonlocal seg_rgb
+        nonlocal seg_rgb, seg_hl, seg_tipo
         if not seg_chars:
             return
         segmento = "".join(seg_chars)
         # Segmento só de espaços não vira sentinela: evita colar o dígito da
         # sentinela ao placeholder resolvido vizinho.
         if segmento.strip():
-            partes.append(f"{len(vermelhos)}")
-            vermelhos.append((segmento, seg_rgb))
+            partes.append(f"{_SENT_ABRE}{len(preservados)}{_SENT_FECHA}")
+            preservados.append((segmento, seg_rgb, seg_hl))
         else:
             partes.append(segmento)
         seg_chars.clear()
         seg_rgb = None
+        seg_hl = None
+        seg_tipo = None
 
     pos = 0
     for run in paragrafo.runs:
         vermelho = _eh_run_vermelho(run)
         rgb = run.font.color.rgb if vermelho else None
+        hl = run.font.highlight_color
         for ch in run.text:
             # Vermelho coberto por placeholder resolvível passa intacto (literal),
             # para ser substituído normalmente; o resto do vermelho é mascarado.
             if vermelho and not coberto[pos]:
-                if not seg_chars:
+                if seg_tipo != "vermelho":
+                    _flush_segmento()
+                    seg_tipo = "vermelho"
                     seg_rgb = rgb
+                seg_chars.append(ch)
+            elif preservar_roxo[pos]:
+                # Variável roxa: mascarada p/ ficar literal; as conjugações ao
+                # redor (fora da variável) seguem o caminho normal e resolvem.
+                if seg_tipo != "roxo":
+                    _flush_segmento()
+                    seg_tipo = "roxo"
+                    seg_hl = hl
                 seg_chars.append(ch)
             else:
                 _flush_segmento()
@@ -978,18 +1027,18 @@ def _substituir_paragrafo(
     texto_novo = _atualizar_data_fechamento(texto_novo)
 
     # Texto final desmascarado, para comparação e para o caminho sem vermelho.
-    texto_final = _RE_SENTINELA.sub(lambda m: vermelhos[int(m.group(1))][0], texto_novo)
+    texto_final = _RE_SENTINELA.sub(lambda m: preservados[int(m.group(1))][0], texto_novo)
     if texto_final == texto_original:
         # Nada mudou: preserva os runs originais (e suas cores) intactos.
         return
-    if not vermelhos:
+    if not preservados:
         # Reescreve preservando o formato de caractere do modelo: o valor que
         # substitui um placeholder bold (ex.: "(autor)") continua bold, e o corpo
         # ao redor continua sem negrito — sem o parágrafo inteiro herdar o
         # negrito do 1º run.
         _reescrever_preservando_formato(paragrafo, texto_original, texto_final)
         return
-    _reescrever_runs(paragrafo, texto_novo, vermelhos)
+    _reescrever_runs(paragrafo, texto_novo, preservados)
 
 
 def _remover_highlight_amarelo(paragrafo) -> None:

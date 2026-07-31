@@ -513,6 +513,53 @@ def test_run_vermelho_intacto_quando_flexao_alteraria_o_texto():
 
 
 # --------------------------------------------------------------------------
+# SERASAJUD: "(nome ou nomes)" resolve para nome/nomes (número do réu), NÃO vira
+# o nome do réu; as demais conjugações também resolvem e o marca-texto some.
+# --------------------------------------------------------------------------
+
+def test_nome_ou_nomes_resolve_por_numero_plural():
+    from docx.enum.text import WD_COLOR_INDEX
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    p.add_run("requer a inclusão ")
+    roxo = p.add_run(
+        "(do ou dos) (nome ou nomes) (da ou das ou do ou dos) "
+        "(executado ou executados ou executada ou executadas)"
+    )
+    roxo.font.highlight_color = WD_COLOR_INDEX.PINK
+    p.add_run(" nos cadastros.")
+
+    op._substituir_paragrafo(
+        p, {"reu": "Fulano e Beltrano"},
+        ctx=Contexto(genero_reu="m", numero_reu="p"), zona="BODY",
+    )
+
+    # "(nome ou nomes)" -> "nomes" (não o nome do réu); demais conjugações também.
+    assert p.text == "requer a inclusão dos nomes dos executados nos cadastros."
+    # O marca-texto (marcador de edição) é removido na geração.
+    assert not any(
+        r.font.highlight_color == WD_COLOR_INDEX.PINK for r in p.runs if r.text
+    )
+
+
+def test_nome_ou_nomes_resolve_por_numero_singular_feminino():
+    from docx.enum.text import WD_COLOR_INDEX
+    doc = docx.Document()
+    p = doc.add_paragraph()
+    p.add_run("inclusão ")
+    roxo = p.add_run(
+        "(do ou dos) (nome ou nomes) (da ou das ou do ou dos) "
+        "(executado ou executados ou executada ou executadas)"
+    )
+    roxo.font.highlight_color = WD_COLOR_INDEX.PINK
+    p.add_run(".")
+    op._substituir_paragrafo(
+        p, {"reu": "Maria"}, ctx=Contexto(genero_reu="f", numero_reu="s"), zona="BODY",
+    )
+    assert p.text == "inclusão do nome da executada."
+
+
+# --------------------------------------------------------------------------
 # Ponto 2: "De <origem> para <destino>" colapsa quando origem == destino
 # --------------------------------------------------------------------------
 

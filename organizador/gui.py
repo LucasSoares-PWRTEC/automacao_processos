@@ -21,7 +21,7 @@ from organizador import __version__
 
 from .config import (
     OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, PROCESSOS_BASE_JSON,
-    PROCESSOS_ONLINE_DIR,
+    PROCESSOS_INDICE_JSON, PROCESSOS_ONLINE_DIR,
     TJ_SISTEMAS, UI_STATE_PATH, sugerir_tj_para_uf, uf_efetiva_tj,
 )
 
@@ -63,6 +63,10 @@ from .peticoes import (
 )
 from .pesquisa import (
     carregar_processos_pesquisa, filtrar_processos, linhas_tree_processos,
+)
+from .indice_processos import (
+    ResumoProcesso, _resumo_de_processo,
+    carregar_processo_completo, carregar_resumos_pesquisa,
 )
 from .integracoes.tjsp_scraper.credenciais import listar_credenciais, salvar_credenciais
 from .scraper import (
@@ -251,7 +255,10 @@ class App(ttk.Window):
         self.var_juiz = tk.StringVar(value="")
         self.var_assunto = tk.StringVar(value="")
         self._entries_auto: dict[str, tk.Entry] = {}
-        self._processos_carregados: list[Processo] = []
+        # Lista da aba Pesquisa: só RESUMOS (rápido de carregar). O Processo
+        # completo é carregado sob demanda ao selecionar e memorizado em _full_cache.
+        self._processos_carregados: list[ResumoProcesso] = []
+        self._full_cache: dict[str, Processo] = {}
         self._proc_selecionado: Processo | None = None
         self._templates_vars: dict[Path, tk.BooleanVar] = {}
         self.var_documento_unico = tk.BooleanVar(value=True)
@@ -1713,9 +1720,13 @@ class App(ttk.Window):
 
         def run() -> None:
             try:
-                procs = carregar_processos_pesquisa(pasta, online_dir, base_json)
-                aprender_comarcas(procs)
-                self._pesquisa_load_queue.put(("ok", procs, silencioso))
+                # Carrega só RESUMOS (índice incremental por mtime) — rápido mesmo
+                # com milhares de processos. O completo é lido ao selecionar.
+                resumos = carregar_resumos_pesquisa(
+                    pasta, online_dir, base_json, PROCESSOS_INDICE_JSON,
+                )
+                aprender_comarcas(resumos)  # usa numero/comarca do resumo
+                self._pesquisa_load_queue.put(("ok", resumos, silencioso))
             except Exception as exc:
                 self._pesquisa_load_queue.put(("erro", str(exc), silencioso))
 
@@ -1742,6 +1753,9 @@ class App(ttk.Window):
                 if tipo == "ok":
                     procs = payload
                     self._processos_carregados = procs
+                    # Recarga completa: descarta o cache de Processos completos p/
+                    # não servir detalhe desatualizado de algo que mudou no disco.
+                    self._full_cache.clear()
                     self._filtrar_pesquisa()
                     if not silencioso:
                         self.var_status.set(f"{len(procs)} processo(s) carregado(s).")
@@ -1893,7 +1907,7 @@ class App(ttk.Window):
                     # de origem "Mapeamento: ..." e o valor da causa quando o
                     # online não o trouxe — não perde o que veio da planilha.
                     anterior = next(
-                        (p for p in self._processos_carregados if p.numero == proc.numero), None
+                        (r for r in self._processos_carregados if r.numero == proc.numero), None
                     )
                     if anterior is not None:
                         for t in anterior.tags:
@@ -1901,13 +1915,19 @@ class App(ttk.Window):
                                 proc.tags.insert(0, t)
                         if not proc.valor_causa and anterior.valor_causa:
                             proc.valor_causa = anterior.valor_causa
-                    self._processos_carregados = [
-                        p for p in self._processos_carregados if p.numero != proc.numero
-                    ]
-                    self._processos_carregados.append(proc)
                     aprender_comarcas([proc])
                     # Persiste o processo buscado online para reaparecer ao reabrir.
                     salvar_processo_metadados(proc, PROCESSOS_ONLINE_DIR)
+                    # A lista guarda RESUMOS; o completo vai pro cache p/ seleção
+                    # imediata sem reler o disco. A origem aponta o metadados.json
+                    # recém-gravado (o índice o pega por mtime na próxima carga).
+                    origem = str(PROCESSOS_ONLINE_DIR / proc.numero / "metadados.json")
+                    resumo = _resumo_de_processo(proc, "online", origem)
+                    self._full_cache[proc.numero] = proc
+                    self._processos_carregados = [
+                        r for r in self._processos_carregados if r.numero != proc.numero
+                    ]
+                    self._processos_carregados.append(resumo)
                     self._preencher_tree(self._processos_carregados)
                     if proc.numero and self.tree.exists(proc.numero):
                         self.tree.selection_set(proc.numero)
@@ -2194,10 +2214,24 @@ class App(ttk.Window):
         if not sel:
             return
         numero = sel[0]
-        proc = next((p for p in self._processos_carregados if p.numero == numero), None)
-        self._proc_selecionado = proc
-        if not proc:
+        resumo = next((r for r in self._processos_carregados if r.numero == numero), None)
+        if resumo is None:
+            self._proc_selecionado = None
             return
+        # Carga preguiçosa do Processo completo (com eventos/atos/partes), lida do
+        # metadados.json só agora — e memorizada p/ próximas seleções.
+        proc = self._full_cache.get(numero)
+        if proc is None:
+            proc = carregar_processo_completo(resumo, PROCESSOS_BASE_JSON)
+            if proc is not None:
+                self._full_cache[numero] = proc
+        if proc is None:
+            # metadados.json sumiu desde a última carga: usa o resumo p/ não travar.
+            proc = Processo(
+                numero=resumo.numero, classe=resumo.classe,
+                valor_causa=resumo.valor_causa,
+            )
+        self._proc_selecionado = proc
         campos = [
             ("numero", proc.numero),
             ("tribunal", proc.tribunal or ""),
