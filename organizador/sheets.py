@@ -47,7 +47,7 @@ SHEETS: dict[str, tuple[str, str]] = {
     "Movida Judicial":            ("1ECNr7qtztpZPLaXWogGazk9PeO7NhknYS3Q3nsj0MF8", "Nº PROCESSO"),
     "Grupo Super Nosso Judicial": ("1PkdyMHHAXe8w3yeFhmXZOF9kLckoLcRvJk9R6Asm3EA", "PROCESSO"),
     "VIC Judicial":               ("1wlpxK0RZGkLevObMwkPhe-vQQUnco7NwEBBkcvjVct4", "Processo"),
-    "BVEP":                       ("1c4_qfDnS0b2O7kwgTz5BJI4ZU10GQJgi", "PROCESSO"),
+    "BVEP":                       ("1c4_qfDnS0b2O7kwgTz5BJI4ZU10GQJgi", "Numero Processual"),
     "São José Judicial":          ("1n6HDw79nF_m8p0xAI0lWrCkVecRTzZJI-2GXGJr8M_A", "PROCESSO"),
     "Level/Cantupneus":           ("1X8WH_u75OuqrczNlgbFJRdZbAYY99qc5RMBN8LYTIYA", "PROCESSO"),
 }
@@ -149,37 +149,33 @@ def _baixar_bytes(s, fid: str) -> io.BytesIO:
     return io.BytesIO(r.content)
 
 
-def _parse_aba(xl: pd.ExcelFile, sheet: str, hint: str):
-    """Acha a linha de cabeçalho (que casa a dica OU contém 'processo'/'cnj') e
-    devolve o df; None se a aba não parece ter coluna de processo."""
-    bruto = xl.parse(sheet, dtype=str, header=None)
-    alvo = _norm(hint)
-    for i in range(min(MAX_HDR, len(bruto))):
-        linha = [_norm(x) for x in bruto.iloc[i].tolist()]
-        casa_hint = any(alvo and (alvo == c or alvo in c or c in alvo) for c in linha)
-        casa_generico = any(("processo" in c or "cnj" in c) for c in linha if c)
-        if casa_hint or casa_generico:
-            df = xl.parse(sheet, dtype=str, header=i)
-            df.columns = [str(c) for c in df.columns]
-            return df
-    return None
-
-
 def ler_planilha(s, fid: str, hint: str):
-    """Varre as abas e devolve (df, col_processo) da que tem mais CNJs válidos
-    (ignora capas/dashboards e trata cabeçalho deslocado)."""
+    """Varre TODAS as abas e, em cada uma, TODAS as linhas de cabeçalho plausíveis
+    (0..MAX_HDR), escolhendo o par (aba, cabeçalho) cuja coluna de processo tem
+    mais CNJs válidos. Devolve (df, col_processo).
+
+    A detecção é dirigida por CONTAGEM DE CNJ (não pelo texto do cabeçalho), então
+    funciona com cabeçalhos fora do padrão (ex.: BVEP usa 'Numero Processual', que
+    não contém a palavra 'processo') e com cabeçalho deslocado/capas/dashboards."""
     xl = pd.ExcelFile(_baixar_bytes(s, fid))
     melhor_df, melhor_col, melhor_n = None, None, -1
     for sheet in xl.sheet_names:
-        df = _parse_aba(xl, sheet, hint)
-        if df is None:
+        try:
+            bruto = xl.parse(sheet, dtype=str, header=None)
+        except Exception:
             continue
-        col = _detectar_col_processo(df, hint)
-        if col is None:
-            continue
-        n = _conta_cnj(df[col])
-        if n > melhor_n:
-            melhor_df, melhor_col, melhor_n = df, col, n
+        for hdr in range(min(MAX_HDR, len(bruto))):
+            try:
+                df = xl.parse(sheet, dtype=str, header=hdr)
+            except Exception:
+                continue
+            df.columns = [str(c) for c in df.columns]
+            col = _detectar_col_processo(df, hint)
+            if col is None:
+                continue
+            n = _conta_cnj(df[col])
+            if n > melhor_n:
+                melhor_df, melhor_col, melhor_n = df, col, n
     if melhor_df is None:
         raise RuntimeError(f"nenhuma aba com coluna de processo (abas: {xl.sheet_names})")
     return melhor_df, melhor_col
