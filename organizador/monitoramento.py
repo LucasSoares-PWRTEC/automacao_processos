@@ -30,6 +30,7 @@ from typing import Callable
 
 from .config import (
     APP_DATA_DIR,
+    CONFIG_ENV_PATH,
     PASTA_PADRAO,
     PROCESSOS_ONLINE_DIR,
     TJ_SISTEMAS,
@@ -49,7 +50,7 @@ from .organizacao import (
 )
 from .padroes import RE_NUMERO_CNJ
 from .parsing import _derivar_agregados, _uf_de_numero_cnj
-from .scraper import _consultar_e_extrair
+from .scraper import _consultar_e_extrair, _preparar_env_local
 
 # --- caminhos -------------------------------------------------------------
 # Estado/relatórios ficam em APP_DATA_DIR (local ESTÁVEL do usuário, onde já mora
@@ -303,6 +304,17 @@ def rodar_passada(
     Devolve ``{total, ja_mapeados, mapeados_agora, nao_encontrados, pendentes}``.
     """
     from . import sheets  # import tardio: só exige o google-auth quando chamado
+
+    # Garante que os segredos do .env (TOTP_* dos tribunais, IMAP_* do 2FA do
+    # e-SAJ) estejam em os.environ ANTES de qualquer login — a busca online faz o
+    # mesmo. Sem isto, numa máquina cujo processo ainda não carregou o .env, o
+    # TOTP/e-SAJ falharia mesmo com o config/.env embutido no bundle.
+    _preparar_env_local()
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(CONFIG_ENV_PATH)
+    except Exception:
+        pass
 
     log("🔑 coletando processos das planilhas Google...")
     registros = sheets.coletar_processos_das_planilhas(log=log)
