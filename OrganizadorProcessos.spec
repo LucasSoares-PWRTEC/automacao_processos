@@ -18,6 +18,10 @@ datas = [
     ("config", "config"),        # credenciais.json + .env (embutidos)
     ("Petições", "Petições"),    # modelos .docx das petições
     ("data/processos_base.json.gz", "data"),  # processos pré-carregados (planilhas + enriquecidos)
+    # Conta de serviço do Google (leitura das planilhas) na RAIZ do bundle
+    # (=_MEIPASS no exe), onde config.GOOGLE_SA_PATH a procura. Sem isto, o
+    # monitoramento falha em outras máquinas ("credencial não encontrada").
+    ("token_google_api.json", "."),
 ]
 binaries = []
 hiddenimports = []
@@ -26,11 +30,23 @@ hiddenimports = []
 for _pkg in (
     "ttkbootstrap", "selenium", "webdriver_manager", "pandas", "openpyxl",
     "pyotp", "bs4", "pypdf", "docx", "unidecode", "dotenv", "requests",
+    # google-auth (conta de serviço p/ as planilhas) + backend de assinatura RSA
+    # via cryptography (é o backend em uso; a lib 'rsa' nem está instalada).
+    "google.auth", "google.oauth2", "cryptography",
 ):
     _d, _b, _h = collect_all(_pkg)
     datas += _d
     binaries += _b
     hiddenimports += _h
+
+# Submódulos importados de forma tardia (dentro de funções) — o analisador
+# estático do PyInstaller não os alcança a partir do entry point.
+hiddenimports += [
+    "google.oauth2.service_account",
+    "google.auth.transport.requests",
+    "google.auth.crypt._cryptography_rsa",
+    "cachetools",
+]
 
 
 a = Analysis(
