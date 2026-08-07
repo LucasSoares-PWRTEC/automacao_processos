@@ -30,7 +30,10 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import StaleElementReferenceException
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    StaleElementReferenceException,
+)
 
 from .base import TribunalScraper, criar_chrome_driver
 from ..diagnostico import salvar_screenshot
@@ -170,13 +173,117 @@ class AutojurScraper(TribunalScraper):
             return False
 
     def _esperar_dropdown_fechado(self, timeout: float = 8.0) -> None:
-        """Espera o dropdown fechar — sinal de que a opção foi aplicada."""
+        """Espera o dropdown fechar E o AJAX que a seleção dispara terminar.
+
+        Fechar o dropdown NÃO é o fim da história: escolher uma opção dispara um
+        AJAX que cobre a tela com um spinner. Quem clicasse no elemento seguinte
+        nesse intervalo levava
+        `ElementClickInterceptedException: Other element would receive the click:
+        <div class="google-spin-wrapper">`. O `sleep(1.2)` antigo cobria isso por
+        acidente."""
         try:
             WebDriverWait(self.driver, timeout).until_not(
                 lambda d: d.find_elements(By.CSS_SELECTOR, "div.bootstrap-select.open")
             )
         except Exception:
             pass
+        self._esperar_sem_overlay(timeout=timeout)
+
+    # Overlays que o Autojur põe na frente de tudo durante um AJAX. Clicar com um
+    # destes visível resulta em ElementClickInterceptedException.
+    _SEL_OVERLAYS = (
+        "div.google-spin-wrapper",   # spinner do próprio Autojur
+        "div.ui-blockui",            # PrimeFaces bloqueando o form
+        "div.ui-widget-overlay",     # modal do PrimeFaces
+        "div.blockUI",               # jQuery blockUI
+    )
+
+    def _esperar_sem_overlay(self, timeout: float = 10.0) -> bool:
+        """Espera nenhum overlay de carregamento estar VISÍVEL. True se limpou.
+
+        A visibilidade é medida no navegador numa única chamada: estes contêineres
+        normalmente existem no DOM o tempo todo e só ficam visíveis durante o
+        AJAX, então procurar pela presença deles daria falso positivo eterno."""
+        js = """
+        const sels = arguments[0];
+        const vis = el => !!(el.offsetWidth || el.offsetHeight ||
+                             el.getClientRects().length);
+        for (const s of sels) {
+            for (const el of document.querySelectorAll(s)) {
+                if (vis(el)) return true;
+            }
+        }
+        return false;
+        """
+        try:
+            WebDriverWait(self.driver, timeout).until_not(
+                lambda d: d.execute_script(js, list(self._SEL_OVERLAYS))
+            )
+            return True
+        except Exception:
+            return False
+
+    def _esperar_input_upload(self, timeout: float = 30.0):
+        """`input[type=file]` do painel GED, esperando o AJAX que o monta.
+
+        Mira primeiro no id conhecido; se ele não vier, aceita qualquer
+        `input[type=file]` dentro do painel do GED — o id do PrimeFaces carrega o
+        caminho do componente e muda se a tela for reorganizada, e nesse caso
+        falhar por id seria falhar por um detalhe cosmético."""
+        self._esperar_sem_overlay()
+        try:
+            return WebDriverWait(self.driver, timeout).until(
+                EC.presence_of_element_located((By.ID, SEL_UPLOAD_INPUT))
+            )
+        except Exception:
+            pass
+        try:
+            return WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, 'input[type="file"]')
+                )
+            )
+        except Exception:
+            self._screenshot("input_upload_ausente")
+            ids = []
+            try:
+                ids = self.driver.execute_script(
+                    "return [...document.querySelectorAll('input[type=file]')]"
+                    ".map(e => e.id);"
+                ) or []
+            except Exception:
+                pass
+            raise RuntimeError(
+                "Autojur: não achei o campo de upload do documento. "
+                f"inputs de arquivo na tela: {ids or '(nenhum)'}"
+            )
+
+    def _clicar_seguro(self, by, seletor, timeout: float = 20.0):
+        """Clica esperando o elemento ficar clicável e a tela estar livre.
+
+        Sequência: espera overlay sair → espera clicável → rola até o centro →
+        clica. Se ainda for interceptado (tooltip que aparece no hover, spinner
+        que voltou), espera de novo e, em último caso, clica por JS — que ignora
+        quem está por cima. O JS fica por último de propósito: ele também
+        contorna um elemento genuinamente desabilitado, e aí o erro apareceria
+        mais adiante, longe da causa."""
+        self._esperar_sem_overlay()
+        el = WebDriverWait(self.driver, timeout).until(
+            EC.element_to_be_clickable((by, seletor))
+        )
+        self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
+        for tentativa in range(3):
+            try:
+                el.click()
+                return el
+            except ElementClickInterceptedException:
+                self._esperar_sem_overlay()
+                time.sleep(0.3)
+                el = self.driver.find_element(by, seletor)  # pode ter re-renderizado
+            except StaleElementReferenceException:
+                el = self.driver.find_element(by, seletor)
+        self.driver.execute_script("arguments[0].click();", el)
+        return el
 
     # ------------------------------------------------------------------
     # Estabilidade do DOM (PrimeFaces re-renderiza listas depois de exibi-las)
@@ -573,11 +680,7 @@ class AutojurScraper(TribunalScraper):
     def _bootstrap_select(self, data_id_css: str, texto: str, log=print) -> None:
         """Abre um bootstrap-select (pelo seu botão data-id) e clica no item cujo
         span.text casa `texto`. Usa o contexto atual (doc ou iframe)."""
-        btn = WebDriverWait(self.driver, 15).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, data_id_css))
-        )
-        self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
-        btn.click()
+        self._clicar_seguro(By.CSS_SELECTOR, data_id_css, timeout=15)
         self._esperar_dropdown_aberto()
 
         xp_exato = (
@@ -604,11 +707,7 @@ class AutojurScraper(TribunalScraper):
         """Lote = 'iniciais' | 'urgente' | 'dia_seguinte'. As opções trazem a
         data do dia; casamos por sufixo (INICIAIS/URGENTE) ou, para dia_seguinte,
         a opção que NÃO tem sufixo (a data de amanhã)."""
-        btn = WebDriverWait(self.driver, 15).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, SEL_LOTE))
-        )
-        self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
-        btn.click()
+        self._clicar_seguro(By.CSS_SELECTOR, SEL_LOTE, timeout=15)
         self._esperar_dropdown_aberto()
 
         xp = (
@@ -720,10 +819,11 @@ class AutojurScraper(TribunalScraper):
         campo.clear()
         campo.send_keys(numero_processo)
         self._bootstrap_select(SEL_TIPO_PASTA, "Todos", log=log)
-        self.driver.find_element(By.CSS_SELECTOR, SEL_STATUS_TODOS).click()
-        time.sleep(0.5)
+        # Escolher "Tipo de Pasta" dispara AJAX e o spinner cobre a tela: este
+        # clique era interceptado pelo div.google-spin-wrapper.
+        self._clicar_seguro(By.CSS_SELECTOR, SEL_STATUS_TODOS)
         log(f"🔎 Autojur: pesquisando {numero_processo} ...")
-        self.driver.find_element(By.ID, SEL_BUSCA_LUPA).click()
+        self._clicar_seguro(By.ID, SEL_BUSCA_LUPA)
 
         def _tem_resultado(d):
             linhas = d.find_elements(By.CSS_SELECTOR, SEL_LINHAS_RESULTADO)
@@ -791,16 +891,40 @@ class AutojurScraper(TribunalScraper):
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
 
-        # Adicionar Tarefa: clique via JS — o tooltip do botão intercepta o
-        # clique normal (visto ao vivo: ElementClickIntercepted por .tooltipster).
-        btn = WebDriverWait(self.driver, 20).until(
-            EC.presence_of_element_located((By.ID, SEL_BTN_ADD_TAREFA))
-        )
+        # ESPERA CRÍTICA (medida ao vivo): sem uma pasta selecionada o botão
+        # "Adicionar Tarefa" existe mas tem a classe `ui-state-disabled`. O duplo
+        # clique acima dispara o AJAX que o habilita — e `readyState == complete`
+        # NÃO espera esse AJAX. Clicar antes disso não faz nada: um clique por JS
+        # num commandLink desabilitado do PrimeFaces é ignorado em silêncio, e o
+        # sintoma aparecia longe daqui, como timeout esperando o iframe.
+        self._esperar_sem_overlay()
+        try:
+            WebDriverWait(self.driver, 30).until(
+                lambda d: "ui-state-disabled" not in (
+                    d.find_element(By.ID, SEL_BTN_ADD_TAREFA).get_attribute("class") or ""
+                )
+            )
+        except Exception:
+            self._screenshot("add_tarefa_continuou_desabilitado")
+            raise RuntimeError(
+                "Autojur: o botão 'Adicionar Tarefa' continuou desabilitado — a "
+                "pasta não foi selecionada pelo duplo clique."
+            )
+
+        # Clique via JS — o tooltip do botão intercepta o clique normal (visto ao
+        # vivo: ElementClickIntercepted por .tooltipster).
+        btn = self.driver.find_element(By.ID, SEL_BTN_ADD_TAREFA)
         self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
         self.driver.execute_script("arguments[0].click();", btn)
-        WebDriverWait(self.driver, 30).until(
-            EC.presence_of_element_located((By.TAG_NAME, "iframe"))
-        )
+        try:
+            WebDriverWait(self.driver, 30).until(
+                EC.presence_of_element_located((By.TAG_NAME, "iframe"))
+            )
+        except Exception:
+            # Sem isto, o ponto mais provável de falha do fluxo não deixava
+            # nenhum artefato para diagnosticar.
+            self._screenshot("iframe_tarefa_nao_apareceu")
+            raise
         # O iframe EXISTIR não quer dizer que o documento dentro dele carregou —
         # era isso que o `time.sleep(2)` daqui tentava cobrir. Esperar o
         # readyState interno é a condição real e normalmente resolve em bem menos
@@ -923,7 +1047,10 @@ class AutojurScraper(TribunalScraper):
                 # upload por arquivo (o tipo de documento já foi escolhido acima).
                 for i, pp in enumerate(pdfs, 1):
                     log(f"   • Anexando PDF ({i}/{len(pdfs)}): {Path(pp).name}")
-                    inp = self.driver.find_element(By.ID, SEL_UPLOAD_INPUT)
+                    # Escolher o "Tipo de Documento" dispara AJAX que (re)monta o
+                    # painel do GED: sem esperar, o input de upload ainda não
+                    # existe e o find_element estourava NoSuchElement.
+                    inp = self._esperar_input_upload()
                     self.driver.execute_script(
                         "arguments[0].style.display='block';"
                         "arguments[0].style.visibility='visible';"

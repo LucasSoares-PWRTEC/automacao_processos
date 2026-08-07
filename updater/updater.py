@@ -516,15 +516,29 @@ class AtualizadorApp:
         try:
             replace_exe(destino, alvo)
         except AppRunningError as e:
+            registrar(f"instalação bloqueada: {e}")
             self.lbl.configure(text=str(e))
             self.barra.configure(value=0)
             self._limpar_botoes()
             self._botao("Tentar novamente", lambda: self._instalar(destino, alvo), default=True)
             self._botao("Cancelar", lambda: self._abortar_instalacao(destino))
             return
-        (base_dir() / "version.txt").write_text(
-            self.release["tag"].lstrip("vV"), encoding="ascii"
-        )
+
+        # Gravar o version.txt NÃO pode derrubar a instalação — o executável já
+        # foi trocado com sucesso neste ponto. Mas a falha precisa aparecer: sem
+        # este arquivo atualizado, um Atualizador rodado à mão (sem
+        # `--versao-atual`) volta a oferecer a MESMA versão em toda execução, o
+        # que a pessoa vê como "fica verificando/atualizando infinitamente".
+        nova = self.release["tag"].lstrip("vV")
+        try:
+            (base_dir() / "version.txt").write_text(nova, encoding="ascii")
+            registrar(f"instalado {nova}; version.txt atualizado em {base_dir()}")
+        except OSError as exc:
+            registrar(
+                f"ATENÇÃO: instalado {nova}, mas NÃO consegui gravar o "
+                f"version.txt em {base_dir()} ({exc}). Rodado à mão, o "
+                "Atualizador vai oferecer esta versão de novo."
+            )
         self._concluido(alvo)
 
     def _abortar_instalacao(self, destino: Path) -> None:

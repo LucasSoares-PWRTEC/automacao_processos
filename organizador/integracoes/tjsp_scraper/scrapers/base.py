@@ -16,6 +16,7 @@ import os
 import shutil
 import time
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Optional
 
 from selenium import webdriver
@@ -271,7 +272,20 @@ def _caminho_chromedriver() -> str:
     except Exception:
         pass
 
-    caminho = ChromeDriverManager().install()
+    _limpar_lock_wdm_velho()
+    try:
+        caminho = ChromeDriverManager().install()
+    except Exception as exc:
+        # O webdriver-manager falhou (lock preso, sem rede, GitHub fora). Se já
+        # existe um chromedriver baixado, use-o: o app não precisa da versão mais
+        # nova, precisa de UMA que funcione.
+        caminho = _chromedriver_ja_baixado()
+        if not caminho:
+            raise
+        _log_seguro(
+            f"webdriver-manager falhou ({type(exc).__name__}); usando o "
+            f"chromedriver já baixado: {caminho}"
+        )
     _driver_path_memo = caminho
     try:
         import json
@@ -281,6 +295,48 @@ def _caminho_chromedriver() -> str:
     except OSError:
         pass
     return caminho
+
+
+# Um processo morto à força (o Atualizador encerra o app com TerminateProcess)
+# deixa o lock do webdriver-manager para trás. Com o lock preso, TODA criação de
+# driver espera e estoura em TimeoutError — e o Chrome nunca mais sobe, mesmo
+# havendo chromedriver baixado. Foi assim que uma execução caiu silenciosamente
+# no Edge: o lock era de um processo morto no dia anterior.
+_IDADE_LOCK_MORTO_S = 300  # 5 min: nenhuma resolução legítima demora tanto
+
+
+def _limpar_lock_wdm_velho() -> None:
+    """Apaga locks do webdriver-manager antigos o bastante para serem órfãos.
+
+    `except OSError` e não `except Exception`: um `except` largo aqui já escondeu
+    um NameError (Path não importado) e a limpeza ficou não fazendo nada em
+    silêncio. Erro de programação deve aparecer; só falha de disco é tolerada."""
+    pasta = Path.home() / ".wdm"
+    if not pasta.is_dir():
+        return
+    agora = time.time()
+    for lock in pasta.glob(".wdm-lock-*"):
+        try:
+            if agora - lock.stat().st_mtime > _IDADE_LOCK_MORTO_S:
+                lock.unlink()
+                _log_seguro(f"lock órfão do webdriver-manager removido: {lock.name}")
+        except OSError:
+            pass
+
+
+def _chromedriver_ja_baixado() -> Optional[str]:
+    """chromedriver.exe mais recente em ~/.wdm/drivers, ou None."""
+    raiz = Path.home() / ".wdm" / "drivers"
+    if not raiz.is_dir():
+        return None
+    try:
+        achados = [p for p in raiz.rglob("chromedriver.exe") if p.is_file()]
+    except OSError:
+        return None
+    if not achados:
+        return None
+    # Mais recente por data de modificação = a última versão baixada.
+    return str(max(achados, key=lambda p: p.stat().st_mtime))
 
 
 def _iniciar_chrome(options) -> webdriver.Chrome:
@@ -394,6 +450,15 @@ def criar_chrome_driver(
                     return driver
             else:
                 erros.append(f"{nome}: {type(exc).__name__}: {exc}")
+                # Diz POR QUE o preferido não subiu. Sem isto o fallback era
+                # silencioso: uma execução caiu no Edge por causa de um lock
+                # órfão do webdriver-manager e nada indicava o motivo — o Edge
+                # não tem o perfil persistente do Autojur (2FA de novo) e o
+                # fluxo se comporta diferente, então isso precisa aparecer.
+                _log_seguro(
+                    f"{nome} não pôde ser aberto ({type(exc).__name__}: "
+                    f"{str(exc).splitlines()[0][:160]}); tentando o próximo"
+                )
                 continue
 
         if _navegador_ok != nome:
