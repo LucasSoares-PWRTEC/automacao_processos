@@ -1543,6 +1543,21 @@ class App(ttk.Window):
             font=("Segoe UI", 9, "italic"), foreground="#888",
         ).pack(anchor="w", pady=(2, 0))
 
+        # ── Seção: Sobre / Atualização ──────────────────────────────────
+        section_sobre = ttk.Labelframe(
+            parent, text="  Sobre  ", bootstyle="default", padding=(12, 8),
+        )
+        section_sobre.pack(fill="x", pady=(8, 0))
+        f_sobre = ttk.Frame(section_sobre)
+        f_sobre.pack(fill="x")
+        ttk.Label(
+            f_sobre, text=f"Versão instalada: v{__version__}", font=_FONT_BASE,
+        ).pack(side="left")
+        ttk.Button(
+            f_sobre, text="🔄  Verificar atualização", command=self._verificar_atualizacao_manual,
+            bootstyle="outline-info", width=24,
+        ).pack(side="right")
+
         self._carregar_config_na_ui()
 
     def _carregar_config_na_ui(self) -> None:
@@ -3755,13 +3770,12 @@ class App(ttk.Window):
             self._pesquisa_em_progresso = False
             self.progress_pesquisa.stop()
 
-    def _verificar_atualizacao_silenciosa(self) -> None:
-        """Dispara o Atualizador em modo silencioso na abertura do app.
+    def _disparar_atualizador(self, *, auto: bool) -> bool:
+        """Inicia o Atualizador (exe ao lado, ou updater.py em modo fonte).
 
-        O Atualizador.exe (que carrega o token de leitura do GitHub) checa a
-        release mais recente e só mostra a janela se houver versão nova; se já
-        estiver atualizado ou houver qualquer erro/sem internet, sai calado.
-        Best-effort: qualquer falha em iniciá-lo é ignorada.
+        Devolve False se o Atualizador não foi encontrado ou não pôde ser
+        iniciado — quem chama decide se isso é silencioso (auto) ou um erro
+        a avisar (clique manual).
         """
         try:
             # Passa o PID desta instância para o Atualizador encerrá-la antes de
@@ -3771,18 +3785,40 @@ class App(ttk.Window):
                 # App empacotado: o Atualizador.exe fica ao lado do Peticoes.exe.
                 exe = Path(sys.executable).resolve().parent / "Atualizador.exe"
                 if not exe.exists():
-                    return
-                cmd = [str(exe), "--auto", "--parent-pid", pid]
+                    return False
+                cmd = [str(exe), "--parent-pid", pid]
             else:
                 # Modo fonte (dev): roda o updater.py com o Python atual.
                 updater = Path(__file__).resolve().parent.parent / "updater" / "updater.py"
                 if not updater.exists():
-                    return
-                cmd = [sys.executable, str(updater), "--auto", "--parent-pid", pid]
+                    return False
+                cmd = [sys.executable, str(updater), "--parent-pid", pid]
+            if auto:
+                cmd.append("--auto")
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # sem console no Windows
             subprocess.Popen(cmd, close_fds=True, creationflags=flags)
+            return True
         except OSError:
-            pass
+            return False
+
+    def _verificar_atualizacao_silenciosa(self) -> None:
+        """Dispara o Atualizador em modo silencioso na abertura do app.
+
+        O Atualizador.exe (que carrega o token de leitura do GitHub) checa a
+        release mais recente e só mostra a janela se houver versão nova; se já
+        estiver atualizado ou houver qualquer erro/sem internet, sai calado.
+        Best-effort: qualquer falha em iniciá-lo é ignorada.
+        """
+        self._disparar_atualizador(auto=True)
+
+    def _verificar_atualizacao_manual(self) -> None:
+        """Clique no botão "Verificar atualização": sempre mostra a janela do
+        Atualizador, inclusive quando já está na versão mais recente."""
+        if not self._disparar_atualizador(auto=False):
+            messagebox.showerror(
+                "Verificar atualização",
+                "Não encontrei o Atualizador (Atualizador.exe) ao lado do programa.",
+            )
 
 
 def _limpar_temp_orfaos() -> int:
