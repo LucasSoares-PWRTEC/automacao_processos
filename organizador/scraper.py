@@ -75,6 +75,28 @@ def __getattr__(nome: str):
     return valor
 
 
+def _tardio(nome: str):
+    """Devolve um símbolo tardio, para uso DENTRO das funções deste módulo.
+
+    NÃO chame `criar_scraper(...)` direto: `__getattr__` de módulo (PEP 562) só
+    é acionado no acesso como ATRIBUTO (`scraper.criar_scraper`). Uma referência
+    a nome global dentro de uma função compila para LOAD_GLOBAL, que olha o dict
+    do módulo e os builtins — e nunca chama `__getattr__`. O resultado era
+    `NameError: name 'criar_scraper' is not defined` ao clicar em "Buscar
+    online" (v1.9.0 a v1.9.5).
+
+    Os testes não pegaram porque todos faziam
+    `monkeypatch.setattr(scraper, "criar_scraper", ...)`, o que CRIA a entrada no
+    dict do módulo e faz o LOAD_GLOBAL encontrar — exercitando um caminho que a
+    produção nunca percorre. Ver tests/test_scraper_nomes_tardios.py.
+
+    `getattr` no módulo resolve os dois casos: acha primeiro o que o teste
+    injetou e, na ausência, cai no `__getattr__` que importa de verdade."""
+    import sys as _sys
+
+    return getattr(_sys.modules[__name__], nome)
+
+
 def __dir__() -> list[str]:
     return sorted(list(globals()) + list(_TARDIOS))
 
@@ -234,7 +256,9 @@ def _consultar_e_extrair(
     if site == "eproc":
         from .integracoes.tjsp_scraper.parser_processo import extrair_processo
         proc = _dict_para_processo(
-            extrair_processo(html, _extrair_blocos_com_origem(html), numero_cnj=numero)
+            extrair_processo(
+                html, _tardio("_extrair_blocos_com_origem")(html), numero_cnj=numero
+            )
         )
         log("Dados extraídos com sucesso.\n")
     elif site == "esaj":
@@ -267,7 +291,9 @@ def _consultar_e_extrair(
 
     # Palavras-chave de penhora/bloqueio (extrator genérico, todos os sites).
     keywords = list(dict.fromkeys(
-        k["descricao"] for k in extrair_penhora_bloqueio_tribunais(html) if k.get("descricao")
+        k["descricao"]
+        for k in _tardio("extrair_penhora_bloqueio_tribunais")(html)
+        if k.get("descricao")
     ))
     if keywords:
         log("Palavras-chave de penhora/bloqueio: " + ", ".join(keywords) + "\n")
@@ -336,7 +362,7 @@ def buscar_processo_online(
         log("Aviso: modo debug com 'Navegador invisível' ligado — nada a inspecionar.\n")
 
     log(f"Abrindo {tj_label} e logando...\n")
-    scraper = criar_scraper(
+    scraper = _tardio("criar_scraper")(
         site=site, estado=estado, url=url, headless=headless, perfil=perfil
     )
     # Em debug o navegador fica aberto após a função retornar; o chamador
