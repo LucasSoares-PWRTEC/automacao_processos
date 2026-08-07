@@ -24,6 +24,7 @@ import time
 import tkinter as tk
 import urllib.error
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox, ttk
 from urllib.parse import urlsplit
@@ -98,13 +99,56 @@ def parse_version(s: str) -> tuple[int, ...]:
         return (0,)
 
 
+# Versão informada pelo app que nos chamou (`--versao-atual`). É mais confiável
+# que o version.txt: o app SABE sua versão (`__version__` compilado no exe),
+# enquanto o version.txt é um arquivo à parte que pode ficar velho ou ser copiado
+# sem o executável correspondente — e aí o Atualizador conclui "já está
+# atualizado" e não mostra nada.
+_versao_informada: str | None = None
+
+
 def versao_instalada() -> str:
+    if _versao_informada:
+        return _versao_informada
     arq = base_dir() / "version.txt"
     try:
         v = arq.read_text(encoding="ascii").strip()
         return v or "0.0.0"
     except OSError:
         return "0.0.0"
+
+
+# --------------------------------------------------------------------------
+# Registro da checagem
+# --------------------------------------------------------------------------
+# No modo --auto TODO erro é silencioso de propósito (não incomodar a cada
+# abertura). O efeito colateral é que "não aparece nada para atualizar" fica
+# indistinguível de "já está na última versão", e não há como diagnosticar à
+# distância: token expirado, sem rede, proxy bloqueando e Atualizador ausente
+# produzem exatamente o mesmo silêncio. Este log resolve isso sem incomodar.
+def _caminho_log() -> Path:
+    base = os.environ.get("ORGANIZADOR_APP_DATA")
+    raiz = Path(base) if base else Path.home() / ".automacao_processos"
+    return raiz / "updater.log"
+
+
+def registrar(msg: str) -> None:
+    """Anexa uma linha ao log da checagem. Nunca levanta."""
+    try:
+        caminho = _caminho_log()
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        # Mantém o arquivo pequeno: só as últimas ~200 linhas interessam.
+        linhas: list[str] = []
+        if caminho.exists():
+            try:
+                linhas = caminho.read_text(encoding="utf-8", errors="replace").splitlines()[-199:]
+            except OSError:
+                linhas = []
+        quando = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        linhas.append(f"{quando}  {msg}")
+        caminho.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+    except Exception:
+        pass
 
 
 def limpar_sobras() -> None:
@@ -368,6 +412,10 @@ class AtualizadorApp:
     def iniciar(self) -> None:
         limpar_sobras()
         if not GITHUB_TOKEN:
+            registrar(
+                "ERRO: Atualizador compilado SEM token de acesso "
+                "(gere o executável pelo release.ps1)"
+            )
             if self.auto:
                 self.root.destroy()  # silencioso: nada a fazer sem token
                 return
@@ -397,6 +445,10 @@ class AtualizadorApp:
         self.release = release
         local = versao_instalada()
         tem_update = parse_version(release["tag"]) > parse_version(local)
+        registrar(
+            f"checagem ok: instalada={local} publicada={release['tag']} "
+            f"tem_update={tem_update} modo={'auto' if self.auto else 'manual'}"
+        )
         if self.auto and not tem_update:
             self.root.destroy()  # silencioso: já está atualizado, não mostra nada
             return
@@ -499,6 +551,9 @@ class AtualizadorApp:
         self.root.destroy()
 
     def _mostrar_erro(self, erro: UpdaterError) -> None:
+        # Sempre registra: em --auto o erro não vai para a tela, e sem isto
+        # "token expirado", "sem internet" e "já atualizado" ficam indistinguíveis.
+        registrar(f"ERRO na checagem ({type(erro).__name__}): {erro}")
         if self.auto:
             self.root.destroy()  # silencioso: não incomoda o usuário a cada abertura
             return
@@ -519,10 +574,30 @@ def _arg_int(argv: list[str], flag: str) -> int | None:
     return None
 
 
+def _arg_str(argv: list[str], flag: str) -> str | None:
+    """Lê o valor que segue `flag` em argv (ex.: --versao-atual 1.9.3)."""
+    if flag in argv:
+        try:
+            valor = argv[argv.index(flag) + 1].strip()
+            return valor or None
+        except IndexError:
+            return None
+    return None
+
+
 def main() -> None:
+    global _versao_informada
+
     argv = sys.argv[1:]
     auto = "--auto" in argv
     parent_pid = _arg_int(argv, "--parent-pid")
+    # O app passa a própria versão; é mais confiável que o version.txt (ver
+    # `versao_instalada`). Sem o argumento, cai no arquivo, como antes.
+    _versao_informada = _arg_str(argv, "--versao-atual")
+    registrar(
+        f"iniciado modo={'auto' if auto else 'manual'} "
+        f"versao_informada={_versao_informada or '(nenhuma, usa version.txt)'}"
+    )
     AtualizadorApp(auto=auto, parent_pid=parent_pid).iniciar()
 
 

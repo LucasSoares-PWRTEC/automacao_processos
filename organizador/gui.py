@@ -25,10 +25,10 @@ from ttkbootstrap.constants import *
 from organizador import __version__
 
 from .config import (
-    CAMINHO_ICONE, OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES,
-    PROCESSOS_BASE_JSON, PROCESSOS_INDICE_JSON, PROCESSOS_ONLINE_DIR,
-    TEMPLATES_CACHE_PATH, TJ_SISTEMAS, UI_STATE_PATH, semear_config,
-    sugerir_tj_para_uf, uf_efetiva_tj,
+    APP_DATA_DIR, CAMINHO_ICONE, OAB_ESCRITORIO_POR_UF, PASTA_PADRAO,
+    PASTA_PETICOES, PROCESSOS_BASE_JSON, PROCESSOS_INDICE_JSON,
+    PROCESSOS_ONLINE_DIR, TEMPLATES_CACHE_PATH, TJ_SISTEMAS, UI_STATE_PATH,
+    semear_config, sugerir_tj_para_uf, uf_efetiva_tj,
 )
 
 
@@ -39,6 +39,22 @@ def _carregar_ui_state() -> dict:
         return dados if isinstance(dados, dict) else {}
     except Exception:
         return {}
+
+
+def _registrar_updater(msg: str) -> None:
+    """Anexa uma linha ao mesmo log que o Atualizador usa.
+
+    O app precisa escrever nele porque há um caso que o Atualizador nunca chega a
+    ver: ele não estar instalado ao lado do Peticoes.exe. Sem este registro, a
+    máquina simplesmente nunca verifica atualização e não há como descobrir."""
+    try:
+        caminho = APP_DATA_DIR / "updater.log"
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        quando = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        with open(caminho, "a", encoding="utf-8") as fh:
+            fh.write(f"{quando}  [app] {msg}\n")
+    except Exception:
+        pass
 
 
 def _salvar_ui_state(**campos) -> None:
@@ -3785,20 +3801,33 @@ class App(ttk.Window):
                 # App empacotado: o Atualizador.exe fica ao lado do Peticoes.exe.
                 exe = Path(sys.executable).resolve().parent / "Atualizador.exe"
                 if not exe.exists():
+                    # Cenário real e 100% silencioso até aqui: a máquina recebeu
+                    # só o Peticoes.exe. O app nunca checa atualização e ninguém
+                    # descobre por quê. Deixa rastro.
+                    _registrar_updater(
+                        f"Atualizador.exe NAO encontrado em {exe.parent} — "
+                        "a verificação de atualização não roda nesta máquina"
+                    )
                     return False
                 cmd = [str(exe), "--parent-pid", pid]
             else:
                 # Modo fonte (dev): roda o updater.py com o Python atual.
                 updater = Path(__file__).resolve().parent.parent / "updater" / "updater.py"
                 if not updater.exists():
+                    _registrar_updater(f"updater.py não encontrado em {updater}")
                     return False
                 cmd = [sys.executable, str(updater), "--parent-pid", pid]
+            # A versão do APP é a fonte de verdade — o version.txt ao lado do exe
+            # pode ficar velho ou ser copiado sem o executável correspondente, e aí
+            # o Atualizador conclui "já atualizado" e não mostra nada.
+            cmd += ["--versao-atual", __version__]
             if auto:
                 cmd.append("--auto")
             flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # sem console no Windows
             subprocess.Popen(cmd, close_fds=True, creationflags=flags)
             return True
-        except OSError:
+        except OSError as exc:
+            _registrar_updater(f"falha ao iniciar o Atualizador: {exc}")
             return False
 
     def _verificar_atualizacao_silenciosa(self) -> None:
