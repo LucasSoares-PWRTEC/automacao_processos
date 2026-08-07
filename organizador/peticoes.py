@@ -237,10 +237,33 @@ def _gerar_peticao_consolidada(
         zonas = _classificar_paragrafos(d)
         docs.append((tmpl, d, zonas))
 
-    # Documento destino herda estilos do 1º template.
+    # Documento destino herda estilos do 1º template. Reaproveita o MESMO
+    # objeto Document já aberto (primeiro_doc) em vez de reabrir o arquivo —
+    # Document() é um unzip + parse XML completo, caro para pagar 2x no mesmo
+    # arquivo. Por isso os blocos do 1º template (header/body/closing) são
+    # clonados numa ÚNICA passada agora, antes de limpar o body: depois da
+    # limpeza, _iterar_blocos_doc(primeiro_doc) não encontraria mais nada.
     primeiro_path, primeiro_doc, primeiro_zonas = docs[0]
-    primeiro_docx = _obter_docx_cacheado(primeiro_path)
-    destino_doc = Document(str(primeiro_docx))
+    header_clones: list = []
+    body_clones_primeiro: list[tuple[str, object, str | None]] = []
+    closing_clones_primeiro: list = []
+    idx_paragrafo = 0
+    for tipo_bloco, bloco in _iterar_blocos_doc(primeiro_doc):
+        if tipo_bloco == "table":
+            body_clones_primeiro.append(("table", deepcopy(bloco._element), None))
+            continue
+        zona = primeiro_zonas[idx_paragrafo]
+        idx_paragrafo += 1
+        if zona == "HEADER":
+            header_clones.append(deepcopy(bloco._element))
+        elif zona == "BODY":
+            body_clones_primeiro.append(
+                ("paragraph", deepcopy(bloco._element), _norm_paragrafo(bloco.text))
+            )
+        elif zona == "CLOSING":
+            closing_clones_primeiro.append(deepcopy(bloco._element))
+
+    destino_doc = primeiro_doc
     body = destino_doc.element.body
 
     # Limpa o destino — vamos remontar do zero clonando parágrafos das fontes.
@@ -264,21 +287,30 @@ def _gerar_peticao_consolidada(
         else:
             body.append(clone)
 
-    # 1) HEADER do 1º template.
+    # 1) HEADER do 1º template (já clonado antes da limpeza, acima).
     novas_zonas: list[str] = []
-    idx_paragrafo = 0
-    for tipo_bloco, bloco in _iterar_blocos_doc(primeiro_doc):
-        if tipo_bloco != "paragraph":
-            continue
-        zona = primeiro_zonas[idx_paragrafo]
-        idx_paragrafo += 1
-        if zona == "HEADER":
-            _append(bloco._element)
-            novas_zonas.append("HEADER")
+    for clone in header_clones:
+        _append(clone)
+        novas_zonas.append("HEADER")
 
     # 2) BODYs com dedup. Parágrafos curtos (<25 chars normalizados) sempre passam.
     vistos: set[str] = set()
-    for _, d, zonas in docs:
+    for i, (_, d, zonas) in enumerate(docs):
+        if i == 0:
+            # 1º template: usa os clones já extraídos (ver acima) em vez de
+            # reiterar primeiro_doc, cujo body já foi limpo.
+            for tipo_bloco, clone, chave in body_clones_primeiro:
+                if tipo_bloco == "table":
+                    _append(clone)
+                    continue
+                if chave and len(chave) >= 25:
+                    if chave in vistos:
+                        continue
+                    vistos.add(chave)
+                _append(clone)
+                novas_zonas.append("BODY")
+            continue
+
         idx_paragrafo = 0
         for tipo_bloco, bloco in _iterar_blocos_doc(d):
             if tipo_bloco == "table":
@@ -302,14 +334,20 @@ def _gerar_peticao_consolidada(
     # data + assinatura + OAB), não só o primeiro — o estado CLOSING engloba o
     # bloco inteiro até o fim do documento.
     closing_emitido = False
-    for _, d, zonas in docs:
-        if closing_emitido:
-            break
-        for p, zona in zip(d.paragraphs, zonas):
-            if zona == "CLOSING":
-                _append(p._element)
-                novas_zonas.append("CLOSING")
-                closing_emitido = True
+    if closing_clones_primeiro:
+        for clone in closing_clones_primeiro:
+            _append(clone)
+            novas_zonas.append("CLOSING")
+        closing_emitido = True
+    else:
+        for _, d, zonas in docs[1:]:
+            if closing_emitido:
+                break
+            for p, zona in zip(d.paragraphs, zonas):
+                if zona == "CLOSING":
+                    _append(p._element)
+                    novas_zonas.append("CLOSING")
+                    closing_emitido = True
     if not closing_emitido:
         para = destino_doc.add_paragraph("Termos em que pede deferimento.")
         # add_paragraph adiciona ao fim — após sectPr. Se sectPr existir, move antes.

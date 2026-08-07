@@ -501,6 +501,61 @@ class EprocScraper(TribunalScraper):
     # ------------------------------------------------------------------
     # DOCUMENTOS DO PROCESSO
     # ------------------------------------------------------------------
+    # Lê a tabela #tblEventos inteira numa ÚNICA ida ao navegador. Antes cada
+    # linha era lida com `.find_elements` + `.text`/`get_attribute` por célula
+    # e por âncora — uma ida ao WebDriver por elemento (mesmo padrão que já foi
+    # eliminado do pje.py). Num processo com muitos eventos isso são dezenas/
+    # centenas de idas síncronas. Se este script falhar por qualquer motivo
+    # (variação de DOM, driver sem execute_script), cai no loop antigo abaixo.
+    _JS_EVENTOS_DOCS = """
+    const linhas = document.querySelectorAll('table#tblEventos tbody tr');
+    const out = [];
+    for (const tr of linhas) {
+        const tds = tr.querySelectorAll('td');
+        if (tds.length < 5) continue;
+        const anchors = tds[4].querySelectorAll('a.infraLinkDocumento');
+        const docs = [];
+        for (const a of anchors) {
+            const href = a.href || '';
+            if (!href || href.startsWith('javascript:')) continue;
+            docs.push({
+                href: href,
+                title: a.getAttribute('title') || '',
+                label: (a.innerText || '').trim(),
+            });
+        }
+        out.push({
+            evento: (tds[0].innerText || '').trim(),
+            data: (tds[1].innerText || '').trim(),
+            descricao: (tds[2].innerText || '').trim(),
+            docs: docs,
+        });
+    }
+    return out;
+    """
+
+    def _ler_eventos_docs_js(self) -> list[dict] | None:
+        """Tenta ler a tabela de eventos com 1 execute_script. None se falhar
+        (o chamador cai no loop elemento-a-elemento)."""
+        try:
+            linhas = self.driver.execute_script(self._JS_EVENTOS_DOCS)
+        except Exception:
+            return None
+        if linhas is None:
+            return None
+        docs: list[dict] = []
+        for linha in linhas:
+            for d in linha.get("docs") or []:
+                docs.append({
+                    "href": d.get("href", ""),
+                    "title": (d.get("title") or "").split("\n")[0].strip(),
+                    "label": d.get("label", ""),
+                    "evento": linha.get("evento", ""),
+                    "data": linha.get("data", ""),
+                    "descricao": linha.get("descricao", ""),
+                })
+        return docs
+
     def _abrir_documentos(self, html_detalhes: str, modo_docs: str = "atos") -> list[str]:
         """
         Lê os links da coluna 'Documentos' da tabela #tblEventos e abre
@@ -524,44 +579,47 @@ class EprocScraper(TribunalScraper):
         # Iteramos as LINHAS da tabela #tblEventos para também extrair o
         # número do evento (td[0]) e a data/hora (td[1]) — esses metadados
         # entram no marcador DOCUMENTO_ORIGEM e depois no banco.
-        docs = []
-        try:
-            linhas = self.driver.find_elements(
-                By.CSS_SELECTOR, "table#tblEventos tbody tr"
-            )
-        except Exception:
-            linhas = []
-
-        for tr in linhas:
+        docs = self._ler_eventos_docs_js()
+        if docs is None:
+            # Fallback: 1 ida ao navegador por célula/âncora (caminho antigo).
+            docs = []
             try:
-                tds = tr.find_elements(By.CSS_SELECTOR, "td")
-                if len(tds) < 5:
-                    continue
-                evento_num = (tds[0].text or "").strip()
-                evento_data = (tds[1].text or "").strip()
-                # td[2] = descricao do evento (mesmo indice usado pelo parser
-                # em _parse_tr_evento). Serve para o fallback de classificacao.
-                evento_desc = (tds[2].text or "").strip() if len(tds) > 2 else ""
-                anchors_linha = tds[4].find_elements(
-                    By.CSS_SELECTOR, "a.infraLinkDocumento"
+                linhas = self.driver.find_elements(
+                    By.CSS_SELECTOR, "table#tblEventos tbody tr"
                 )
             except Exception:
-                continue
+                linhas = []
 
-            for a in anchors_linha:
-                href = (a.get_attribute("href") or "").strip()
-                if not href or href.startswith("javascript:"):
+            for tr in linhas:
+                try:
+                    tds = tr.find_elements(By.CSS_SELECTOR, "td")
+                    if len(tds) < 5:
+                        continue
+                    evento_num = (tds[0].text or "").strip()
+                    evento_data = (tds[1].text or "").strip()
+                    # td[2] = descricao do evento (mesmo indice usado pelo parser
+                    # em _parse_tr_evento). Serve para o fallback de classificacao.
+                    evento_desc = (tds[2].text or "").strip() if len(tds) > 2 else ""
+                    anchors_linha = tds[4].find_elements(
+                        By.CSS_SELECTOR, "a.infraLinkDocumento"
+                    )
+                except Exception:
                     continue
-                title = (a.get_attribute("title") or "").split("\n")[0].strip()
-                label = (a.text or "").strip()
-                docs.append({
-                    "href": href,
-                    "title": title,
-                    "label": label,
-                    "evento": evento_num,
-                    "data": evento_data,
-                    "descricao": evento_desc,
-                })
+
+                for a in anchors_linha:
+                    href = (a.get_attribute("href") or "").strip()
+                    if not href or href.startswith("javascript:"):
+                        continue
+                    title = (a.get_attribute("title") or "").split("\n")[0].strip()
+                    label = (a.text or "").strip()
+                    docs.append({
+                        "href": href,
+                        "title": title,
+                        "label": label,
+                        "evento": evento_num,
+                        "data": evento_data,
+                        "descricao": evento_desc,
+                    })
 
         if not docs:
             print(f"   eproc/{self._sigla}: nenhum documento na lista de eventos.")

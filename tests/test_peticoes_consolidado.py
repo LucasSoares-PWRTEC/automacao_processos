@@ -111,6 +111,29 @@ def test_gerar_peticao_consolidada_sem_templates_falha(tmp_path):
         op._gerar_peticao_consolidada([], tmp_path, {}, None)
 
 
+def test_gerar_peticao_consolidada_abre_o_primeiro_template_uma_unica_vez(tmp_path, monkeypatch):
+    """Document() é um unzip + parse XML completo; abrir o 1º template 2x
+    (uma para ler, outra só para servir de casca de destino) dobrava esse
+    custo à toa. Trava que o objeto já aberto é reaproveitado."""
+    t1 = tmp_path / "a.docx"
+    t2 = tmp_path / "b.docx"
+    _criar_template(t1, "CABECALHO", ["Corpo comprido o suficiente para não ser descartado."], "Fecho A")
+    _criar_template(t2, "IGNORADO", ["Outro corpo comprido o suficiente para não ser descartado."])
+
+    aberturas: dict[str, int] = {}
+    original = op.peticoes.Document
+
+    def contando(caminho):
+        aberturas[str(caminho)] = aberturas.get(str(caminho), 0) + 1
+        return original(caminho)
+
+    monkeypatch.setattr(op.peticoes, "Document", contando)
+    op._gerar_peticao_consolidada([t1, t2], tmp_path, {}, Contexto(genero_juiz="m"))
+
+    assert aberturas[str(t1)] == 1, "1º template deveria ser aberto só 1x"
+    assert aberturas[str(t2)] == 1
+
+
 def test_gerar_peticao_unica_formato_invalido_falha(tmp_path):
     template = tmp_path / "modelo.txt"
     template.write_text("x", encoding="utf-8")

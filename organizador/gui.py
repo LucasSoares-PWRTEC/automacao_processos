@@ -1521,9 +1521,10 @@ class App(ttk.Window):
         f2.pack(fill="x")
         f2.columnconfigure(1, weight=1)
         self._2fa_rows.clear()
-        for i, (rotulo, chave) in enumerate(CHAVES_2FA.items()):
+        linha = 0
+        for rotulo, chave in CHAVES_2FA.items():
             ttk.Label(f2, text=rotulo + ":", font=_FONT_BASE, anchor="e", width=32).grid(
-                row=i, column=0, sticky="e", padx=(0, 8), pady=3,
+                row=linha, column=0, sticky="e", padx=(0, 8), pady=3,
             )
             var = tk.StringVar(value="")
             # Tudo que não for o e-mail é segredo → mascarado por padrão.
@@ -1532,16 +1533,31 @@ class App(ttk.Window):
             if secreto:
                 entry.configure(show="•")
                 self._entries_senha.append(entry)
-            entry.grid(row=i, column=1, sticky="ew", pady=3)
+            entry.grid(row=linha, column=1, sticky="ew", pady=3)
             self._2fa_rows[chave] = {"var": var, "entry": entry, "secreto": secreto}
+            linha += 1
             if chave == "IMAP_PASS":
+                # Numa linha própria (não numa 3ª coluna) para não ser cortado
+                # em janelas estreitas — quebra naturalmente com wraplength.
+                f_links = ttk.Frame(f2)
+                f_links.grid(row=linha, column=0, columnspan=2, sticky="w", pady=(0, 6))
                 ttk.Button(
-                    f2, text="🔗 Gerar senha de app (Google)",
+                    f_links, text="🔗 Ativar verificação em duas etapas",
+                    command=lambda: webbrowser.open("https://myaccount.google.com/signinoptions/twosv"),
+                    bootstyle="link",
+                ).pack(side="left")
+                ttk.Button(
+                    f_links, text="🔗 Gerar senha de app (Google)",
                     command=lambda: webbrowser.open("https://myaccount.google.com/apppasswords"),
                     bootstyle="link",
-                ).grid(row=i, column=2, sticky="w", padx=(8, 0), pady=3)
+                ).pack(side="left", padx=(8, 0))
+                linha += 1
 
         # ── Ações ──────────────────────────────────────────────────────
+        # Botões principais numa linha; os toggles ficam abaixo, em grid que
+        # quebra em várias linhas — evita que, em telas estreitas, widgets
+        # empacotados com side="right" sejam empurrados para fora da área
+        # visível (o sintoma era "opção sumindo" dependendo da resolução).
         f_acoes = ttk.Frame(inner)
         f_acoes.pack(fill="x", pady=(4, 0))
         self._f_acoes_config = f_acoes  # âncora p/ re-empacotar a seção 2FA na ordem
@@ -1557,22 +1573,26 @@ class App(ttk.Window):
             f_acoes, text="Mostrar senhas", variable=self.var_mostrar_senhas,
             command=self._toggle_mostrar_senhas, bootstyle="info-round-toggle",
         ).pack(side="left", padx=(16, 0))
-        ttk.Checkbutton(
-            f_acoes, text="Modo desenvolvedor", variable=self.var_modo_dev,
-            command=self._toggle_modo_dev, bootstyle="warning-round-toggle",
-        ).pack(side="right")
-        ttk.Checkbutton(
-            f_acoes, text="Salvar tarefas no Autojur", variable=self.var_autojur_salvar_prod,
-            command=self._toggle_autojur_salvar, bootstyle="danger-round-toggle",
-        ).pack(side="right", padx=(0, 16))
-        ttk.Checkbutton(
-            f_acoes, text="Visualizar navegador do Autojur", variable=self.var_autojur_visualizar,
-            command=self._toggle_autojur_visualizar, bootstyle="info-round-toggle",
-        ).pack(side="right", padx=(0, 16))
-        ttk.Checkbutton(
-            f_acoes, text="Pré-logar no Autojur ao abrir (oculto)", variable=self.var_autojur_prelogin,
-            command=self._toggle_autojur_prelogin, bootstyle="success-round-toggle",
-        ).pack(side="right", padx=(0, 16))
+
+        sec_opcoes = ttk.Labelframe(
+            inner, text="  Opções  ", bootstyle="default", padding=(12, 8),
+        )
+        sec_opcoes.pack(fill="x", pady=(8, 0))
+        f_opcoes = ttk.Frame(sec_opcoes)
+        f_opcoes.pack(fill="x")
+        f_opcoes.columnconfigure(0, weight=1)
+        f_opcoes.columnconfigure(1, weight=1)
+        toggles = [
+            ("Modo desenvolvedor", self.var_modo_dev, self._toggle_modo_dev, "warning-round-toggle"),
+            ("Salvar tarefas no Autojur", self.var_autojur_salvar_prod, self._toggle_autojur_salvar, "danger-round-toggle"),
+            ("Visualizar navegador do Autojur", self.var_autojur_visualizar, self._toggle_autojur_visualizar, "info-round-toggle"),
+            ("Pré-logar no Autojur ao abrir (oculto)", self.var_autojur_prelogin, self._toggle_autojur_prelogin, "success-round-toggle"),
+        ]
+        for idx, (texto, var, cmd, estilo) in enumerate(toggles):
+            linha, coluna = divmod(idx, 2)
+            ttk.Checkbutton(
+                f_opcoes, text=texto, variable=var, command=cmd, bootstyle=estilo,
+            ).grid(row=linha, column=coluna, sticky="w", padx=(0, 16), pady=3)
 
         # ── Seção: Desempenho ──────────────────────────────────────────
         section_perf = ttk.Labelframe(
