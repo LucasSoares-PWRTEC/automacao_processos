@@ -86,6 +86,30 @@ def filtrar_processos(processos: list, filtro: str) -> list:
     return [proc for proc in processos if termo in texto_filtro_processo(proc)]
 
 
+def indexar_para_filtro(processos: list) -> list[str]:
+    """Pré-computa o texto de busca de cada processo, UMA vez.
+
+    ``filtrar_processos`` remonta ``texto_filtro_processo`` (4 concatenações +
+    ``.lower()``) para a lista inteira a cada tecla digitada. Com ~3.200
+    processos isso é ~13 mil operações de string por caractere — imperceptível
+    numa máquina rápida, mas visível num i3. O índice é calculado quando a lista
+    é carregada e reusado por ``filtrar_processos_indexado``."""
+    return [texto_filtro_processo(p) for p in processos]
+
+
+def filtrar_processos_indexado(processos: list, textos: list[str], filtro: str) -> list:
+    """Como ``filtrar_processos``, usando o índice de ``indexar_para_filtro``.
+
+    Se o índice estiver dessincronizado da lista (tamanhos diferentes), recalcula
+    na hora em vez de devolver resultado errado."""
+    termo = (filtro or "").lower().strip()
+    if not termo:
+        return list(processos)
+    if len(textos) != len(processos):
+        return filtrar_processos(processos, filtro)
+    return [proc for proc, texto in zip(processos, textos) if termo in texto]
+
+
 def linhas_tree_processos(processos: list) -> list[tuple[str, tuple[str, ...], str]]:
     """Monta os dados consumidos pela Treeview sem tocar em widgets.
 

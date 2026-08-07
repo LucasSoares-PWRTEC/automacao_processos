@@ -11,8 +11,13 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from collections import OrderedDict
 from pathlib import Path
 from tkinter import filedialog, font as tkfont, messagebox
+
+from .perf import marca as _perf
+
+_perf("import:inicio")
 
 import ttkbootstrap as ttk
 from ttkbootstrap.constants import *
@@ -21,7 +26,7 @@ from organizador import __version__
 
 from .config import (
     OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, PROCESSOS_BASE_JSON,
-    PROCESSOS_INDICE_JSON, PROCESSOS_ONLINE_DIR,
+    PROCESSOS_INDICE_JSON, PROCESSOS_ONLINE_DIR, TEMPLATES_CACHE_PATH,
     TJ_SISTEMAS, UI_STATE_PATH, sugerir_tj_para_uf, uf_efetiva_tj,
 )
 
@@ -47,7 +52,62 @@ def _salvar_ui_state(**campos) -> None:
         )
     except Exception:
         pass
+
+
+# -- cache dos placeholders dos modelos .docx -------------------------------
+# Abrir os 39 modelos (13,5 MB) com python-docx custava ~3 s de CPU em toda
+# abertura, para um resultado que só muda quando um modelo é editado. A chave
+# inclui mtime e tamanho, então editar um .docx invalida só aquele.
+
+def _chave_cache_template(caminho: Path) -> str:
+    """Chave de cache de um modelo .docx.
+
+    ATENÇÃO ao mtime: no .exe (onefile) os modelos são extraídos para
+    ``sys._MEIPASS``, uma pasta nova a cada abertura, com timestamp novo. Uma
+    chave com mtime NUNCA acertaria no executável — foi exatamente esse o bug que
+    fazia o snapshot embutido ser reparseado toda vez (ver
+    organizador/base_embutida.py).
+
+    Então: empacotado, a chave usa o TAMANHO + a versão do app (os modelos vêm
+    dentro da release, logo só mudam quando a versão muda). Rodando do fonte, o
+    mtime é estável e continua sendo o sinal mais preciso.
+    """
+    try:
+        st = caminho.stat()
+        tamanho = st.st_size
+        selo = __version__ if getattr(sys, "frozen", False) else int(st.st_mtime)
+    except OSError:
+        tamanho, selo = 0, 0
+    return f"{caminho.name}|{tamanho}|{selo}"
+
+
+def _carregar_cache_placeholders() -> dict[str, set[str]]:
+    try:
+        dados = json.loads(TEMPLATES_CACHE_PATH.read_text(encoding="utf-8"))
+        if not isinstance(dados, dict):
+            return {}
+        return {
+            str(k): set(v) for k, v in dados.items() if isinstance(v, (list, tuple))
+        }
+    except Exception:
+        return {}
+
+
+def _gravar_cache_placeholders(cache: dict[str, set[str]]) -> None:
+    try:
+        TEMPLATES_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = TEMPLATES_CACHE_PATH.with_suffix(".tmp")
+        tmp.write_text(
+            json.dumps(
+                {k: sorted(v) for k, v in cache.items()}, ensure_ascii=False
+            ),
+            encoding="utf-8",
+        )
+        os.replace(tmp, TEMPLATES_CACHE_PATH)
+    except Exception:
+        pass
 from .flexao import _construir_contexto, _eh_disjuncao_flexao
+from .maquina import AJUSTES_MODO_LEVE, perfil_maquina, resolver_modo_leve
 from .models import Parte, Processo
 from .organizacao import (
     _autor, _reus_joined, organizar_pasta, salvar_processo_metadados, uf_do_cnj,
@@ -57,12 +117,15 @@ from .parsing import (
     _limpar_secretaria, _municipio_de_processo, _oab_completa, _uf_de_numero_cnj,
     aprender_comarcas, aprender_municipio,
 )
-from .peticoes import (
-    PLACEHOLDERS_AUTO, PLACEHOLDERS_PETICAO,
-    _extrair_placeholders_template, _template_eh_imobiliario, gerar_peticoes,
+# Só o módulo leve vem no topo (tabelas de placeholders + heurística de nome de
+# arquivo, tudo lógica pura). As funções de organizador.peticoes puxam
+# python-docx + lxml e são importadas dentro dos handlers que as usam — nada
+# disso é necessário para abrir a janela.
+from .placeholders import (
+    PLACEHOLDERS_AUTO, PLACEHOLDERS_PETICAO, _template_eh_imobiliario,
 )
 from .pesquisa import (
-    carregar_processos_pesquisa, filtrar_processos, linhas_tree_processos,
+    filtrar_processos_indexado, indexar_para_filtro, linhas_tree_processos,
 )
 from .indice_processos import (
     ResumoProcesso, _resumo_de_processo,
@@ -70,8 +133,11 @@ from .indice_processos import (
 )
 from .integracoes.tjsp_scraper.credenciais import listar_credenciais, salvar_credenciais
 from .scraper import (
-    CHAVES_2FA, _LogWriter, buscar_processo_online, ler_config_2fa, salvar_config_2fa,
+    CHAVES_2FA, _LogWriter, buscar_processo_online, fila_de_log, ler_config_2fa,
+    salvar_config_2fa,
 )
+
+_perf("import:fim")
 
 
 # Mapeamento de templates combinados: chave = stem do template combinado,
@@ -95,32 +161,22 @@ _DEBUG_MODOS: dict[str, str] = {
 }
 
 def _word_disponivel() -> bool:
-    try:
-        import win32com.client  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    """Existe algum conversor de PDF nesta máquina (Word OU LibreOffice)?
+
+    ATENÇÃO ao que esta função NÃO pode voltar a ser: antes ela só testava
+    `import win32com.client`. O pywin32 vem no bundle, então isso dava True até
+    em máquina sem Office — o app marcava a opção "PDF" e a conversão só falhava
+    na hora de gerar. Ver organizador/pdf.py."""
+    from . import pdf
+
+    return pdf.conversor_disponivel() is not None
 
 
 def _converter_docx_para_pdf(docx_path: Path) -> Path:
-    """Converte .docx para .pdf usando Microsoft Word via COM."""
-    try:
-        import win32com.client
-        import pythoncom
-    except ImportError:
-        raise RuntimeError("pywin32 não instalado — conversão para PDF indisponível.")
-    pythoncom.CoInitialize()
-    word = win32com.client.Dispatch("Word.Application")
-    word.Visible = False
-    word.DisplayAlerts = False
-    try:
-        doc = word.Documents.Open(str(docx_path.resolve()))
-        pdf_path = docx_path.with_suffix(".pdf")
-        doc.SaveAs(str(pdf_path.resolve()), FileFormat=17)  # 17 = wdFormatPDF
-        doc.Close(SaveChanges=False)
-    finally:
-        word.Quit(SaveChanges=False)
-    return pdf_path
+    """Converte .docx para .pdf (Word via COM ou LibreOffice)."""
+    from . import pdf
+
+    return pdf.converter_para_pdf(docx_path)
 
 
 # Fontes e constantes visuais
@@ -130,6 +186,9 @@ _FONT_MONO = ("Consolas", 10)
 _FONT_TITLE = ("Segoe UI", 12, "bold")
 _PAD_X = 12
 _PAD_Y = 6
+# Intervalo da animação das barras indeterminadas. 15 ms davam ~66 fps de
+# barra listrada: puro desperdício de CPU num i3, e imperceptível a olho nu.
+_PROGRESS_MS = 80
 
 
 class App(ttk.Window):
@@ -152,7 +211,9 @@ class App(ttk.Window):
         self.var_origem = tk.StringVar(value=PASTA_PADRAO)
         self.var_destino = tk.StringVar(value=PASTA_PADRAO)
         self.var_status = tk.StringVar(value="Pronto.")
-        self._log_queue: queue.Queue[str] = queue.Queue()
+        # Filas de log com teto (descartam o mais antigo): os workers de
+        # scraping produzem mais rápido do que a GUI drena numa passada longa.
+        self._log_queue: queue.Queue[str] = fila_de_log()
         # Filas thread-safe para atualizações de UI a partir de threads worker.
         # Tkinter NÃO é thread-safe; toda mutação visual passa por essas filas
         # e é drenada em _drain_ui_queues (rodando na main thread).
@@ -185,11 +246,25 @@ class App(ttk.Window):
         self.var_autojur_visualizar = tk.BooleanVar(
             value=bool(_ui_state.get("autojur_visualizar", False))
         )
+        # Modo leve: detectado na 1ª execução (RAM/núcleos) e depois lembrado.
+        # Ver organizador/maquina.py para o que ele muda.
+        self._perfil_maquina = perfil_maquina()
+        self.var_modo_leve = tk.BooleanVar(
+            value=resolver_modo_leve(_ui_state.get("modo_leve"))
+        )
+        # Persiste a decisão na 1ª execução, para a máquina não ser remedida (e
+        # para o valor aparecer marcado em Configurações).
+        if "modo_leve" not in _ui_state:
+            _salvar_ui_state(modo_leve=bool(self.var_modo_leve.get()))
+        self._modo_leve = bool(self.var_modo_leve.get())
+
         # Pré-login: loga no Autojur OCULTO em 2º plano ao abrir o app, para a
         # sessão já estar pronta na hora de gerar a tarefa (vira visível sob
-        # demanda p/ conferência). Ligado por padrão; lembrado entre sessões.
+        # demanda p/ conferência). Ligado por padrão em máquina capaz; DESLIGADO
+        # em modo leve, onde subir um Chrome headless na abertura (300-500 MB)
+        # é o maior gasto de memória do app.
         self.var_autojur_prelogin = tk.BooleanVar(
-            value=bool(_ui_state.get("autojur_prelogin", True))
+            value=bool(_ui_state.get("autojur_prelogin", not self._modo_leve))
         )
         self._dev_widgets_busca: list = []  # widgets avançados da aba Pesquisa
         # Barra única: filtra a lista ao vivo e, no Enter/botão, busca online
@@ -217,7 +292,7 @@ class App(ttk.Window):
         self._autojur_login_lock = threading.Lock()
         self._autojur_prelogin_worker: threading.Thread | None = None
         self._autojur_worker: threading.Thread | None = None
-        self._autojur_log_queue: queue.Queue[str] = queue.Queue()
+        self._autojur_log_queue: queue.Queue[str] = fila_de_log()
         self._autojur_result_queue: queue.Queue = queue.Queue()
         # Campos da tarefa de Protocolo (aba Autojur).
         self.var_autojur_processo = tk.StringVar(value="")
@@ -258,13 +333,35 @@ class App(ttk.Window):
         # Lista da aba Pesquisa: só RESUMOS (rápido de carregar). O Processo
         # completo é carregado sob demanda ao selecionar e memorizado em _full_cache.
         self._processos_carregados: list[ResumoProcesso] = []
-        self._full_cache: dict[str, Processo] = {}
+        # Texto de busca pré-computado, alinhado a _processos_carregados: evita
+        # remontar as strings de filtro da base inteira a cada tecla digitada.
+        self._textos_filtro: list[str] = []
+        # Teto de linhas inseridas na Treeview por vez (ela mostra 12). Inserir as
+        # ~3.200 era uma chamada Tcl por linha, refeita a cada tecla.
+        self._max_linhas_tree = 300 if self._modo_leve else 1000
+        self._debounce_filtro_ms = 250 if self._modo_leve else 120
+        self.var_contagem_lista = tk.StringVar(value="")
+        # Teto de linhas nos logs da tela (ver _append_log): sem ele, uma passada
+        # de monitoramento deixava 6-17 mil linhas presas nos widgets.
+        self._max_linhas_log = 500 if self._modo_leve else 2000
+        # Cache do Processo COMPLETO por linha selecionada. É um LRU: cada
+        # Processo carrega todos os eventos (~50 em média, alguns centenas), e
+        # antes o dict crescia sem limite — navegar por algumas centenas de
+        # linhas retinha RAM até fechar o app. Recarregar custa 3,6 ms (SQLite)
+        # ou uma leitura de metadados.json, barato demais para valer memória
+        # ilimitada numa máquina de 4 GB.
+        self._max_full_cache = 20 if self._modo_leve else 60
+        self._full_cache: OrderedDict[str, Processo] = OrderedDict()
         self._proc_selecionado: Processo | None = None
         self._templates_vars: dict[Path, tk.BooleanVar] = {}
         self.var_documento_unico = tk.BooleanVar(value=True)
         self.var_multiplos_imoveis = tk.BooleanVar(value=False)
-        self.var_gerar_pdf = tk.BooleanVar(value=_word_disponivel())
-        self._pesquisa_log_queue: queue.Queue[str] = queue.Queue()
+        # Detectado depois que a janela abre. Importar win32com/COM durante o
+        # startup é custo fixo para quem só quer gerar Word.
+        self.var_gerar_pdf = tk.BooleanVar(value=False)
+        self._cb_pdf = None
+        self._lbl_pdf_status = None
+        self._pesquisa_log_queue: queue.Queue[str] = fila_de_log()
         self._pesquisa_load_queue: queue.Queue = queue.Queue()
         self._pesquisa_load_worker: threading.Thread | None = None
         self._filtro_after_id: str | None = None
@@ -328,20 +425,14 @@ class App(ttk.Window):
         self.var_mostrar_senhas = tk.BooleanVar(value=False)
         self._frame_cred: ttk.Frame | None = None
 
+        _perf("app:estado_pronto")
         self._build_widgets()
-        self.after(100, self._drain_ui_queues)
-        self.after(100, self._drain_pesquisa_log_queue)
-        self.after(150, self._drain_pesquisa_load_result)
-        self.after(150, self._drain_busca_result)
-        self.after(200, self._drain_monitor_result)
-        self.after(150, self._atualizar_progresso_pesquisa)
-        self.after(200, self._drain_notify_queue)
-        self.after(200, self._drain_gen_result_queue)
-        self.after(100, self._drain_autojur_log_queue)
-        self.after(150, self._drain_autojur_result)
-        self.after(150, self._drain_autojur_tarefa_result)
-        self.after(150, self._drain_autojur_escolha)
-        self.after(150, self._drain_envio_autojur_result)
+        _perf("app:widgets_prontos")
+        # UM temporizador só (ver _pump). Antes eram 13 laços de 100-200 ms se
+        # reagendando para sempre: ~85 callbacks Tcl por segundo com o app
+        # parado, o que num i3 é CPU queimada sem nada acontecendo.
+        self._pump_ms = 300 if self._modo_leve else 200
+        self.after(self._pump_ms, self._pump)
         # Pré-carrega os processos já trabalhados (pasta base lembrada), para
         # adicionar novas petições a um processo existente sem recarregar à mão.
         self.after(300, self._carregar_pesquisa_inicial)
@@ -376,10 +467,28 @@ class App(ttk.Window):
         self._tab_pesq = frm_pesq
         self._tab_autojur = frm_autojur
 
-        self._build_aba_organizador(frm_org)
+        # Construção TARDIA das abas que não são a inicial.
+        #
+        # Medido (App.__init__ = 1.696 ms nesta máquina):
+        #   Pesquisa    995 ms  <- é a aba que abre; tem de existir já
+        #   Config      381 ms  <- 311 ms disso é ler credenciais.json + .env
+        #   Autojur      85 ms
+        #   Organizador  50 ms  <- e fica ESCONDIDA fora do modo dev
+        # Adiar Config e Organizador tira 431 ms da abertura (num i3 3-5× mais
+        # lento, 1,5-2 s de janela travada) sem mudar nada do que o usuário vê:
+        # a aba só é montada quando ele a seleciona.
+        #
+        # A Autojur continua sendo construída aqui de propósito: são só 85 ms e
+        # os widgets dela (`progress_autojur`, `_btn_autojur_*`, `txt_autojur`)
+        # são tocados pelo pré-login que dispara na ABERTURA e pelo envio
+        # Petições → Autojur, que começa em outra aba.
         self._build_aba_pesquisa(frm_pesq)
         self._build_aba_autojur(frm_autojur)
-        self._build_aba_config(frm_config)
+        self._abas_tardias: dict[str, tuple[ttk.Frame, object]] = {
+            str(frm_org): (frm_org, self._build_aba_organizador),
+            str(frm_config): (frm_config, self._build_aba_config),
+        }
+        nb.bind("<<NotebookTabChanged>>", self._on_troca_de_aba)
         self._aplicar_modo_dev()
 
         # Barra de status moderna
@@ -389,6 +498,27 @@ class App(ttk.Window):
             bar, textvariable=self.var_status, anchor="w",
             font=_FONT_BASE, bootstyle="inverse-secondary",
         ).pack(fill="x", padx=_PAD_X, pady=5)
+
+    def _on_troca_de_aba(self, _event=None) -> None:
+        """Monta a aba selecionada, se ainda não foi montada."""
+        with contextlib.suppress(Exception):
+            self._garantir_aba(self._nb.select())
+
+    def _garantir_aba(self, frame) -> None:
+        """Garante que a aba `frame` esteja construída. Idempotente.
+
+        Aceita o widget ou o nome dele (o que `Notebook.select()` devolve), para
+        poder ser chamada tanto pelo evento quanto por código que precise mexer
+        nos widgets de uma aba que talvez ainda não tenha sido aberta."""
+        chave = str(frame)
+        pendente = getattr(self, "_abas_tardias", {}).pop(chave, None)
+        if pendente is None:
+            return
+        widget, construtor = pendente
+        construtor(widget)
+        # Os widgets recém-criados precisam receber as regras de visibilidade do
+        # modo dev (ex.: a seção 2FA das Configurações).
+        self._aplicar_modo_dev()
 
     def _build_aba_organizador(self, parent: ttk.Frame) -> None:
         # ── Seção: Pastas ──────────────────────────────────────────────
@@ -637,6 +767,14 @@ class App(ttk.Window):
 
         # ── Painel esquerdo: Treeview ──────────────────────────────────
         f_lista = ttk.Frame(f_main)
+        # Contagem/aviso de paginação. Empacotado ANTES da tree e com
+        # side="bottom" para reservar a faixa de baixo; a tree e a barra de
+        # rolagem dividem o resto. Sem isto o usuário não teria como saber que a
+        # lista está recortada (ver _preencher_tree).
+        ttk.Label(
+            f_lista, textvariable=self.var_contagem_lista, anchor="w",
+            font=("Segoe UI", 9), foreground="#666",
+        ).pack(side="bottom", fill="x", pady=(2, 0))
         colunas = ("numero", "classe", "autor", "reu", "valor", "ultima_mov", "prazos")
         self.tree = ttk.Treeview(
             f_lista, columns=colunas, show="headings", height=12,
@@ -835,16 +973,18 @@ class App(ttk.Window):
         ttk.Label(f_fmt, text="📄", font=("Segoe UI", 14)).pack(side="left", padx=(0, 4))
         _cb_pdf = ttk.Checkbutton(
             f_fmt, text="PDF", variable=self.var_gerar_pdf, bootstyle="info",
+            state="disabled",
         )
         _cb_pdf.pack(side="left")
-        if not _word_disponivel():
-            _cb_pdf.configure(state="disabled")
-            ttk.Label(
-                f_fmt,
-                text="(Microsoft Word não instalado — contate o TI)",
-                font=_FONT_BASE,
-                bootstyle="danger",
-            ).pack(side="left", padx=(6, 0))
+        self._cb_pdf = _cb_pdf
+        self._lbl_pdf_status = ttk.Label(
+            f_fmt,
+            text="(verificando Microsoft Word...)",
+            font=_FONT_BASE,
+            bootstyle="secondary",
+        )
+        self._lbl_pdf_status.pack(side="left", padx=(6, 0))
+        self.after(800, self._detectar_word_pdf)
         ttk.Button(
             f_gerar, text="📄  Gerar petições selecionadas",
             command=self._gerar_peticoes,
@@ -1033,7 +1173,7 @@ class App(ttk.Window):
             self._autojur_scraper = None
             self._autojur_scraper_headless = None
         self._btn_autojur_abrir.configure(state="disabled")
-        self.progress_autojur.start(15)
+        self.progress_autojur.start(_PROGRESS_MS)
         self.var_status.set("Autojur: abrindo navegador e logando...")
 
         def run() -> None:
@@ -1095,16 +1235,13 @@ class App(ttk.Window):
         threading.Thread(target=run, daemon=True).start()
 
     def _drain_autojur_log_queue(self) -> None:
+        mensagens: list[str] = []
         try:
             while True:
-                msg = self._autojur_log_queue.get_nowait()
-                self.txt_autojur.configure(state="normal")
-                self.txt_autojur.insert("end", msg)
-                self.txt_autojur.see("end")
-                self.txt_autojur.configure(state="disabled")
+                mensagens.append(self._autojur_log_queue.get_nowait())
         except queue.Empty:
             pass
-        self.after(100, self._drain_autojur_log_queue)
+        self._append_log(self.txt_autojur, mensagens)
 
     def _drain_autojur_result(self) -> None:
         """Drena o resultado do login do Autojur na main thread."""
@@ -1130,8 +1267,6 @@ class App(ttk.Window):
                     self._notificar("Autojur", str(payload), nivel="error")
         except queue.Empty:
             pass
-        finally:
-            self.after(150, self._drain_autojur_result)
 
     def _autojur_escolher_pdf(self) -> None:
         caminho = filedialog.askopenfilename(
@@ -1174,7 +1309,7 @@ class App(ttk.Window):
             return
 
         self._btn_autojur_tarefa.configure(state="disabled")
-        self.progress_autojur.start(15)
+        self.progress_autojur.start(_PROGRESS_MS)
         self.var_status.set("Autojur: criando tarefa de Protocolo...")
         scraper = self._autojur_scraper
 
@@ -1224,8 +1359,6 @@ class App(ttk.Window):
                     self._notificar("Autojur", str(payload), nivel="error")
         except queue.Empty:
             pass
-        finally:
-            self.after(150, self._drain_autojur_tarefa_result)
 
     def _autojur_escolher_resultado(self, resultados: list) -> int | None:
         """Callback chamado pelo WORKER quando a busca traz >1 resultado.
@@ -1245,8 +1378,6 @@ class App(ttk.Window):
                 self._modal_escolha_resultado(resultados, ev, box)
         except queue.Empty:
             pass
-        finally:
-            self.after(150, self._drain_autojur_escolha)
 
     def _modal_escolha_resultado(self, resultados: list, ev, box: dict) -> None:
         """Modal: a busca trouxe vários resultados; a pessoa escolhe qual abrir.
@@ -1384,6 +1515,30 @@ class App(ttk.Window):
             f_acoes, text="Pré-logar no Autojur ao abrir (oculto)", variable=self.var_autojur_prelogin,
             command=self._toggle_autojur_prelogin, bootstyle="success-round-toggle",
         ).pack(side="right", padx=(0, 16))
+
+        # ── Seção: Desempenho ──────────────────────────────────────────
+        section_perf = ttk.Labelframe(
+            parent, text="  Desempenho  ", bootstyle="default", padding=(12, 8),
+        )
+        section_perf.pack(fill="x", pady=(8, 0))
+        ttk.Checkbutton(
+            section_perf,
+            text=f"Modo leve — máquina com pouca memória  "
+                 f"(detectado: {self._perfil_maquina.descricao()})",
+            variable=self.var_modo_leve, command=self._toggle_modo_leve,
+            bootstyle="warning-round-toggle",
+        ).pack(anchor="w")
+        ttk.Label(
+            section_perf,
+            text="Quando ligado: " + "; ".join(AJUSTES_MODO_LEVE) + ".",
+            font=("Segoe UI", 9), foreground="#666", wraplength=900, justify="left",
+        ).pack(anchor="w", pady=(4, 0))
+        ttk.Label(
+            section_perf,
+            text="Ligado automaticamente em máquinas fracas. Mudanças valem na "
+                 "próxima abertura do app.",
+            font=("Segoe UI", 9, "italic"), foreground="#888",
+        ).pack(anchor="w", pady=(2, 0))
 
         self._carregar_config_na_ui()
 
@@ -1526,10 +1681,111 @@ class App(ttk.Window):
     def _log(self, msg: str) -> None:
         self._log_queue.put(msg)
 
+    def _memorizar_processo(self, numero: str, proc: Processo) -> None:
+        """Guarda o Processo completo no cache LRU, respeitando o teto."""
+        if not numero:
+            return
+        self._full_cache[numero] = proc
+        self._full_cache.move_to_end(numero)
+        while len(self._full_cache) > self._max_full_cache:
+            self._full_cache.popitem(last=False)  # descarta o menos usado
+
+    def _append_log(self, widget: tk.Text, mensagens: list[str]) -> None:
+        """Acrescenta linhas a um log da tela, em lote e com teto de tamanho.
+
+        Dois problemas que isto resolve:
+
+        1) **Crescimento sem limite.** Os `tk.Text` de log só recebiam `insert`;
+           nada nunca era removido. Uma passada de monitoramento emite até 11
+           linhas por processo — com 1.600 processos são 6-17 mil linhas presas
+           no widget (cada uma com suas estruturas internas do Tk) até fechar o
+           app. Numa máquina de 4 GB isso é memória que falta em outro lugar.
+
+        2) **Um redesenho por mensagem.** O código anterior fazia
+           `configure(state) → insert → see("end") → configure(state)` DENTRO do
+           laço de drenagem, ou seja duas trocas de estado e uma rolagem para
+           cada mensagem. Agora é uma vez por lote drenado.
+
+        O corte é pelo começo (as linhas mais ANTIGAS somem) — quem está olhando
+        o log quer o fim.
+        """
+        if not mensagens:
+            return
+        try:
+            widget.configure(state="normal")
+            widget.insert("end", "".join(mensagens))
+            # `index("end-1c")` devolve "linha.coluna" da última posição real.
+            total = int(widget.index("end-1c").split(".")[0])
+            if total > self._max_linhas_log:
+                sobra = total - self._max_linhas_log
+                widget.delete("1.0", f"{sobra + 1}.0")
+            widget.see("end")
+        except tk.TclError:
+            pass  # widget destruído (app fechando) — log não é crítico
+        finally:
+            with contextlib.suppress(tk.TclError):
+                widget.configure(state="disabled")
+
+    # -- bomba única de eventos --------------------------------------------
+    # Cada worker fala com a GUI por uma queue.Queue própria (Tkinter só é seguro
+    # na main thread). Antes cada fila tinha o SEU laço `after()` de 100-200 ms se
+    # reagendando eternamente — 13 laços, ~85 callbacks/s mesmo com o app parado.
+    # Agora um único `after` chama todos os drenos. Cada dreno já é barato quando
+    # a fila está vazia (get_nowait levanta Empty na hora), e o par
+    # (fila, dreno) abaixo evita até essa chamada quando não há nada.
+    #
+    # Ao acrescentar uma fila nova: registre o par aqui. NÃO volte a criar um
+    # `after()` próprio dentro do dreno (ver tests/test_pump.py).
+    def _pares_pump(self) -> tuple[tuple[object, object], ...]:
+        return (
+            (self._log_queue, self._drain_ui_queues),        # log + progresso + status
+            (self._progress_queue, self._drain_ui_queues),
+            (self._status_queue, self._drain_ui_queues),
+            (self._pesquisa_log_queue, self._drain_pesquisa_log_queue),
+            (self._pesquisa_load_queue, self._drain_pesquisa_load_result),
+            (self._busca_result_queue, self._drain_busca_result),
+            (self._monitor_result_queue, self._drain_monitor_result),
+            (self._notify_queue, self._drain_notify_queue),
+            (self._gen_result_queue, self._drain_gen_result_queue),
+            (self._autojur_log_queue, self._drain_autojur_log_queue),
+            (self._autojur_result_queue, self._drain_autojur_result),
+            (self._autojur_tarefa_result_queue, self._drain_autojur_tarefa_result),
+            (self._autojur_escolha_queue, self._drain_autojur_escolha),
+            (self._envio_autojur_result_queue, self._drain_envio_autojur_result),
+        )
+
+    def _pump(self) -> None:
+        """Drena o que tem conteúdo e reagenda a si mesma. Nunca deixa de
+        reagendar: um erro num dreno não pode congelar a comunicação
+        worker → GUI."""
+        try:
+            chamados = set()
+            for fila, dreno in self._pares_pump():
+                if dreno in chamados or fila.empty():
+                    continue
+                chamados.add(dreno)
+                try:
+                    dreno()
+                except Exception:
+                    pass
+            # A barra indeterminada é estado, não fila: precisa ser reavaliada
+            # sempre, mas só faz trabalho enquanto há worker vivo.
+            self._atualizar_progresso_pesquisa()
+        finally:
+            self.after(self._pump_ms, self._pump)
+
     def _drain_ui_queues(self) -> None:
         """Drena filas de log/progresso/status (main thread). Tkinter só é
         seguro nesta thread, então toda atualização vinda de workers passa por
-        aqui."""
+        aqui.
+
+        Estas três filas pertencem à aba Organizador, que é construída sob
+        demanda (ver `_build_widgets`). Elas só recebem mensagens quando aquele
+        fluxo roda — e para rodar a aba precisa ter sido aberta. Mesmo assim o
+        guarda abaixo existe: sem ele, uma mensagem inesperada viraria
+        AttributeError dentro do `_pump`, a cada 200 ms, para sempre."""
+        if not hasattr(self, "txt"):
+            return
         # Logs: insere todas as mensagens acumuladas.
         try:
             mensagens: list[str] = []
@@ -1537,12 +1793,7 @@ class App(ttk.Window):
                 mensagens.append(self._log_queue.get_nowait())
         except queue.Empty:
             pass
-        if mensagens:
-            self.txt.configure(state="normal")
-            for msg in mensagens:
-                self.txt.insert("end", msg + "\n")
-            self.txt.see("end")
-            self.txt.configure(state="disabled")
+        self._append_log(self.txt, [msg + "\n" for msg in mensagens])
 
         # Progresso: só interessa o último valor — evita N redraws.
         ultimo_progress: tuple[int, int] | None = None
@@ -1574,7 +1825,6 @@ class App(ttk.Window):
         except queue.Empty:
             pass
 
-        self.after(100, self._drain_ui_queues)
 
     # -- feedback de conclusão ---------------------------------------------
     def _notificar(
@@ -1603,7 +1853,6 @@ class App(ttk.Window):
                     self._mostrar_notificacao(nivel, titulo, mensagem, pasta)
                 finally:
                     self._notify_busy = False
-        self.after(200, self._drain_notify_queue)
 
     def _mostrar_notificacao(
         self, nivel: str, titulo: str, mensagem: str, pasta: str | None,
@@ -1621,6 +1870,39 @@ class App(ttk.Window):
                     os.startfile(pasta)
         else:
             messagebox.showinfo(titulo, mensagem)
+
+    def _detectar_word_pdf(self) -> None:
+        """Detecta o conversor de PDF fora do caminho crítico de abertura.
+
+        Roda numa thread porque mexe em registro/disco. O resultado dita se a
+        opção "PDF" fica habilitada — e o rótulo diz QUAL programa foi encontrado,
+        para o usuário não descobrir só depois de gerar que o PDF não saiu."""
+        def run() -> None:
+            from . import pdf
+
+            conversor = pdf.conversor_disponivel()
+
+            def aplicar() -> None:
+                if self._cb_pdf is None or self._lbl_pdf_status is None:
+                    return
+                if conversor:
+                    self._cb_pdf.configure(state="normal")
+                    self.var_gerar_pdf.set(True)
+                    self._lbl_pdf_status.configure(
+                        text=f"(via {pdf.rotulo(conversor)})", bootstyle="secondary"
+                    )
+                else:
+                    self._cb_pdf.configure(state="disabled")
+                    self.var_gerar_pdf.set(False)
+                    self._lbl_pdf_status.configure(
+                        text=f"({pdf.descricao_indisponivel()})",
+                        bootstyle="danger",
+                    )
+
+            with contextlib.suppress(Exception):
+                self.after(0, aplicar)
+
+        threading.Thread(target=run, daemon=True).start()
 
     def _on_run(self) -> None:
         if self._worker and self._worker.is_alive():
@@ -1697,16 +1979,13 @@ class App(ttk.Window):
             self.var_pesquisa_base.set(path)
             _salvar_ui_state(pesquisa_base=path)
 
-    def _listar_processos(self) -> list[Processo]:
-        """Processos da pasta base + buscados online (persistidos) + os
-        embutidos na release, sem duplicar por número. Prioridade: pasta base
-        (curada) > cache de buscas online do usuário > base embutida (release),
-        para que a busca do próprio usuário sempre prevaleça sobre o snapshot."""
-        return carregar_processos_pesquisa(
-            Path(self.var_pesquisa_base.get()),
-            PROCESSOS_ONLINE_DIR,
-            PROCESSOS_BASE_JSON,
-        )
+    # NOTA: aqui existia `_listar_processos`, que chamava
+    # pesquisa.carregar_processos_pesquisa() — a implementação anterior ao índice
+    # de resumos (v1.8.2). Ela lê e parseia TODOS os metadados.json (~150 MB em
+    # 5.000 pastas nesta instalação) para objetos Processo completos. Nada a
+    # chamava desde o refactor, mas continuava ali, a um autocomplete de distância
+    # de voltar ao caminho de abertura. A carga correta é
+    # `_iniciar_carregamento_pesquisa`, abaixo, que usa o índice incremental.
 
     def _iniciar_carregamento_pesquisa(self, silencioso: bool = False) -> None:
         if self._pesquisa_load_worker and self._pesquisa_load_worker.is_alive():
@@ -1753,6 +2032,7 @@ class App(ttk.Window):
                 if tipo == "ok":
                     procs = payload
                     self._processos_carregados = procs
+                    self._textos_filtro = indexar_para_filtro(procs)
                     # Recarga completa: descarta o cache de Processos completos p/
                     # não servir detalhe desatualizado de algo que mudou no disco.
                     self._full_cache.clear()
@@ -1767,8 +2047,6 @@ class App(ttk.Window):
                     self._notificar("Erro ao carregar processos", str(payload), nivel="error")
         except queue.Empty:
             pass
-        finally:
-            self.after(150, self._drain_pesquisa_load_result)
 
     def _buscar_online(self) -> None:
         """Dispara a busca do processo no TJ/sistema escolhido numa thread.
@@ -1790,7 +2068,10 @@ class App(ttk.Window):
             (p for p in self._processos_carregados if p.numero == numero), None
         )
         if existente and not forcar:
-            self._preencher_tree(self._processos_carregados)
+            # `garantir`: a lista é paginada, e o processo procurado pode estar
+            # além do teto de linhas — sem isto a seleção abaixo não acharia a
+            # linha e a busca pareceria não ter funcionado.
+            self._preencher_tree(self._processos_carregados, garantir=existente.numero)
             if self.tree.exists(existente.numero):
                 self.tree.selection_set(existente.numero)
                 self.tree.see(existente.numero)
@@ -1923,12 +2204,15 @@ class App(ttk.Window):
                     # recém-gravado (o índice o pega por mtime na próxima carga).
                     origem = str(PROCESSOS_ONLINE_DIR / proc.numero / "metadados.json")
                     resumo = _resumo_de_processo(proc, "online", origem)
-                    self._full_cache[proc.numero] = proc
+                    self._memorizar_processo(proc.numero, proc)
                     self._processos_carregados = [
                         r for r in self._processos_carregados if r.numero != proc.numero
                     ]
                     self._processos_carregados.append(resumo)
-                    self._preencher_tree(self._processos_carregados)
+                    self._textos_filtro = indexar_para_filtro(self._processos_carregados)
+                    self._preencher_tree(
+                        self._processos_carregados, garantir=proc.numero
+                    )
                     if proc.numero and self.tree.exists(proc.numero):
                         self.tree.selection_set(proc.numero)
                         self.tree.see(proc.numero)
@@ -1942,8 +2226,6 @@ class App(ttk.Window):
                 self._btn_buscar.configure(state="normal")
         except queue.Empty:
             pass
-        finally:
-            self.after(150, self._drain_busca_result)
 
     # -- monitoramento: planilhas → mapeamento de sistema ------------------
     def _iniciar_monitoramento(self, auto: bool = False) -> None:
@@ -2036,8 +2318,6 @@ class App(ttk.Window):
                         self._notificar("Monitoramento", str(payload), nivel="error")
         except queue.Empty:
             pass
-        finally:
-            self.after(200, self._drain_monitor_result)
 
     def _verificar_monitoramento_semanal(self) -> None:
         """Na abertura do app, dispara o monitoramento em silêncio se já se
@@ -2045,14 +2325,29 @@ class App(ttk.Window):
         Best-effort: qualquer falha é ignorada (nunca trava a abertura)."""
         try:
             from datetime import datetime, timedelta
+
+            # Em modo leve nunca dispara sozinho: uma passada baixa 11 planilhas e
+            # sobe navegadores: numa máquina de 4 GB isso tem de ser uma decisão
+            # do usuário (botão "Sincronizar planilhas & mapear").
+            if self._modo_leve:
+                return
+
             ultimo = _carregar_ui_state().get("ultimo_monitoramento")
-            if ultimo:
-                try:
-                    quando = datetime.fromisoformat(ultimo)
-                except ValueError:
-                    quando = None
-                if quando is not None and (datetime.now() - quando) < timedelta(days=7):
-                    return  # ainda dentro da janela semanal
+            if not ultimo:
+                # 1ª execução nesta máquina. Antes o app entendia "nunca rodou"
+                # como "está atrasado" e disparava a passada completa 2,5 s depois
+                # de abrir — justamente quando a máquina está mais ocupada, e sem
+                # o usuário ter pedido nada. Marca o relógio e espera a semana.
+                _salvar_ui_state(
+                    ultimo_monitoramento=datetime.now().isoformat(timespec="seconds")
+                )
+                return
+            try:
+                quando = datetime.fromisoformat(ultimo)
+            except ValueError:
+                quando = None
+            if quando is not None and (datetime.now() - quando) < timedelta(days=7):
+                return  # ainda dentro da janela semanal
             self._pesquisa_log_queue.put(
                 "🗓️ monitoramento semanal: iniciando passada automática...\n"
             )
@@ -2060,28 +2355,76 @@ class App(ttk.Window):
         except Exception:
             pass
 
-    def _preencher_tree(self, processos: list[Processo]) -> None:
+    def _preencher_tree(self, processos: list, garantir: str = "") -> None:
+        """Popula a lista, no máximo ``self._max_linhas_tree`` linhas por vez.
+
+        A Treeview mostra 12 linhas (``height=12``), mas era preenchida com as
+        ~3.200 dos processos, uma chamada Tcl por linha — e refeita do zero a cada
+        tecla no filtro. Agora corta no teto e informa o corte, então o custo por
+        tecla é constante em vez de proporcional à base.
+
+        `garantir`: número de processo que PRECISA aparecer no recorte (ex.: a
+        linha que a busca acabou de encontrar). Sem isto, um processo além do teto
+        seria "encontrado" e a seleção falharia silenciosamente."""
+        total = len(processos)
+        teto = self._max_linhas_tree
+        visiveis = processos[:teto]
+        if garantir and total > teto:
+            if not any((p.numero or "") == garantir for p in visiveis):
+                achado = next((p for p in processos if (p.numero or "") == garantir), None)
+                if achado is not None:
+                    visiveis = [achado] + visiveis[: teto - 1]
+
         for item in self.tree.get_children():
             self.tree.delete(item)
-        for iid, values, tag in linhas_tree_processos(processos):
+        for iid, values, tag in linhas_tree_processos(visiveis):
             self.tree.insert("", "end", iid=iid, values=values, tags=(tag,))
+
+        if total > len(visiveis):
+            self.var_contagem_lista.set(
+                f"mostrando {len(visiveis)} de {total} — refine o filtro para ver o resto"
+            )
+        else:
+            self.var_contagem_lista.set(f"{total} processo(s)")
+        _perf(f"tree:preenchida({len(visiveis)}de{total})")
 
     def _agendar_filtrar_pesquisa(self) -> None:
         if self._filtro_after_id is not None:
             with contextlib.suppress(Exception):
                 self.after_cancel(self._filtro_after_id)
-        self._filtro_after_id = self.after(120, self._filtrar_pesquisa)
+        self._filtro_after_id = self.after(self._debounce_filtro_ms, self._filtrar_pesquisa)
 
-    def _filtrar_pesquisa(self) -> None:
+    def _filtrar_pesquisa(self, garantir: str = "") -> None:
         self._filtro_after_id = None
         self._preencher_tree(
-            filtrar_processos(self._processos_carregados, self.var_filtro.get())
+            filtrar_processos_indexado(
+                self._processos_carregados,
+                self._textos_filtro,
+                self.var_filtro.get(),
+            ),
+            garantir=garantir,
         )
 
     def _toggle_modo_dev(self) -> None:
         """Persiste o modo dev e aplica a visibilidade na hora."""
         _salvar_ui_state(modo_dev=self.var_modo_dev.get())
         self._aplicar_modo_dev()
+
+    def _toggle_modo_leve(self) -> None:
+        """Persiste o Modo leve.
+
+        Só o que é decidido na abertura (pré-login, monitoramento automático,
+        paginação da lista, intervalo dos temporizadores) muda de verdade na
+        próxima execução — por isso o aviso, em vez de tentar reconfigurar a
+        janela viva."""
+        ativo = bool(self.var_modo_leve.get())
+        _salvar_ui_state(modo_leve=ativo)
+        # Vale já para o que é consultado sob demanda (ex.: limite do PoolScrapers).
+        self._modo_leve = ativo
+        self.var_status.set(
+            "Modo leve LIGADO — vale integralmente na próxima abertura." if ativo
+            else "Modo leve desligado — vale integralmente na próxima abertura."
+        )
 
     def _toggle_autojur_salvar(self) -> None:
         """Persiste a preferência 'salvar no Autojur' e sincroniza o toggle da
@@ -2221,10 +2564,12 @@ class App(ttk.Window):
         # Carga preguiçosa do Processo completo (com eventos/atos/partes), lida do
         # metadados.json só agora — e memorizada p/ próximas seleções.
         proc = self._full_cache.get(numero)
-        if proc is None:
+        if proc is not None:
+            self._full_cache.move_to_end(numero)  # usado agora = mais recente
+        else:
             proc = carregar_processo_completo(resumo, PROCESSOS_BASE_JSON)
             if proc is not None:
-                self._full_cache[numero] = proc
+                self._memorizar_processo(numero, proc)
         if proc is None:
             # metadados.json sumiu desde a última carga: usa o resumo p/ não travar.
             proc = Processo(
@@ -2471,26 +2816,59 @@ class App(ttk.Window):
         if not pendentes:
             return
 
+        # Cache em disco: abrir os 39 modelos (13,5 MB de .docx, um deles com
+        # 3,2 MB) custava ~3 s de CPU em TODA abertura, e os modelos mudam uma vez
+        # por semestre. Com o cache, a abertura normal não abre nenhum .docx —
+        # e por consequência nem carrega o python-docx.
+        cache = _carregar_cache_placeholders()
+        do_cache, faltando = [], []
+        for p in pendentes:
+            phs = cache.get(_chave_cache_template(p))
+            if phs is None:
+                faltando.append(p)
+            else:
+                self._templates_placeholders[p] = phs
+                do_cache.append(p)
+        if do_cache:
+            self._pesquisa_log_queue.put(
+                f"{len(do_cache)} template(s) lidos do cache de placeholders.\n"
+            )
+        if not faltando:
+            self._on_template_toggle()
+            _perf(f"templates:cache({len(do_cache)})")
+            return
+
         self._pesquisa_log_queue.put(
-            f"Escaneando placeholders de {len(pendentes)} template(s)...\n"
+            f"Escaneando placeholders de {len(faltando)} template(s)...\n"
         )
 
         def run() -> None:
+            # Import tardio (python-docx + lxml): acontece nesta thread, então a
+            # janela já está desenhada e responsiva quando o custo é pago.
+            from .peticoes import _extrair_placeholders_template
+
             try:
                 import pythoncom
                 pythoncom.CoInitialize()
             except Exception:
                 pass
-            for p in pendentes:
+            novos: dict[str, set[str]] = {}
+            for p in faltando:
                 try:
                     phs = _extrair_placeholders_template(p)
+                    novos[_chave_cache_template(p)] = phs
                 except Exception as exc:
                     self._pesquisa_log_queue.put(f"! Erro escaneando {p.name}: {exc}\n")
-                    phs = set()
+                    phs = set()  # falha não vai para o cache: tenta de novo depois
                 self._templates_placeholders[p] = phs
-                # Atualiza destaques na main thread sempre que um template é processado.
-                self.after(0, self._on_template_toggle)
+            # UMA reconstrução do formulário no fim, não uma por template: cada
+            # _on_template_toggle refaz grid/grid_remove de todos os campos, e
+            # eram 39 reconstruções seguidas na abertura.
+            self.after(0, self._on_template_toggle)
+            if novos:
+                _gravar_cache_placeholders({**cache, **novos})
             self._pesquisa_log_queue.put("Escaneamento de templates concluído.\n")
+            _perf(f"templates:escaneados({len(faltando)})")
 
         self._scan_tpls_thread = threading.Thread(target=run, daemon=True)
         self._scan_tpls_thread.start()
@@ -2791,6 +3169,9 @@ class App(ttk.Window):
         n_templates = len(templates_sel)
 
         def run() -> None:
+            # Import tardio (python-docx + lxml), nesta thread worker.
+            from .peticoes import gerar_peticoes
+
             try:
                 gerados = gerar_peticoes(
                     proc,
@@ -2804,13 +3185,26 @@ class App(ttk.Window):
                 )
                 todos: list[Path] = list(gerados)
                 if gerar_pdf:
+                    falhas_pdf: list[str] = []
                     for docx_path in gerados:
                         try:
-                            pdf = _converter_docx_para_pdf(docx_path)
-                            todos.append(pdf)
-                            self._pesquisa_log_queue.put(f"  PDF: {pdf.name}\n")
+                            pdf_gerado = _converter_docx_para_pdf(docx_path)
+                            todos.append(pdf_gerado)
+                            self._pesquisa_log_queue.put(f"  PDF: {pdf_gerado.name}\n")
                         except Exception as exc:
+                            falhas_pdf.append(str(exc))
                             self._pesquisa_log_queue.put(f"  ERRO ao gerar PDF: {exc}\n")
+                    # Antes a falha ficava só nesta linha do log (oculto por
+                    # padrão): o .docx aparecia, o PDF não, e ninguém sabia por
+                    # quê. Agora avisa de forma visível — foi o sintoma relatado
+                    # na máquina fraca ("o PDF não está sendo gerado").
+                    if falhas_pdf:
+                        self._notificar(
+                            "PDF não gerado",
+                            f"As petições .docx foram criadas, mas "
+                            f"{len(falhas_pdf)} PDF(s) não. Motivo: {falhas_pdf[0]}",
+                            nivel="warning",
+                        )
                 self._pesquisa_log_queue.put("\nConcluído.\n")
                 self._gen_result_queue.put(todos)
                 self._status_queue.put((
@@ -2834,7 +3228,6 @@ class App(ttk.Window):
                 self._mostrar_arquivos_gerados(arquivos)
         except queue.Empty:
             pass
-        self.after(200, self._drain_gen_result_queue)
 
     def _mostrar_arquivos_gerados(self, arquivos: list) -> None:
         frame = self._frame_gerados
@@ -2944,15 +3337,20 @@ class App(ttk.Window):
         def run() -> None:
             try:
                 novos_pdfs: list[Path] = []
+                erro_pdf = ""
                 for docx_path in docs:
                     try:
                         pdf = _converter_docx_para_pdf(docx_path)
                         novos_pdfs.append(pdf)
                         self._pesquisa_log_queue.put(f"  PDF atualizado: {pdf.name}\n")
                     except Exception as exc:
+                        erro_pdf = erro_pdf or str(exc)
                         self._pesquisa_log_queue.put(
                             f"  ERRO ao gerar PDF de {docx_path.name}: {exc}\n"
                         )
+                if not novos_pdfs and erro_pdf:
+                    # Nenhum PDF saiu: avisa, em vez de deixar só no log oculto.
+                    self._notificar("PDF não gerado", erro_pdf, nivel="warning")
                 # Lista atualizada = base ∪ pdfs (re)gerados, sem duplicar.
                 # Um docx editado sobrescreve o pdf de mesmo path (já em base);
                 # um pdf novo é acrescentado.
@@ -3239,7 +3637,7 @@ class App(ttk.Window):
 
     def _disparar_envio_autojur(self, dados: dict) -> None:
         """Worker: garante login e cria uma tarefa de Protocolo por PDF."""
-        self.progress_pesquisa.start(15)
+        self.progress_pesquisa.start(_PROGRESS_MS)
         self.var_status.set("Autojur: enviando petições...")
         # Visibilidade pela regra única: visível quando NÃO salvar (conferência),
         # quando "Visualizar navegador" está ligado ou no modo dev; senão oculto.
@@ -3308,20 +3706,15 @@ class App(ttk.Window):
                     self._notificar("Autojur", str(payload), nivel="error")
         except queue.Empty:
             pass
-        finally:
-            self.after(150, self._drain_envio_autojur_result)
 
     def _drain_pesquisa_log_queue(self) -> None:
+        mensagens: list[str] = []
         try:
             while True:
-                msg = self._pesquisa_log_queue.get_nowait()
-                self.txt_pesquisa.configure(state="normal")
-                self.txt_pesquisa.insert("end", msg)
-                self.txt_pesquisa.see("end")
-                self.txt_pesquisa.configure(state="disabled")
+                mensagens.append(self._pesquisa_log_queue.get_nowait())
         except queue.Empty:
             pass
-        self.after(100, self._drain_pesquisa_log_queue)
+        self._append_log(self.txt_pesquisa, mensagens)
 
     def _toggle_log_pesq(self) -> None:
         """Mostra/oculta o log da aba Pesquisa de Processo."""
@@ -3341,22 +3734,23 @@ class App(ttk.Window):
         as threads worker da aba Pesquisa: busca online, geração de petições e
         escaneamento de templates. A barra é indeterminada — só sinaliza que o
         sistema está rodando, sem percentual."""
-        ativo = any(
-            t is not None and t.is_alive()
-            for t in (
-                self._busca_worker,
-                self._gen_worker,
-                self._scan_tpls_thread,
-                self._pesquisa_load_worker,
-            )
+        threads = (
+            self._busca_worker,
+            self._gen_worker,
+            self._scan_tpls_thread,
+            self._pesquisa_load_worker,
         )
+        # Caminho ocioso (o normal): nenhuma thread criada ainda, nada a fazer —
+        # sem is_alive(), sem tocar no widget.
+        if not self._pesquisa_em_progresso and not any(t is not None for t in threads):
+            return
+        ativo = any(t is not None and t.is_alive() for t in threads)
         if ativo and not self._pesquisa_em_progresso:
             self._pesquisa_em_progresso = True
-            self.progress_pesquisa.start(15)
+            self.progress_pesquisa.start(_PROGRESS_MS)
         elif not ativo and self._pesquisa_em_progresso:
             self._pesquisa_em_progresso = False
             self.progress_pesquisa.stop()
-        self.after(150, self._atualizar_progresso_pesquisa)
 
     def _verificar_atualizacao_silenciosa(self) -> None:
         """Dispara o Atualizador em modo silencioso na abertura do app.
@@ -3388,8 +3782,48 @@ class App(ttk.Window):
             pass
 
 
+def _limpar_temp_orfaos() -> int:
+    """Apaga pastas ``_MEI*`` órfãs no %TEMP%. Devolve quantas foram removidas.
+
+    O onefile do PyInstaller extrai o bundle inteiro num ``_MEIxxxxx`` novo a
+    cada abertura e o apaga ao sair — MAS o Atualizador encerra o app com
+    TerminateProcess para trocar o .exe, e um processo morto assim nunca faz essa
+    limpeza. O lixo acumula (16 pastas foram encontradas nesta máquina), o que
+    dói justamente nas máquinas fracas, que costumam ter disco pequeno.
+
+    Best-effort e seguro: a pasta em uso pelo processo ATUAL é preservada, e as
+    de outros processos vivos falham no rmtree (arquivos travados) e são
+    ignoradas — nunca derrubamos uma instância aberta."""
+    import shutil
+    import tempfile
+
+    atual = getattr(sys, "_MEIPASS", None)
+    atual_norm = os.path.normcase(os.path.abspath(atual)) if atual else None
+    removidas = 0
+    try:
+        raiz = tempfile.gettempdir()
+        for nome in os.listdir(raiz):
+            if not nome.startswith("_MEI"):
+                continue
+            caminho = os.path.join(raiz, nome)
+            if not os.path.isdir(caminho):
+                continue
+            if atual_norm and os.path.normcase(os.path.abspath(caminho)) == atual_norm:
+                continue
+            antes = os.path.isdir(caminho)
+            shutil.rmtree(caminho, ignore_errors=True)
+            if antes and not os.path.isdir(caminho):
+                removidas += 1
+    except OSError:
+        pass
+    return removidas
+
+
 def main() -> None:
     app = App()
+    _perf("app:construido")
+    # Numa thread: é I/O de disco e não pode atrasar o primeiro desenho.
+    threading.Thread(target=_limpar_temp_orfaos, daemon=True).start()
     # Pré-login do Autojur em 2º plano, se ligado (aquece a sessão sem travar a
     # GUI; na 1ª vez pede o 2FA por e-mail, depois o perfil persistente pula).
     if bool(app.var_autojur_prelogin.get()):

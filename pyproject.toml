@@ -12,6 +12,11 @@ omit = [
     "organizador/gui.py",
     "organizador/scraper.py",
     "organizador/integracoes/tjsp_scraper/*",
+    # Mesma razão dos de cima: uma passada de monitoramento exige Chrome real,
+    # login/2FA nos tribunais e as planilhas Google. A parte testável (leitura
+    # das planilhas) já foi extraída para organizador/sheets.py, que É coberta
+    # por tests/test_sheets.py.
+    "organizador/monitoramento.py",
 ]
 
 [tool.coverage.report]

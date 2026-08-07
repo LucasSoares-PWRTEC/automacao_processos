@@ -6,8 +6,6 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from pypdf import PdfReader
-
 from .padroes import RE_CODIGO_VERIFICADOR, RE_NUMERO_CNJ
 
 
@@ -32,6 +30,11 @@ def extrair_texto(pdf_path: Path, cache_dir: Path | None = None) -> str:
                     return cache_file.read_text(encoding="utf-8")
                 except Exception:
                     pass
+
+    # Import tardio: a GUI puxa este módulo (via parsing) só para desenhar a
+    # janela, e o pypdf custa ~0,2 s de abertura sem ser usado até alguém abrir
+    # um PDF. O cache acima resolve a maioria das chamadas sem chegar aqui.
+    from pypdf import PdfReader
 
     reader = PdfReader(str(pdf_path), strict=False)
     blocos: list[str] = []

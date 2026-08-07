@@ -17,7 +17,10 @@ from typing import Callable, Iterable
 
 from .config import CACHE_DIR, PASTA_NAO_IDENTIFICADOS
 from .models import Advogado, AtoDocumento, Evento, Parte, Prazo, Processo
-from .padroes import MAPA_UF_CNJ, PAPEIS_ATIVO, PAPEIS_PASSIVO, RE_CNJ_TR, RE_NUMERO_CNJ
+from .padroes import (
+    MAPA_UF_CNJ, PAPEIS_ATIVO, PAPEIS_ATIVO_UP, PAPEIS_PASSIVO, PAPEIS_PASSIVO_UP,
+    RE_CNJ_TR, RE_NUMERO_CNJ,
+)
 from .parsing import _derivar_agregados, parse_pdf
 from .texto import extrair_texto
 
@@ -152,16 +155,30 @@ def _merge_processos(base: Processo, novo: Processo, tipo_pdf_novo: str) -> Proc
     if novo_score > base_score:
         base.partes = novo.partes
     elif base.partes and novo.partes:
+        # Casamento por nome em maiúsculas. Era um laço aninhado que recalculava
+        # `bp.nome.upper()` para CADA parte de `novo`: o pior processo da base tem
+        # 821 partes, o que dava ~674 mil iterações e ~1,3 milhão de `.upper()`
+        # por merge. Agora o nome de cada lado é normalizado uma única vez.
+        #
+        # Nomes repetidos: o dict mantém a PRIMEIRA parte de `base` com aquele
+        # nome, que é a que o laço antigo também acabava preenchendo primeiro.
+        por_nome: dict[str, object] = {}
         for bp in base.partes:
-            for np in novo.partes:
-                if bp.nome.upper() == np.nome.upper():
-                    if not bp.documento and np.documento:
-                        bp.documento = np.documento
-                    if not bp.tipo and np.tipo:
-                        bp.tipo = np.tipo
-                    for adv in np.advogados:
-                        if not any(a.oab == adv.oab for a in bp.advogados):
-                            bp.advogados.append(adv)
+            por_nome.setdefault((bp.nome or "").upper(), bp)
+        for np in novo.partes:
+            bp = por_nome.get((np.nome or "").upper())
+            if bp is None:
+                continue
+            if not bp.documento and np.documento:
+                bp.documento = np.documento
+            if not bp.tipo and np.tipo:
+                bp.tipo = np.tipo
+            if np.advogados:
+                oabs = {a.oab for a in bp.advogados}
+                for adv in np.advogados:
+                    if adv.oab not in oabs:
+                        bp.advogados.append(adv)
+                        oabs.add(adv.oab)
 
     if len(novo.eventos) > len(base.eventos):
         base.eventos = novo.eventos
@@ -204,6 +221,34 @@ def _prefixo_por_tipo(tipo: str) -> str:
 
 
 MAX_WORKERS = max(2, min(4, (os.cpu_count() or 4) // 2))
+MAX_WORKERS_MODO_LEVE = 1
+
+
+def _modo_leve_organizacao() -> bool:
+    """Modo leve salvo/detectado, sem depender da GUI estar aberta."""
+    try:
+        from .config import UI_STATE_PATH
+        from .maquina import resolver_modo_leve
+
+        salvo = json.loads(UI_STATE_PATH.read_text(encoding="utf-8")).get("modo_leve")
+        return resolver_modo_leve(salvo)
+    except Exception:
+        try:
+            from .maquina import resolver_modo_leve
+
+            return resolver_modo_leve(None)
+        except Exception:
+            return False
+
+
+def _max_workers_organizacao() -> int:
+    """Teto de paralelismo da leitura de PDFs.
+
+    Em máquinas fracas, vários PDFs sendo parseados ao mesmo tempo competem por
+    CPU, cache de disco e memória. O modo leve preserva a funcionalidade e troca
+    throughput por estabilidade.
+    """
+    return MAX_WORKERS_MODO_LEVE if _modo_leve_organizacao() else MAX_WORKERS
 
 
 def _processar_pdf(
@@ -303,7 +348,7 @@ def organizar_pasta(
         return resumo
 
     cache_dir = destino / CACHE_DIR
-    n_workers = min(MAX_WORKERS, len(pdfs)) if pdfs else 1
+    n_workers = min(_max_workers_organizacao(), len(pdfs)) if pdfs else 1
     log(f"Usando {n_workers} worker(s) em paralelo")
     total_pdfs = len(pdfs)
     processed_counter = itertools.count(1)
@@ -416,12 +461,12 @@ def gerar_indice_csv(processos: list[Processo], destino: Path) -> Path:
             reu = _reus_joined(proc)
             oabs_autor = "; ".join(
                 a.oab for p in proc.partes
-                if (p.papel or "").upper() in [pp.upper() for pp in PAPEIS_ATIVO]
+                if (p.papel or "").upper() in PAPEIS_ATIVO_UP
                 for a in p.advogados
             )
             oabs_reu = "; ".join(
                 a.oab for p in proc.partes
-                if (p.papel or "").upper() in [pp.upper() for pp in PAPEIS_PASSIVO]
+                if (p.papel or "").upper() in PAPEIS_PASSIVO_UP
                 for a in p.advogados
             )
             proxima = proc.prazos_abertos[0].fim if proc.prazos_abertos else ""
@@ -462,7 +507,7 @@ def _juntar_nomes(nomes: list[str]) -> str:
 def _autor(proc: Processo) -> str:
     nomes = [
         p.nome for p in proc.partes
-        if p.papel.upper() in [pp.upper() for pp in PAPEIS_ATIVO]
+        if p.papel.upper() in PAPEIS_ATIVO_UP
     ]
     return _juntar_nomes(nomes)
 
@@ -470,7 +515,7 @@ def _autor(proc: Processo) -> str:
 def _reus_joined(proc: Processo) -> str:
     reus = [
         p.nome for p in proc.partes
-        if p.papel.upper() in [pp.upper() for pp in PAPEIS_PASSIVO]
+        if p.papel.upper() in PAPEIS_PASSIVO_UP
     ]
     return _juntar_nomes(reus)
 

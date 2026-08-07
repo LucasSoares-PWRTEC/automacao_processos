@@ -29,6 +29,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from .base import TribunalScraper, criar_chrome_driver
 from .popup import AtribuicaoDetectadaError, detectar_atribuicao
+from ..diagnostico import salvar_screenshot
 from ..credenciais import obter_credenciais, cpf_formatado
 from ..two_factor import obter_codigo_2fa_email
 
@@ -65,8 +66,11 @@ def _derivar_login_e_chave(url: str) -> tuple[str, str]:
     tj_chave = f"TJ{m.group(1).upper()} - Esaj" if m else "TJSP - Esaj"
     return login_url, tj_chave
 
-_DEBUG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "_debug"
 
+
+# Orçamento dos localizadores ALTERNATIVOS de `_first` (o 1º usa o timeout
+# cheio). Curto de propósito: eles cobrem variações de DOM, não demora.
+_TIMEOUT_FALLBACK = 0.3
 
 class ESAJScraper(TribunalScraper):
 
@@ -80,10 +84,21 @@ class ESAJScraper(TribunalScraper):
     # Helpers
     # ------------------------------------------------------------------
     def _first(self, locators, timeout=10):
-        """Tenta uma lista de (By, valor); devolve o 1º elemento presente."""
-        for by, val in locators:
+        """Tenta uma lista de (By, valor); devolve o 1º elemento presente.
+
+        O `timeout` é o orçamento do 1º localizador (o esperado). Os alternativos
+        são fallbacks para variações de DOM entre versões do sistema — se o
+        primeiro não apareceu no tempo cheio, os outros ou já estão no DOM ou não
+        vão aparecer, então recebem só `_TIMEOUT_FALLBACK`.
+
+        Antes cada localizador recebia o timeout INTEIRO, e o custo de um
+        resultado negativo era `len(locators) × timeout`: no campo de TOTP do PJe
+        (5 localizadores × 15 s) eram 75 s para concluir que a tela não é aquela.
+        """
+        for i, (by, val) in enumerate(locators):
+            alvo = timeout if i == 0 else _TIMEOUT_FALLBACK
             try:
-                el = WebDriverWait(self.driver, timeout).until(
+                el = WebDriverWait(self.driver, alvo).until(
                     EC.presence_of_element_located((by, val))
                 )
                 if el.is_displayed():
@@ -93,14 +108,8 @@ class ESAJScraper(TribunalScraper):
         return None
 
     def _screenshot(self, nome: str):
-        try:
-            _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            caminho = _DEBUG_DIR / f"esaj_{nome}_{ts}.png"
-            self.driver.save_screenshot(str(caminho))
-            print(f"🖼️  Screenshot de debug salvo: {caminho}")
-        except Exception:
-            pass
+        """No-op sem SCRAPER_DEBUG=1 (ver ../diagnostico.py)."""
+        salvar_screenshot(self.driver, "esaj", nome)
 
     def _count_mov_rows(self) -> int:
         rows = self.driver.find_elements(

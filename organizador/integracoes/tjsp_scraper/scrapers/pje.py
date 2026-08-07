@@ -31,6 +31,7 @@ from unidecode import unidecode
 
 from .base import TribunalScraper, criar_chrome_driver
 from .popup import AtribuicaoDetectadaError, detectar_atribuicao
+from ..diagnostico import dump_dom, salvar_screenshot
 from ..credenciais import obter_credenciais
 from ..two_factor import gerar_codigo_totp
 
@@ -106,8 +107,11 @@ BUSCA_URL = "https://pje.tjmg.jus.br/pje/Processo/ConsultaProcesso/listView.seam
 # CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO  → 6 campos do form do PJe
 RX_CNJ_PJE = re.compile(r"(\d{7})-?(\d{2})\.?(\d{4})\.?(\d)\.?(\d{2})\.?(\d{4})")
 
-_DEBUG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "_debug"
 
+
+# Orçamento dos localizadores ALTERNATIVOS de `_first` (o 1º usa o timeout
+# cheio). Curto de propósito: eles cobrem variações de DOM, não demora.
+_TIMEOUT_FALLBACK = 0.3
 
 class PJEScraper(TribunalScraper):
 
@@ -129,9 +133,21 @@ class PJEScraper(TribunalScraper):
     # Helpers
     # ------------------------------------------------------------------
     def _first(self, locators, timeout=10):
-        for by, val in locators:
+        """Tenta uma lista de (By, valor); devolve o 1º elemento presente.
+
+        O `timeout` é o orçamento do 1º localizador (o esperado). Os alternativos
+        são fallbacks para variações de DOM entre versões do sistema — se o
+        primeiro não apareceu no tempo cheio, os outros ou já estão no DOM ou não
+        vão aparecer, então recebem só `_TIMEOUT_FALLBACK`.
+
+        Antes cada localizador recebia o timeout INTEIRO, e o custo de um
+        resultado negativo era `len(locators) × timeout`: no campo de TOTP do PJe
+        (5 localizadores × 15 s) eram 75 s para concluir que a tela não é aquela.
+        """
+        for i, (by, val) in enumerate(locators):
+            alvo = timeout if i == 0 else _TIMEOUT_FALLBACK
             try:
-                el = WebDriverWait(self.driver, timeout).until(
+                el = WebDriverWait(self.driver, alvo).until(
                     EC.presence_of_element_located((by, val))
                 )
                 if el.is_displayed():
@@ -157,36 +173,17 @@ class PJEScraper(TribunalScraper):
         return self._first([(By.XPATH, self._xp_campo_numero(sufixo))], timeout=timeout)
 
     def _screenshot(self, nome: str):
-        try:
-            _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            caminho = _DEBUG_DIR / f"pje_{nome}_{ts}.png"
-            self.driver.save_screenshot(str(caminho))
-            print(f"🖼️  Screenshot de debug: {caminho}")
-        except Exception:
-            pass
+        """No-op sem SCRAPER_DEBUG=1 (ver ../diagnostico.py)."""
+        salvar_screenshot(self.driver, "pje", nome)
 
     def _dump_dom(self, contexto: str):
-        """Imprime inputs/botões visíveis — acelera achar os ids reais."""
-        print(f"\n--- DOM DUMP ({contexto}) | url={self.driver.current_url} ---")
-        try:
-            for el in self.driver.find_elements(By.TAG_NAME, "input"):
-                if el.is_displayed():
-                    print("INPUT", {
-                        "id": el.get_attribute("id"),
-                        "name": el.get_attribute("name"),
-                        "type": el.get_attribute("type"),
-                        "placeholder": el.get_attribute("placeholder"),
-                    })
-            for el in self.driver.find_elements(By.CSS_SELECTOR, "button, a.btn, input[type=submit]"):
-                if el.is_displayed():
-                    print("BTN", {
-                        "id": el.get_attribute("id"),
-                        "texto": (el.text or el.get_attribute("value") or "").strip()[:40],
-                    })
-        except Exception as e:
-            print(f"(falha no dump: {e})")
-        print("--- fim do dump ---\n")
+        """No-op sem SCRAPER_DEBUG=1.
+
+        Era o artefato mais caro do projeto: `get_attribute` por elemento sobre
+        todo input e todo botão da página — ~1.750 idas ao navegador (5-15 s)
+        numa página JSF, e rodando até no caminho normal de fallback do PJe
+        (ver o `_dump_dom("autos sem painel de detalhes")` mais abaixo)."""
+        dump_dom(self.driver, contexto)
 
     @staticmethod
     def _cpf_digits(login: str) -> str:
@@ -419,16 +416,43 @@ class PJEScraper(TribunalScraper):
             'contains(normalize-space(.),"-") and contains(normalize-space(.),".")]'
         )
 
+        # Uma única passada no navegador decide entre "achou" e "0 resultados".
+        #
+        # Antes o teste desta espera fazia `d.page_source.lower()` — o DOM
+        # INTEIRO serializado e trazido para o Python — a cada poll. Com 60 s de
+        # timeout e o poll padrão de 0,5 s, um processo que não está no PJe
+        # (situação comum: o app tenta eproc × e-SAJ × PJe) chegava a 120
+        # serializações de uma página de megabytes só para concluir "não achei".
+        #
+        # `poll_frequency=1` porque o resultado vem de um AJAX: verificar duas
+        # vezes por segundo não adianta nada e dobra o custo.
+        js_estado = """
+        const links = document.evaluate(arguments[0], document, null,
+            XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
+        if (links.snapshotLength > 0) return 'found';
+        const painel = document.querySelector(
+            '#fPP\\\\:processosTable, .rich-table, .ui-datatable, #fPP') || document.body;
+        const txt = (painel.innerText || '').toLowerCase();
+        if (txt.includes('0 resultados') || txt.includes('nenhum registro')) return 'empty';
+        return false;
+        """
+
         def _estado_busca(d):
-            if d.find_elements(By.XPATH, xp_link):
-                return "found"
-            corpo = (d.page_source or "").lower()
-            if "0 resultados" in corpo or "nenhum registro" in corpo:
-                return "empty"
-            return False
+            try:
+                return d.execute_script(js_estado, xp_link)
+            except Exception:
+                # Sem execute_script: cai no caminho antigo, mais caro.
+                if d.find_elements(By.XPATH, xp_link):
+                    return "found"
+                corpo = (d.page_source or "").lower()
+                if "0 resultados" in corpo or "nenhum registro" in corpo:
+                    return "empty"
+                return False
 
         try:
-            estado = WebDriverWait(self.driver, 60).until(_estado_busca)
+            estado = WebDriverWait(
+                self.driver, 60, poll_frequency=1
+            ).until(_estado_busca)
         except Exception:
             self._dump_dom("busca: timeout sem link nem 0-resultados")
             self._screenshot("busca_timeout")
@@ -496,7 +520,29 @@ class PJEScraper(TribunalScraper):
 
     def _doc_elements(self) -> list:
         """Elementos de documento da timeline (span antigo OU âncora nova),
-        filtrando só os cujo texto casa 'NNNNN - Tipo'."""
+        filtrando só os cujo texto casa 'NNNNN - Tipo'.
+
+        Devolve elementos (o chamador clica neles), mas o FILTRO é feito no
+        navegador: ler `.text` em Python é uma ida ao navegador por elemento,
+        com cálculo de layout. Como esta função é chamada uma vez por iteração do
+        laço de rolagem da timeline (até 60) e a lista cresce a cada volta, num
+        processo com ~100 documentos isso dava milhares de idas — era esse o
+        custo do laço, não o `sleep` de 0,7 s que o acompanha."""
+        js = """
+        const rx = /^\\s*\\d+\\s*[-—]/;
+        const casa = sel => [...document.querySelectorAll(sel)]
+            .filter(e => rx.test(e.innerText || e.textContent || ''));
+        const spans = casa(arguments[0]);
+        return spans.length ? spans : casa(arguments[1]);
+        """
+        try:
+            achados = self.driver.execute_script(
+                js, self._SEL_DOC_SPAN, self._SEL_DOC_ANCHOR
+            )
+            if achados is not None:
+                return list(achados)
+        except Exception:
+            pass  # sem execute_script: caminho antigo, elemento a elemento
         spans = [
             e for e in self.driver.find_elements(By.CSS_SELECTOR, self._SEL_DOC_SPAN)
             if RX_ID_DOC_PJE.search(e.text or "")
@@ -635,8 +681,13 @@ class PJEScraper(TribunalScraper):
         self._dump_dom("autos sem painel de detalhes")
 
         # Carrega a timeline (lazy do RichFaces) rolando até a contagem de docs
-        # estabilizar. Isto NÃO é o gargalo (é só carregar spans); o custo grande
-        # era ABRIR cada documento — controlado no loop adiante (para na Classe).
+        # estabilizar. O custo grande é ABRIR cada documento — controlado no loop
+        # adiante (para na Classe).
+        #
+        # (O comentário aqui dizia que este laço "NÃO é o gargalo". Era, em
+        # parte: `_doc_elements` lia `.text` de cada elemento em Python, uma ida
+        # ao navegador por elemento, a cada uma das até 60 voltas. Agora o filtro
+        # roda dentro do navegador — ver `_doc_elements`.)
         scroll_js = (
             "var el = document.getElementById(arguments[0]);"
             "if (!el) return 0;"

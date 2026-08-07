@@ -342,3 +342,14 @@ def test_carregar_processos_ignora_json_invalido(tmp_path):
 def test_carregar_processos_ignora_arquivos_que_nao_sao_pastas(tmp_path):
     (tmp_path / "arquivo.txt").write_text("x", encoding="utf-8")
     assert op._carregar_processos(tmp_path) == []
+
+
+def test_organizacao_modo_leve_limita_workers(monkeypatch):
+    monkeypatch.setattr(op.organizacao, "_modo_leve_organizacao", lambda: True)
+    assert op.organizacao._max_workers_organizacao() == op.organizacao.MAX_WORKERS_MODO_LEVE
+    assert op.organizacao._max_workers_organizacao() == 1
+
+
+def test_organizacao_modo_normal_usa_teto_normal(monkeypatch):
+    monkeypatch.setattr(op.organizacao, "_modo_leve_organizacao", lambda: False)
+    assert op.organizacao._max_workers_organizacao() == op.organizacao.MAX_WORKERS

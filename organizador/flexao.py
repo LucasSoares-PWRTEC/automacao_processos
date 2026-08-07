@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from typing import TYPE_CHECKING
 
-from docx import Document
+if TYPE_CHECKING:  # só anotação: `from __future__ import annotations` não avalia
+    from docx import Document
 
 from .models import Contexto, Parte, Processo
 from .padroes import PAPEIS_ATIVO, PAPEIS_PASSIVO

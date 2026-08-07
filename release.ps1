@@ -65,6 +65,13 @@ Write-Host "updater\_token.py gerado." -ForegroundColor Cyan
 
 # --- 4. Builds ----------------------------------------------------------------
 if (-not $SkipApp) {
+    # A base embutida vai no bundle como SQLite (indexada por número), para a
+    # abertura não parsear os 70 MB do snapshot. Regerada a cada release a partir
+    # de data/processos_base.json.gz, que é a fonte versionada.
+    Write-Host "Gerando data\processos_base.sqlite..." -ForegroundColor Cyan
+    python scripts\gerar_base_sqlite.py
+    if ($LASTEXITCODE -ne 0) { Abort "Geração da base SQLite falhou." }
+
     Write-Host "Compilando Peticoes.exe..." -ForegroundColor Cyan
     python -m PyInstaller --noconfirm OrganizadorProcessos.spec
     if ($LASTEXITCODE -ne 0) { Abort "Build do Peticoes.exe falhou." }
@@ -76,7 +83,13 @@ if ($LASTEXITCODE -ne 0) { Abort "Build do Atualizador.exe falhou." }
 # --- 5. Sanidade dos artefatos -----------------------------------------------
 $app = Get-Item "$Root\dist\Peticoes.exe" -ErrorAction SilentlyContinue
 if (-not $app) { Abort "dist\Peticoes.exe não existe." }
-if ($app.Length -lt 50MB) { Abort "dist\Peticoes.exe suspeito de incompleto ($([math]::Round($app.Length/1MB)) MB < 50 MB)." }
+# Piso baixado de 50 MB para 20 MB: o bundle emagreceu de 141 MB para ~45 MB ao
+# sair o pandas (e com ele pyarrow/numpy/IPython) — ver OrganizadorProcessos.spec.
+# O piso serve só para pegar build truncado, não para validar o conteúdo.
+if ($app.Length -lt 20MB) { Abort "dist\Peticoes.exe suspeito de incompleto ($([math]::Round($app.Length/1MB)) MB < 20 MB)." }
+if ($app.Length -gt 90MB) {
+    Write-Host "AVISO: dist\Peticoes.exe com $([math]::Round($app.Length/1MB)) MB (esperado ~45 MB). Alguma dependência pesada voltou ao bundle? Confira o relatório '[spec] payload:' acima." -ForegroundColor Yellow
+}
 
 $upd = Get-Item "$Root\dist\Atualizador.exe" -ErrorAction SilentlyContinue
 if (-not $upd) { Abort "dist\Atualizador.exe não existe." }

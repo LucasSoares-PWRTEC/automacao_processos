@@ -33,6 +33,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import StaleElementReferenceException
 
 from .base import TribunalScraper, criar_chrome_driver
+from ..diagnostico import salvar_screenshot
 from ..two_factor import obter_codigo_2fa_email
 
 URL_LOGIN = "https://mcsa.autojur.com.br/login.jsf"
@@ -92,7 +93,6 @@ def _html_para_texto(html: str) -> str:
     texto = re.sub(r"(?s)<[^>]+>", " ", texto)
     return re.sub(r"\s+", " ", _html.unescape(texto))
 
-_DEBUG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "_debug"
 
 
 class AutojurScraper(TribunalScraper):
@@ -106,14 +106,8 @@ class AutojurScraper(TribunalScraper):
     # Helpers
     # ------------------------------------------------------------------
     def _screenshot(self, nome: str):
-        try:
-            _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            caminho = _DEBUG_DIR / f"autojur_{nome}_{ts}.png"
-            self.driver.save_screenshot(str(caminho))
-            print(f"🖼️  Screenshot de debug salvo: {caminho}")
-        except Exception:
-            pass
+        """No-op sem SCRAPER_DEBUG=1 (ver ../diagnostico.py)."""
+        salvar_screenshot(self.driver, "autojur", nome)
 
     def _visivel(self, by, valor):
         """Elemento presente E visível, ou None (sem espera)."""
@@ -122,6 +116,41 @@ class AutojurScraper(TribunalScraper):
             return el if el.is_displayed() else None
         except Exception:
             return None
+
+    def _esperar_form_sumir(self, form_id: str, timeout: float = 10.0) -> None:
+        """Espera o modal `form_id` sair da tela após um submit AJAX.
+
+        Substitui os `time.sleep(2)` que ficavam depois de cada `_submit_form`:
+        o que interessa não é "2 segundos", é "o modal foi embora". Na prática o
+        PrimeFaces responde em algumas centenas de ms, então isto devolve o
+        controle bem antes — e, quando o servidor demora mais que 2 s, espera o
+        quanto for preciso em vez de seguir com a tela ainda aberta."""
+        try:
+            WebDriverWait(self.driver, timeout).until(
+                lambda d: self._visivel(By.ID, form_id) is None
+            )
+        except Exception:
+            pass  # segue o fluxo: quem chamou revalida o estado da tela
+
+    def _esperar_dropdown_aberto(self, timeout: float = 8.0) -> bool:
+        """Espera o dropdown do bootstrap-select abrir (substitui sleep fixo)."""
+        try:
+            return bool(WebDriverWait(self.driver, timeout).until(
+                lambda d: d.find_elements(
+                    By.CSS_SELECTOR, "div.bootstrap-select.open ul.dropdown-menu"
+                )
+            ))
+        except Exception:
+            return False
+
+    def _esperar_dropdown_fechado(self, timeout: float = 8.0) -> None:
+        """Espera o dropdown fechar — sinal de que a opção foi aplicada."""
+        try:
+            WebDriverWait(self.driver, timeout).until_not(
+                lambda d: d.find_elements(By.CSS_SELECTOR, "div.bootstrap-select.open")
+            )
+        except Exception:
+            pass
 
     def _submit_form(self, form_id: str) -> bool:
         """Aciona o submit PrimeFaces de um form. Os botões de submit do
@@ -238,7 +267,7 @@ class AutojurScraper(TribunalScraper):
         if not self._submit_form("form-dupla-autenticacao"):
             self._screenshot("2fa_submit_nao_encontrado")
             raise RuntimeError("Autojur: não achei o submit da dupla autenticação.")
-        time.sleep(2)
+        self._esperar_form_sumir("form-dupla-autenticacao")
         return True
 
     def _tratar_derrubar_usuario(self) -> bool:
@@ -248,7 +277,7 @@ class AutojurScraper(TribunalScraper):
         print("👥 Autojur: sessão ativa em outro lugar — derrubando para entrar...")
         if not self._submit_form("form-derrubar-usuario"):
             raise RuntimeError("Autojur: não consegui confirmar derrubar a sessão.")
-        time.sleep(2)
+        self._esperar_form_sumir("form-derrubar-usuario")
         return True
 
     def _tratar_unidade(self) -> bool:
@@ -278,7 +307,7 @@ class AutojurScraper(TribunalScraper):
                 print("🏢 Autojur: modal de unidade sem seletor aparente; confirmando direto.")
         if not self._submit_form("form-unidade"):
             raise RuntimeError("Autojur: não consegui confirmar a unidade.")
-        time.sleep(2)
+        self._esperar_form_sumir("form-unidade")
         return True
 
     def _tratar_motivo_login(self) -> bool:
@@ -295,7 +324,7 @@ class AutojurScraper(TribunalScraper):
             campo.send_keys("Consulta processual automatizada")
         if not self._submit_form("form-motivo-login"):
             raise RuntimeError("Autojur: não consegui confirmar o motivo do login.")
-        time.sleep(2)
+        self._esperar_form_sumir("form-motivo-login")
         return True
 
     # ------------------------------------------------------------------
@@ -433,7 +462,7 @@ class AutojurScraper(TribunalScraper):
         )
         self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
         btn.click()
-        time.sleep(0.8)
+        self._esperar_dropdown_aberto()
         itens = self.driver.find_elements(
             By.XPATH,
             "//div[contains(@class,'bootstrap-select') and contains(@class,'open')]"
@@ -447,7 +476,7 @@ class AutojurScraper(TribunalScraper):
         if not itens:
             raise RuntimeError(f"Autojur: opção '{texto}' não encontrada no seletor.")
         itens[0].click()
-        time.sleep(1.2)
+        self._esperar_dropdown_fechado()
 
     def _selecionar_lote(self, lote: str, log=print) -> None:
         """Lote = 'iniciais' | 'urgente' | 'dia_seguinte'. As opções trazem a
@@ -458,7 +487,7 @@ class AutojurScraper(TribunalScraper):
         )
         self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
         btn.click()
-        time.sleep(0.8)
+        self._esperar_dropdown_aberto()
         itens = self.driver.find_elements(
             By.XPATH,
             "//div[contains(@class,'bootstrap-select') and contains(@class,'open')]"
@@ -479,7 +508,7 @@ class AutojurScraper(TribunalScraper):
             raise RuntimeError(f"Autojur: não achei a opção de Lote para '{lote}'.")
         log(f"🗂️  Lote: {escolhido.text.strip()}")
         escolhido.click()
-        time.sleep(1.2)
+        self._esperar_dropdown_fechado()
 
     def _selecionar_evento(self, evento: str, log=print) -> None:
         """Autocomplete do Evento: digita `evento` e clica na linha cujo texto-base
@@ -497,7 +526,6 @@ class AutojurScraper(TribunalScraper):
             and d.find_element(By.ID, SEL_EVENTO_PANEL).find_elements(
                 By.CSS_SELECTOR, "tr.ui-autocomplete-item")
         )
-        time.sleep(0.4)
         painel = self.driver.find_element(By.ID, SEL_EVENTO_PANEL)
         linhas = painel.find_elements(By.CSS_SELECTOR, "tr.ui-autocomplete-item")
         escolhido = None
@@ -526,7 +554,6 @@ class AutojurScraper(TribunalScraper):
         WebDriverWait(self.driver, 30).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
-        time.sleep(2)
 
         # 1.1: desliga o toggle "Nova versão" se estiver ativo (fa-check-square).
         toggles = self.driver.find_elements(By.CSS_SELECTOR, SEL_TOGGLE_NOVA_VERSAO)
@@ -535,11 +562,9 @@ class AutojurScraper(TribunalScraper):
             if ic and "fa-check-square" in (ic[0].get_attribute("class") or ""):
                 log("🔀 Autojur: desativando 'Nova versão' (usa a versão clássica)...")
                 toggles[0].click()
-                time.sleep(2)
                 WebDriverWait(self.driver, 30).until(
                     lambda d: d.execute_script("return document.readyState") == "complete"
                 )
-                time.sleep(2)
 
         # 2: número + Tipo de Pasta "Todos" + Status "Todos" + pesquisar.
         campo = WebDriverWait(self.driver, 20).until(
@@ -561,7 +586,6 @@ class AutojurScraper(TribunalScraper):
             return bool(t) and "utilize os filtros" not in t
 
         WebDriverWait(self.driver, 40).until(_tem_resultado)
-        time.sleep(1.5)
         linhas = self.driver.find_elements(By.CSS_SELECTOR, SEL_LINHAS_RESULTADO)
         resultados = []
         for i, ln in enumerate(linhas):
@@ -596,7 +620,6 @@ class AutojurScraper(TribunalScraper):
         alvo = linhas[indice]
         log(f"📂 Autojur: abrindo pasta — {alvo.text[:80].strip()}")
         ActionChains(self.driver).double_click(alvo).perform()
-        time.sleep(3)
         WebDriverWait(self.driver, 30).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
@@ -611,7 +634,19 @@ class AutojurScraper(TribunalScraper):
         WebDriverWait(self.driver, 30).until(
             EC.presence_of_element_located((By.TAG_NAME, "iframe"))
         )
-        time.sleep(2)
+        # O iframe EXISTIR não quer dizer que o documento dentro dele carregou —
+        # era isso que o `time.sleep(2)` daqui tentava cobrir. Esperar o
+        # readyState interno é a condição real e normalmente resolve em bem menos
+        # de 2 s (e em mais, quando o servidor está lento, em vez de seguir cedo).
+        WebDriverWait(self.driver, 30).until(
+            lambda d: d.execute_script(
+                "const f = document.querySelector('iframe');"
+                "try {"
+                "  return !!f && !!f.contentDocument"
+                "    && f.contentDocument.readyState === 'complete';"
+                "} catch (e) { return true; }"  # cross-origin: não dá p/ inspecionar
+            )
+        )
 
     def criar_tarefa_protocolo(
         self,

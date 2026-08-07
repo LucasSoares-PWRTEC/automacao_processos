@@ -5,7 +5,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pypdf
 import organizar_processos as op
+
+# `organizador.texto` importa o PdfReader DENTRO de extrair_texto (import
+# tardio: a GUI puxa este módulo só para desenhar a janela e não deve pagar o
+# pypdf). Como a resolução é no momento da chamada, o ponto de injeção destes
+# testes é o atributo em `pypdf`, não em `organizador.texto`.
 
 
 class _Page:
@@ -46,7 +52,7 @@ def test_extrair_texto_usa_cache_quando_presente(monkeypatch, tmp_path):
     def falhar_reader(*args, **kwargs):
         raise AssertionError("PdfReader nao deveria ser chamado")
 
-    monkeypatch.setattr(op.texto, "PdfReader", falhar_reader)
+    monkeypatch.setattr(pypdf, "PdfReader", falhar_reader)
     assert op.extrair_texto(pdf, cache_dir) == "cache pronto"
 
 
@@ -63,7 +69,7 @@ def test_extrair_texto_faz_fallback_quando_cache_corrompido(monkeypatch, tmp_pat
         raise UnicodeDecodeError("utf-8", b"x", 0, 1, "bad")
 
     monkeypatch.setattr(Path, "read_text", quebrar_read_text)
-    monkeypatch.setattr(op.texto, "PdfReader", lambda *args, **kwargs: _Reader([_Page("novo texto")]))
+    monkeypatch.setattr(pypdf, "PdfReader", lambda *args, **kwargs: _Reader([_Page("novo texto")]))
     assert op.extrair_texto(pdf, cache_dir) == "novo texto"
 
 
@@ -71,7 +77,7 @@ def test_extrair_texto_tolera_excecao_em_pagina(monkeypatch, tmp_path):
     pdf = tmp_path / "arquivo.pdf"
     pdf.write_text("binario", encoding="utf-8")
     monkeypatch.setattr(
-        op.texto,
+        pypdf,
         "PdfReader",
         lambda *args, **kwargs: _Reader([_Page("primeira"), _Page(exc=RuntimeError("falhou"))]),
     )
@@ -87,7 +93,7 @@ def test_extrair_texto_tolera_falha_ao_gravar_cache(monkeypatch, tmp_path):
         raise OSError("disco cheio")
 
     monkeypatch.setattr(Path, "write_text", quebrar_write_text)
-    monkeypatch.setattr(op.texto, "PdfReader", lambda *args, **kwargs: _Reader([_Page("texto")]))
+    monkeypatch.setattr(pypdf, "PdfReader", lambda *args, **kwargs: _Reader([_Page("texto")]))
     assert op.extrair_texto(pdf, cache_dir) == "texto"
 
 
@@ -96,5 +102,5 @@ def test_extrair_texto_sem_cache_quando_hash_vazio(monkeypatch, tmp_path):
     pdf.write_text("binario", encoding="utf-8")
     cache_dir = tmp_path / "cache"
     monkeypatch.setattr(op.texto, "_hash_pdf", lambda _pdf: "")
-    monkeypatch.setattr(op.texto, "PdfReader", lambda *args, **kwargs: _Reader([_Page("texto limpo")]))
+    monkeypatch.setattr(pypdf, "PdfReader", lambda *args, **kwargs: _Reader([_Page("texto limpo")]))
     assert op.extrair_texto(pdf, cache_dir) == "texto limpo"

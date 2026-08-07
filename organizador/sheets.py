@@ -19,9 +19,8 @@ from __future__ import annotations
 import io
 import re
 import unicodedata
+import warnings
 from typing import Callable
-
-import pandas as pd
 
 from .config import GOOGLE_SA_PATH
 from .padroes import RE_NUMERO_CNJ
@@ -33,6 +32,7 @@ SCOPES = [
 MIME_GSHEET = "application/vnd.google-apps.spreadsheet"
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 MAX_HDR = 8  # linhas do topo em que procuramos o cabeçalho (cabeçalho deslocado)
+MAX_LINHAS = 50_000  # teto por aba (protege a RAM em máquinas de 4 GB)
 
 # campanha (rótulo) -> (file_id do Drive, dica do nome da coluna de processo).
 # A dica é só um chute para achar a linha de cabeçalho; a detecção da coluna é
@@ -91,36 +91,38 @@ def _normalizar_cnj(texto) -> str:
     return ""
 
 
-def _achar_col(df: pd.DataFrame, alvo: str):
+def _achar_col(cabecalho: list[str], alvo: str) -> int | None:
+    """Índice da coluna cujo rótulo casa `alvo` (igual; senão, contém)."""
     alvo_n = _norm(alvo)
-    for c in df.columns:
-        if _norm(c) == alvo_n:
-            return c
-    for c in df.columns:  # fallback: contém
-        if alvo_n and (alvo_n in _norm(c) or _norm(c) in alvo_n):
-            return c
+    normalizados = [_norm(c) for c in cabecalho]
+    for i, c in enumerate(normalizados):
+        if c == alvo_n:
+            return i
+    for i, c in enumerate(normalizados):  # fallback: contém
+        if alvo_n and (alvo_n in c or c in alvo_n):
+            return i
     return None
 
 
-def _conta_cnj(serie: pd.Series) -> int:
-    return sum(1 for v in serie.dropna() if _normalizar_cnj(v))
-
-
-def _detectar_col_processo(df: pd.DataFrame, hint: str):
+def _detectar_col_processo(
+    cabecalho: list[str], conta_cnj: Callable[[int], int], hint: str
+) -> int | None:
     """Coluna de número de processo: 1) casa a dica; 2) cabeçalho contém
-    'processo'/'cnj'; 3) a coluna com mais valores em formato CNJ."""
-    c = _achar_col(df, hint)
-    if c is not None and _conta_cnj(df[c]) > 0:
-        return c
-    for col in df.columns:
-        cab = _norm(col)
-        if ("processo" in cab or "cnj" in cab) and _conta_cnj(df[col]) > 0:
-            return col
+    'processo'/'cnj'; 3) a coluna com mais valores em formato CNJ.
+
+    `conta_cnj(i)` devolve quantos CNJs há na coluna `i` ABAIXO do cabeçalho."""
+    i = _achar_col(cabecalho, hint)
+    if i is not None and conta_cnj(i) > 0:
+        return i
+    for i, rotulo in enumerate(cabecalho):
+        cab = _norm(rotulo)
+        if ("processo" in cab or "cnj" in cab) and conta_cnj(i) > 0:
+            return i
     melhor, melhor_q = None, 0
-    for col in df.columns:
-        q = _conta_cnj(df[col])
+    for i in range(len(cabecalho)):
+        q = conta_cnj(i)
         if q > melhor_q:
-            melhor, melhor_q = col, q
+            melhor, melhor_q = i, q
     return melhor if melhor_q >= 2 else None
 
 
@@ -149,36 +151,116 @@ def _baixar_bytes(s, fid: str) -> io.BytesIO:
     return io.BytesIO(r.content)
 
 
-def ler_planilha(s, fid: str, hint: str):
+def _valor_celula(v) -> str:
+    """Célula → str, sem notação científica para inteiros exatos.
+
+    CUIDADO com o limite do float: o openpyxl devolve célula numérica de 20
+    dígitos como ``float``, e um float64 só representa inteiros exatos até
+    2**53. Converter ``4.008846102025826e+19`` com ``int()`` produziria um número
+    plausível mas ERRADO, que o ``_normalizar_cnj`` aceitaria como CNJ válido —
+    pior que não ler nada. Acima do limite devolvemos a forma científica, que
+    não casa como CNJ (é o que o pandas fazia, e por isso a troca de motor não
+    mudou nenhum resultado nas 11 planilhas reais).
+
+    Na prática os CNJs das planilhas do escritório são TEXTO; este ramo é defesa.
+    """
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return str(v)
+    if isinstance(v, float) and v.is_integer():
+        return str(int(v)) if abs(v) < 2 ** 53 else repr(v)
+    return str(v)
+
+
+def _grade(ws, log: Callable[[str], None]) -> list[list[str]]:
+    """Materializa a aba como lista de linhas de str, UMA passada só."""
+    grade: list[list[str]] = []
+    for i, linha in enumerate(ws.iter_rows(values_only=True)):
+        if i >= MAX_LINHAS:
+            log(f"   ⚠️ aba '{ws.title}': truncada em {MAX_LINHAS} linhas.")
+            break
+        grade.append([_valor_celula(v) for v in linha])
+    return grade
+
+
+def _mapa_cnj(grade: list[list[str]]) -> tuple[int, list[int], list[list[int]]]:
+    """Pré-computa, por coluna: o total de CNJs e quantos estão nas primeiras
+    linhas (prefixo até MAX_HDR).
+
+    Isto é o que substitui o custo do antigo laço com pandas: a regex de CNJ roda
+    UMA vez por célula, e a contagem para cada cabeçalho candidato (0..MAX_HDR)
+    sai por subtração de prefixo, em vez de reparsear a aba 9 vezes."""
+    n_col = max((len(l) for l in grade), default=0)
+    total = [0] * n_col
+    # prefixo[i][h] = CNJs da coluna i nas primeiras h linhas.
+    limite = min(MAX_HDR + 1, len(grade) + 1)
+    prefixo = [[0] * limite for _ in range(n_col)]
+    for l, linha in enumerate(grade):
+        for i, cel in enumerate(linha):
+            if not cel or not _normalizar_cnj(cel):
+                continue
+            total[i] += 1
+            for h in range(l + 1, limite):
+                prefixo[i][h] += 1
+    return n_col, total, prefixo
+
+
+def ler_planilha(s, fid: str, hint: str, log: Callable[[str], None] = print):
     """Varre TODAS as abas e, em cada uma, TODAS as linhas de cabeçalho plausíveis
     (0..MAX_HDR), escolhendo o par (aba, cabeçalho) cuja coluna de processo tem
-    mais CNJs válidos. Devolve (df, col_processo).
+    mais CNJs válidos. Devolve ``(valores_da_coluna, rótulo_da_coluna)``.
 
     A detecção é dirigida por CONTAGEM DE CNJ (não pelo texto do cabeçalho), então
     funciona com cabeçalhos fora do padrão (ex.: BVEP usa 'Numero Processual', que
-    não contém a palavra 'processo') e com cabeçalho deslocado/capas/dashboards."""
-    xl = pd.ExcelFile(_baixar_bytes(s, fid))
-    melhor_df, melhor_col, melhor_n = None, None, -1
-    for sheet in xl.sheet_names:
+    não contém a palavra 'processo') e com cabeçalho deslocado/capas/dashboards.
+
+    Lê com openpyxl em modo ``read_only`` (streaming) — sem pandas, que arrastava
+    numpy/pyarrow para o bundle e reparseava cada aba até 9 vezes."""
+    from openpyxl import load_workbook
+
+    dados = _baixar_bytes(s, fid)
+    with warnings.catch_warnings():
+        # As planilhas exportadas do Google trazem extensões que o openpyxl não
+        # conhece; o aviso é ruído no log da GUI.
+        warnings.simplefilter("ignore", UserWarning)
+        wb = load_workbook(dados, read_only=True, data_only=True)
         try:
-            bruto = xl.parse(sheet, dtype=str, header=None)
-        except Exception:
-            continue
-        for hdr in range(min(MAX_HDR, len(bruto))):
-            try:
-                df = xl.parse(sheet, dtype=str, header=hdr)
-            except Exception:
-                continue
-            df.columns = [str(c) for c in df.columns]
-            col = _detectar_col_processo(df, hint)
-            if col is None:
-                continue
-            n = _conta_cnj(df[col])
-            if n > melhor_n:
-                melhor_df, melhor_col, melhor_n = df, col, n
-    if melhor_df is None:
-        raise RuntimeError(f"nenhuma aba com coluna de processo (abas: {xl.sheet_names})")
-    return melhor_df, melhor_col
+            abas = list(wb.sheetnames)
+            melhor: tuple[list[str], str] | None = None
+            melhor_n = -1
+            for nome in abas:
+                try:
+                    grade = _grade(wb[nome], log)
+                except Exception:
+                    continue
+                if not grade:
+                    continue
+                _n_col, total, prefixo = _mapa_cnj(grade)
+                for hdr in range(min(MAX_HDR, len(grade))):
+                    cabecalho = grade[hdr]
+
+                    def conta_cnj(i: int, _hdr: int = hdr) -> int:
+                        if i >= len(total):
+                            return 0
+                        return total[i] - prefixo[i][_hdr + 1]
+
+                    col = _detectar_col_processo(cabecalho, conta_cnj, hint)
+                    if col is None:
+                        continue
+                    n = conta_cnj(col)
+                    if n > melhor_n:
+                        rotulo = cabecalho[col] if col < len(cabecalho) else f"col {col}"
+                        valores = [
+                            linha[col] if col < len(linha) else ""
+                            for linha in grade[hdr + 1:]
+                        ]
+                        melhor, melhor_n = (valores, rotulo), n
+        finally:
+            wb.close()
+    if melhor is None:
+        raise RuntimeError(f"nenhuma aba com coluna de processo (abas: {abas})")
+    return melhor
 
 
 # ---------------------------------------------------------------------
@@ -197,7 +279,7 @@ def coletar_processos_das_planilhas(
     primeiro_erro = ""
     for campanha, (fid, hint) in SHEETS.items():
         try:
-            df, col = ler_planilha(s, fid, hint)
+            valores, col = ler_planilha(s, fid, hint, log=log)
         except Exception as exc:
             if not primeiro_erro:
                 primeiro_erro = str(exc)
@@ -205,7 +287,7 @@ def coletar_processos_das_planilhas(
             continue
         ok += 1
         n = 0
-        for v in df[col].tolist():
+        for v in valores:
             cnj = _normalizar_cnj(v)
             if not cnj or cnj in vistos:
                 continue

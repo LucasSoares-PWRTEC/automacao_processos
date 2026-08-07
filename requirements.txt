@@ -4,7 +4,6 @@ python-docx
 ttkbootstrap
 beautifulsoup4
 openpyxl
-pandas
 pyotp
 python-dotenv
 selenium

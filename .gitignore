@@ -11,8 +11,17 @@ config/.env
 config/credenciais.json
 config/*.local.*
 
-# Screenshots de diagnóstico dos scrapers (artefatos descartáveis)
+# Screenshots de diagnóstico dos scrapers (artefatos descartáveis).
+# Hoje os artefatos vão para ~/.automacao_processos/_debug e só com
+# SCRAPER_DEBUG=1 (ver organizador/integracoes/tjsp_scraper/diagnostico.py);
+# estas pastas ficam ignoradas por causa do que já foi gerado antes.
 organizador/integracoes/data/_debug/
+data/_debug/
+
+# Base embutida em SQLite: artefato de BUILD, regerado pelo release.ps1 a partir
+# de data/processos_base.json.gz (que é a fonte versionada).
+data/processos_base.sqlite
+data/processos_base.sqlite.tmp
 
 # Fontes .doc dos modelos (Word), origem para conversão .docx em Petições/.
 # Mantidas localmente como fonte editável; o app usa os .docx já convertidos.

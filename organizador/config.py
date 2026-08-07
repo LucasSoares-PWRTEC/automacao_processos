@@ -61,6 +61,10 @@ PROCESSOS_ONLINE_DIR = APP_DATA_DIR / "processos_online"
 # Pesquisa quase instantânea: sem ele, todos os metadados.json seriam relidos e
 # parseados a cada abertura. O Processo completo é carregado sob demanda.
 PROCESSOS_INDICE_JSON = APP_DATA_DIR / "processos_indice.json"
+# Placeholders extraídos de cada modelo .docx, por (nome, mtime, tamanho). Abrir
+# os ~39 modelos com python-docx custava ~3 s de CPU em toda abertura para um
+# resultado que só muda quando alguém edita um modelo.
+TEMPLATES_CACHE_PATH = APP_DATA_DIR / "templates_placeholders.json"
 # Processos pré-carregados EMBUTIDOS na release (JSON consolidado, gzip), para
 # aparecerem já populados em qualquer máquina onde o app for instalado. Fica em
 # _RAIZ (=_MEIPASS no exe), como config/ e Petições/. Prioridade menor que a

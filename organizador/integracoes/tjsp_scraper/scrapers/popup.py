@@ -115,8 +115,70 @@ def detectar_atribuicao(driver) -> str | None:
     except Exception:
         pass  # sem alert nativo
 
-    # 2) Modais no DOM
+    # 2) Modais no DOM.
+    #
+    # Esta função roda 1-2× em TODA consulta de processo (eproc, e-SAJ e PJe),
+    # então o custo dela é pago o tempo todo. Antes eram 17 `find_elements`
+    # separados — e seis deles (`div[id*='modal']`, `[id*='Modal']`, `dialog`,
+    # `Dialog`, `popup`, `Popup`) forçam varredura de atributos do documento
+    # inteiro e casam dezenas de contêineres ocultos que uma página JSF sempre
+    # tem, cada um custando ainda um `is_displayed()` e um `.text` (uma ida ao
+    # navegador cada).
+    #
+    # Agora é UMA consulta: o próprio navegador casa todos os seletores, filtra
+    # os invisíveis e devolve só os textos. Só voltamos a pegar o elemento em
+    # Python quando há mesmo um pop-up para fechar — o caso raro.
+    try:
+        textos = driver.execute_script(_JS_TEXTOS_MODAIS, ", ".join(_SELETORES_MODAL))
+    except Exception:
+        textos = None
+
+    if textos is None:  # sem execute_script (driver dublê em teste): via Selenium
+        return _detectar_por_selenium(driver)
+
+    for i, txt in enumerate(textos):
+        if not _parece_atribuicao(txt or ""):
+            continue
+        obs = _resumir(txt)
+        el = _elemento_modal(driver, i)
+        if el is not None:
+            _fechar_seguro(driver, el)
+        return obs
+    return None
+
+
+# Casa todos os seletores de uma vez, mantém só os visíveis e devolve o texto de
+# cada um. `offsetWidth/offsetHeight/getClientRects` é o mesmo critério de
+# visibilidade que o `is_displayed()` do Selenium usa, sem uma ida por elemento.
+_JS_TEXTOS_MODAIS = """
+const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+return [...document.querySelectorAll(arguments[0])]
+    .filter(vis)
+    .map(el => el.innerText || el.textContent || '');
+"""
+
+# Mesma lista, mesma ordem: devolve o i-ésimo modal visível para poder fechá-lo.
+_JS_MODAL_POR_INDICE = """
+const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+const els = [...document.querySelectorAll(arguments[0])].filter(vis);
+return els[arguments[1]] || null;
+"""
+
+
+def _elemento_modal(driver, indice: int):
+    try:
+        return driver.execute_script(
+            _JS_MODAL_POR_INDICE, ", ".join(_SELETORES_MODAL), indice
+        )
+    except Exception:
+        return None
+
+
+def _detectar_por_selenium(driver) -> str | None:
+    """Caminho antigo, elemento a elemento. Só usado quando `execute_script` não
+    está disponível (drivers dublês nos testes)."""
     from selenium.webdriver.common.by import By
+
     for sel in _SELETORES_MODAL:
         try:
             els = driver.find_elements(By.CSS_SELECTOR, sel)

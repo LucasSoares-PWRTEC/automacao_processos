@@ -51,6 +51,13 @@ PAPEIS_PASSIVO = ["RÉU", "REU", "RÉ", "RE", "EXECUTADO", "EXECUTADA",
                   "AGRAVADO", "AGRAVADA", "IMPETRADO", "IMPETRADA",
                   "RECLAMADO", "RECLAMADA", "SUSCITADO", "SUSCITADA"]
 
+# Versões em maiúsculas, como conjunto, para teste de pertinência por parte.
+# As listas acima já estão em maiúsculas, mas o código as normalizava de novo em
+# tempo de execução: `papel in [pp.upper() for pp in PAPEIS_PASSIVO]` reconstruía
+# uma lista de 18 strings PARA CADA PARTE de CADA processo. Use estes conjuntos.
+PAPEIS_ATIVO_UP = frozenset(p.upper() for p in PAPEIS_ATIVO)
+PAPEIS_PASSIVO_UP = frozenset(p.upper() for p in PAPEIS_PASSIVO)
+
 # Rótulos/ruído que o PDF cola ao nome da parte (sem separador) e que precisam
 # ser removidos do início do nome capturado. Ex.: o eproc emite
 # "Histórico de RepresentantesITAU UNIBANCO S.A. (...)".

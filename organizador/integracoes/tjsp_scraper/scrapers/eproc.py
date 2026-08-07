@@ -41,6 +41,7 @@ from selenium.webdriver.support import expected_conditions as EC
 
 from .base import TribunalScraper, criar_chrome_driver
 from .popup import AtribuicaoDetectadaError, detectar_atribuicao
+from ..diagnostico import salvar_screenshot
 from ..credenciais import obter_credenciais
 from ..two_factor import gerar_codigo_totp
 from ..parser_processo import _classificar_tipo
@@ -91,9 +92,12 @@ _CONFIG_POR_ESTADO = {
     },
 }
 
-_DEBUG_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "_debug"
 EPROC_DOC_TIMEOUT = int(os.getenv("EPROC_DOC_TIMEOUT", "20"))
 
+
+# Orçamento dos localizadores ALTERNATIVOS de `_first` (o 1º usa o timeout
+# cheio). Curto de propósito: eles cobrem variações de DOM, não demora.
+_TIMEOUT_FALLBACK = 0.3
 
 class EprocScraper(TribunalScraper):
 
@@ -122,10 +126,21 @@ class EprocScraper(TribunalScraper):
     # Helpers
     # ------------------------------------------------------------------
     def _first(self, locators, timeout=10, exigir_visivel=True):
-        """Tenta uma lista de (By, valor); devolve o 1º elemento presente."""
-        for by, val in locators:
+        """Tenta uma lista de (By, valor); devolve o 1º elemento presente.
+
+        O `timeout` é o orçamento do 1º localizador (o esperado). Os alternativos
+        são fallbacks para variações de DOM entre versões do sistema — se o
+        primeiro não apareceu no tempo cheio, os outros ou já estão no DOM ou não
+        vão aparecer, então recebem só `_TIMEOUT_FALLBACK`.
+
+        Antes cada localizador recebia o timeout INTEIRO, e o custo de um
+        resultado negativo era `len(locators) × timeout`: no campo de TOTP do PJe
+        (5 localizadores × 15 s) eram 75 s para concluir que a tela não é aquela.
+        """
+        for i, (by, val) in enumerate(locators):
+            alvo = timeout if i == 0 else _TIMEOUT_FALLBACK
             try:
-                el = WebDriverWait(self.driver, timeout).until(
+                el = WebDriverWait(self.driver, alvo).until(
                     EC.presence_of_element_located((by, val))
                 )
                 if not exigir_visivel or el.is_displayed():
@@ -135,14 +150,8 @@ class EprocScraper(TribunalScraper):
         return None
 
     def _screenshot(self, nome: str):
-        try:
-            _DEBUG_DIR.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            caminho = _DEBUG_DIR / f"eproc_{self._sigla.lower()}_{nome}_{ts}.png"
-            self.driver.save_screenshot(str(caminho))
-            print(f"🖼️  Screenshot de debug salvo: {caminho}")
-        except Exception:
-            pass
+        """No-op sem SCRAPER_DEBUG=1 (ver ../diagnostico.py)."""
+        salvar_screenshot(self.driver, f"eproc_{self._sigla.lower()}", nome)
 
     def _cpf_digitos(self, login: str) -> str:
         """11 dígitos com zero à esquerda (eproc aceita só dígitos no Usuário)."""
@@ -416,8 +425,9 @@ class EprocScraper(TribunalScraper):
         if obs:
             raise AtribuicaoDetectadaError(obs)
 
-        # Dá uma pequena folga para o JS popular a tabela de eventos
-        time.sleep(0.5)
+        # (removido um time.sleep(0.5) "para o JS popular a tabela de eventos":
+        # a espera logo abaixo, em #fldInformacoesAdicionais_content, já cobre o
+        # mesmo AJAX — o sleep era 0,5 s somado a toda consulta.)
 
         # Aguarda o AJAX de "Informações Adicionais" popular
         # (#fldInformacoesAdicionais_content). Esse campo traz valor da
@@ -484,7 +494,9 @@ class EprocScraper(TribunalScraper):
                 )
             except Exception:
                 pass
-            time.sleep(0.3)
+            # (removido um time.sleep(0.3) que ficava aqui: a espera acima em
+            # `jQuery.active == 0` já prova que o AJAX terminou. Custava até
+            # 0,3 s × 6 cliques por processo.)
 
     # ------------------------------------------------------------------
     # DOCUMENTOS DO PROCESSO

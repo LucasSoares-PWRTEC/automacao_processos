@@ -13,6 +13,7 @@ src.parser.extrair_penhora_bloqueio_tribunais().
 """
 
 import os
+import shutil
 import time
 from abc import ABC, abstractmethod
 from typing import Optional
@@ -21,12 +22,93 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
+# --------------------------------------------------------------------------
+# Qual navegador usar
+# --------------------------------------------------------------------------
+# O projeto nasceu assumindo o Google Chrome. Em máquina de escritório sem Chrome
+# instalado, nada abria — nem a busca online nem o Autojur. O Edge resolve isso
+# sem instalar nada: vem no Windows 10/11, é Chromium (aceita as MESMAS flags e
+# `add_experimental_option`) e o Selenium tem driver próprio para ele. O Firefox
+# entra como terceira opção, com ressalvas (ver `_opcoes_firefox`).
+#
+# A ordem é deliberada: Chrome primeiro porque é onde o fluxo foi validado ao
+# vivo (2FA, pop-ups, iframes do Autojur).
+NAVEGADORES = ("chrome", "edge", "firefox")
 
-def _opcoes_chrome(headless: bool, user_data_dir: Optional[str]) -> "webdriver.ChromeOptions":
-    """Monta as ChromeOptions comprovadas do projeto (com perfil opcional)."""
-    options = webdriver.ChromeOptions()
+# Override manual: ORGANIZADOR_NAVEGADOR=edge força um navegador específico.
+_ENV_NAVEGADOR = "ORGANIZADOR_NAVEGADOR"
+
+# Onde procurar o executável de cada navegador, além do PATH. `%` é expandido.
+_CAMINHOS_NAVEGADOR = {
+    "chrome": (
+        r"%ProgramFiles%\Google\Chrome\Application\chrome.exe",
+        r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe",
+        r"%LocalAppData%\Google\Chrome\Application\chrome.exe",
+    ),
+    "edge": (
+        r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe",
+        r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe",
+        r"%LocalAppData%\Microsoft\Edge\Application\msedge.exe",
+    ),
+    "firefox": (
+        r"%ProgramFiles%\Mozilla Firefox\firefox.exe",
+        r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe",
+    ),
+}
+_EXECUTAVEL_NO_PATH = {"chrome": "chrome", "edge": "msedge", "firefox": "firefox"}
+
+
+def caminho_navegador(nome: str) -> Optional[str]:
+    """Caminho do executável do navegador `nome`, ou None se não estiver instalado."""
+    no_path = shutil.which(_EXECUTAVEL_NO_PATH.get(nome, nome))
+    if no_path:
+        return no_path
+    for bruto in _CAMINHOS_NAVEGADOR.get(nome, ()):
+        caminho = os.path.expandvars(bruto)
+        if "%" not in caminho and os.path.isfile(caminho):
+            return caminho
+    return None
+
+
+def navegadores_disponiveis() -> list[str]:
+    """Navegadores instalados nesta máquina, na ordem de preferência."""
+    return [n for n in NAVEGADORES if caminho_navegador(n)]
+
+
+def _ordem_de_tentativa() -> list[str]:
+    forcado = (os.getenv(_ENV_NAVEGADOR) or "").strip().lower()
+    if forcado in NAVEGADORES:
+        return [forcado]
+    disponiveis = navegadores_disponiveis()
+    # Nenhum detectado: ainda tentamos a lista toda. A detecção olha caminhos
+    # conhecidos e o PATH; uma instalação fora do padrão pode escapar dela, e
+    # falhar ao subir é melhor que desistir sem tentar.
+    return disponiveis or list(NAVEGADORES)
+
+
+def _log_seguro(msg: str) -> None:
+    """`print` que nunca derruba quem chamou.
+
+    Num console cp1252 (o padrão do Windows fora do app), imprimir acento ou
+    emoji levanta UnicodeEncodeError. Uma linha de log não pode impedir o
+    navegador de abrir — foi o que aconteceu ao testar o fallback do Edge."""
+    try:
+        print(msg)
+    except Exception:
+        try:
+            print(msg.encode("ascii", "replace").decode("ascii"))
+        except Exception:
+            pass
+
+
+def _aplicar_flags_chromium(options, headless: bool, user_data_dir: Optional[str]):
+    """Flags comuns a Chrome e Edge (os dois são Chromium)."""
     options.page_load_strategy = "eager"
-    options.add_argument("--window-size=1920,1080")
+    options.page_load_strategy = "eager"
+    # 1280x800 em vez de 1920x1080: as páginas dos tribunais são consultadas, não
+    # vistas; menos pixels = menos memória de raster. Importa nas máquinas de 4 GB,
+    # onde a árvore de processos do Chrome é o maior consumidor.
+    options.add_argument("--window-size=1280,800")
 
     if user_data_dir:
         options.add_argument(f"--user-data-dir={user_data_dir}")
@@ -53,6 +135,21 @@ def _opcoes_chrome(headless: bool, user_data_dir: Optional[str]) -> "webdriver.C
     options.add_experimental_option(
         "prefs", {"profile.managed_default_content_settings.images": 2}
     )
+    # A pref acima é ignorada em parte dos cenários com --headless=new; esta flag
+    # atua no próprio Blink e vale nos dois modos. Somadas, garantem que nenhuma
+    # imagem seja baixada nem decodificada (banda e RAM).
+    options.add_argument("--blink-settings=imagesEnabled=false")
+    # Serviços de fundo que só gastam CPU/rede numa sessão de scraping.
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-sync")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--no-service-autorun")
+    options.add_argument("--mute-audio")
+    options.add_argument("--metrics-recording-only")
+    options.add_argument(
+        "--disable-features=Translate,MediaRouter,OptimizationHints,"
+        "AcceptCHFrame,InterestFeedContentSuggestions"
+    )
     options.add_argument("--lang=pt-BR")
     options.add_argument(
         "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -61,28 +158,74 @@ def _opcoes_chrome(headless: bool, user_data_dir: Optional[str]) -> "webdriver.C
     return options
 
 
-def _matar_chrome_orfaos(user_data_dir: str) -> None:
-    """Mata processos chrome.exe presos NESTE perfil persistente (órfãos de uma
+def _opcoes_chrome(headless: bool, user_data_dir: Optional[str]):
+    return _aplicar_flags_chromium(webdriver.ChromeOptions(), headless, user_data_dir)
+
+
+def _opcoes_edge(headless: bool, user_data_dir: Optional[str]):
+    """Edge é Chromium: mesmas flags do Chrome.
+
+    `use_chromium=True` não é mais necessário no Selenium 4, mas o objeto de
+    opções é o `EdgeOptions`."""
+    return _aplicar_flags_chromium(webdriver.EdgeOptions(), headless, user_data_dir)
+
+
+def _opcoes_firefox(headless: bool, user_data_dir: Optional[str]):
+    """Firefox: última alternativa, com duas ressalvas.
+
+    1) Não aceita as flags do Chromium nem `add_experimental_option`; o
+       equivalente vai por `set_preference`.
+    2) `user_data_dir` (perfil persistente do Autojur, que evita repetir o 2FA)
+       usa outro mecanismo (`-profile`) e não é replicado aqui — no Firefox a
+       sessão não é reaproveitada entre execuções e o 2FA pode ser pedido de novo.
+    """
+    options = webdriver.FirefoxOptions()
+    options.page_load_strategy = "eager"
+    if headless:
+        options.add_argument("--headless")
+    options.add_argument("--width=1280")
+    options.add_argument("--height=800")
+    options.set_preference("permissions.default.image", 2)  # não carrega imagens
+    options.set_preference("dom.webnotifications.enabled", False)
+    options.set_preference("intl.accept_languages", "pt-BR, pt")
+    options.set_preference("media.volume_scale", "0.0")
+    options.set_preference("browser.tabs.remote.autostart", False)
+    return options
+
+
+_OPCOES_POR_NAVEGADOR = {
+    "chrome": _opcoes_chrome,
+    "edge": _opcoes_edge,
+    "firefox": _opcoes_firefox,
+}
+
+
+_EXE_DO_NAVEGADOR = {"chrome": "chrome.exe", "edge": "msedge.exe", "firefox": "firefox.exe"}
+
+
+def _matar_chrome_orfaos(user_data_dir: str, navegador: str = "chrome") -> None:
+    """Mata processos do navegador presos NESTE perfil persistente (órfãos de uma
     execução anterior que não fechou — travam o diretório e fazem o launch
     seguinte crashar com 'Chrome instance exited').
 
     Só no Windows e filtrando pela LINHA DE COMANDO que cita exatamente este
-    perfil — portanto NUNCA toca o Chrome pessoal do usuário (que usa outro
+    perfil — portanto NUNCA toca o navegador pessoal do usuário (que usa outro
     perfil). Best-effort: qualquer erro é ignorado.
     """
     if os.name != "nt" or not user_data_dir:
         return
     import subprocess
 
+    exe = _EXE_DO_NAVEGADOR.get(navegador, "chrome.exe")
     no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     alvo = os.path.normpath(user_data_dir).lower().replace("'", "''")
-    # 1) Lista os PIDs de chrome.exe cuja linha de comando cita este perfil.
+    # 1) Lista os PIDs do navegador cuja linha de comando cita este perfil.
     ps = (
-        "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+        "Get-CimInstance Win32_Process -Filter \"Name='{exe}'\" | "
         "Where-Object {{ $_.CommandLine -and "
         "$_.CommandLine.ToLower().Contains('{alvo}') }} | "
         "Select-Object -ExpandProperty ProcessId"
-    ).format(alvo=alvo)
+    ).format(exe=exe, alvo=alvo)
     try:
         out = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
@@ -99,7 +242,48 @@ def _matar_chrome_orfaos(user_data_dir: str) -> None:
         pass
 
 
-def _iniciar_chrome(options: "webdriver.ChromeOptions") -> webdriver.Chrome:
+# Caminho do chromedriver resolvido nesta execução. `ChromeDriverManager().install()`
+# faz uma ida à REDE para descobrir a versão compatível a cada chamada — e ela era
+# chamada a cada criação de driver (o monitoramento cria vários). O caminho também
+# é persistido em disco, então nas próximas execuções nem a 1ª criação vai à rede.
+_driver_path_memo: Optional[str] = None
+
+
+def _caminho_chromedriver() -> str:
+    """Caminho do chromedriver, reaproveitado agressivamente.
+
+    Ordem: memória do processo → arquivo de cache → webdriver-manager (rede).
+    Se o binário apontado pelo cache desapareceu, refaz a resolução."""
+    global _driver_path_memo
+    if _driver_path_memo and os.path.exists(_driver_path_memo):
+        return _driver_path_memo
+
+    from ....config import APP_DATA_DIR  # tardio: evita ciclo no import
+
+    cache = APP_DATA_DIR / "chromedriver.json"
+    try:
+        import json
+
+        salvo = json.loads(cache.read_text(encoding="utf-8")).get("path")
+        if salvo and os.path.exists(salvo):
+            _driver_path_memo = salvo
+            return salvo
+    except Exception:
+        pass
+
+    caminho = ChromeDriverManager().install()
+    _driver_path_memo = caminho
+    try:
+        import json
+
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"path": caminho}), encoding="utf-8")
+    except OSError:
+        pass
+    return caminho
+
+
+def _iniciar_chrome(options) -> webdriver.Chrome:
     """Sobe o Chrome (remoto se SELENIUM_REMOTE_URL; senão ChromeDriver local)."""
     remote_url = os.environ.get("SELENIUM_REMOTE_URL")
     if remote_url:
@@ -108,48 +292,126 @@ def _iniciar_chrome(options: "webdriver.ChromeOptions") -> webdriver.Chrome:
     if os.path.exists("/usr/bin/chromedriver"):
         service = Service("/usr/bin/chromedriver")
     else:
-        service = Service(ChromeDriverManager().install())
+        service = Service(_caminho_chromedriver())
     return webdriver.Chrome(service=service, options=options)
+
+
+def _iniciar_edge(options) -> "webdriver.Edge":
+    """Sobe o Edge. O driver é resolvido pelo Selenium Manager (embutido no
+    Selenium 4.6+), que baixa e cacheia o msedgedriver compatível sozinho — não
+    precisamos do webdriver-manager aqui."""
+    remote_url = os.environ.get("SELENIUM_REMOTE_URL")
+    if remote_url:
+        return webdriver.Remote(command_executor=remote_url, options=options)
+    return webdriver.Edge(options=options)
+
+
+def _iniciar_firefox(options) -> "webdriver.Firefox":
+    remote_url = os.environ.get("SELENIUM_REMOTE_URL")
+    if remote_url:
+        return webdriver.Remote(command_executor=remote_url, options=options)
+    return webdriver.Firefox(options=options)
+
+
+_INICIADOR_POR_NAVEGADOR = {
+    "chrome": _iniciar_chrome,
+    "edge": _iniciar_edge,
+    "firefox": _iniciar_firefox,
+}
+
+# Qual navegador funcionou nesta execução. Memoizado para o monitoramento não
+# repetir a tentativa-e-erro a cada scraper que sobe.
+_navegador_ok: Optional[str] = None
+
+
+def _iniciar_navegador(nome: str, headless: bool, user_data_dir: Optional[str]):
+    """Sobe UM navegador específico. `user_data_dir` só vale para Chromium."""
+    perfil = user_data_dir if nome in ("chrome", "edge") else None
+    if user_data_dir and perfil is None:
+        _log_seguro(
+            f"AVISO {nome}: perfil persistente não suportado nesta rota; a sessão "
+            "não será reaproveitada (o 2FA pode ser pedido de novo)."
+        )
+    options = _OPCOES_POR_NAVEGADOR[nome](headless, perfil)
+    return _INICIADOR_POR_NAVEGADOR[nome](options)
 
 
 def criar_chrome_driver(
     headless: bool = False, user_data_dir: Optional[str] = None
-) -> webdriver.Chrome:
-    """
-    Cria o driver Chrome com as opções comprovadas do projeto
-    (mesmas de src/scraper.py). Suporta Selenium remoto via
-    SELENIUM_REMOTE_URL; senão usa ChromeDriver local.
+):
+    """Cria o driver do navegador, tentando Chrome → Edge → Firefox.
 
-    `user_data_dir`: quando informado, usa um perfil PERSISTENTE do Chrome
-    nesse diretório (mantém cookies/sessão entre execuções). Usado só pelo
-    Autojur para pular o 2FA. Um perfil só pode ser aberto por UM processo por
-    vez — se o perfil estiver travado (outro Chrome aberto no mesmo diretório,
-    ou lock de uma instância que não fechou), o launch falha com
-    "Chrome instance exited". Nesse caso caímos para um perfil temporário para
-    o app não travar (o 2FA pode ser pedido de novo, mas o navegador abre).
+    O nome ficou por compatibilidade (os quatro scrapers já o importam), mas não
+    é mais só Chrome: em máquina sem o Google Chrome instalado nada abria — nem a
+    busca online nem o Autojur. O Edge cobre esse caso sem instalar nada (vem no
+    Windows e é Chromium, então aceita as mesmas flags).
+
+    `ORGANIZADOR_NAVEGADOR=edge|chrome|firefox` força um navegador específico.
+
+    `user_data_dir`: perfil PERSISTENTE (mantém cookies/sessão entre execuções).
+    Usado só pelo Autojur, para pular o 2FA. Um perfil só pode ser aberto por UM
+    processo por vez — se estiver travado, o launch falha com "Chrome instance
+    exited"; nesse caso limpamos os órfãos e, na pior hipótese, caímos para um
+    perfil temporário (o 2FA pode ser pedido de novo, mas o navegador abre).
+    Só vale para Chrome/Edge (ver `_iniciar_navegador`).
     """
-    if user_data_dir:
-        # Libera o perfil de órfãos de execuções anteriores (a causa nº 1 do
-        # "Chrome instance exited" no perfil persistente).
-        _matar_chrome_orfaos(user_data_dir)
-    try:
-        return _iniciar_chrome(_opcoes_chrome(headless, user_data_dir))
-    except Exception as exc:
-        if not user_data_dir:
-            raise
-        # 2ª tentativa: mata órfãos de novo (o lock pode ter demorado a soltar,
-        # ex.: relogin por mudança de visibilidade) e tenta mais uma vez.
-        _matar_chrome_orfaos(user_data_dir)
-        time.sleep(1.5)
+    global _navegador_ok
+
+    # Se um navegador já funcionou nesta execução, começa por ele.
+    ordem = _ordem_de_tentativa()
+    if _navegador_ok in ordem:
+        ordem = [_navegador_ok] + [n for n in ordem if n != _navegador_ok]
+
+    erros: list[str] = []
+    for nome in ordem:
+        # A varredura de órfãos NÃO roda preventivamente: ela sobe um
+        # `powershell Get-CimInstance Win32_Process` que percorre a tabela inteira
+        # de processos (1-3 s e ~60 MB num i3), e no caso normal não há órfão
+        # nenhum. Só limpamos quando o launch falha COM perfil persistente, que é
+        # exatamente o sintoma de perfil travado.
         try:
-            return _iniciar_chrome(_opcoes_chrome(headless, user_data_dir))
-        except Exception:
-            print(
-                f"Chrome: perfil persistente indisponível ({type(exc).__name__}); "
-                "usando perfil temporário. Feche outros navegadores abertos nesse "
-                "perfil para reaproveitar a sessão (e pular o 2FA)."
-            )
-            return _iniciar_chrome(_opcoes_chrome(headless, None))
+            driver = _iniciar_navegador(nome, headless, user_data_dir)
+        except Exception as exc:
+            if user_data_dir and nome in ("chrome", "edge"):
+                _matar_chrome_orfaos(user_data_dir, nome)
+                time.sleep(1.5)
+                try:
+                    driver = _iniciar_navegador(nome, headless, user_data_dir)
+                except Exception:
+                    _log_seguro(
+                        f"{nome}: perfil persistente indisponível "
+                        f"({type(exc).__name__}); tentando com perfil temporário. "
+                        "Feche outros navegadores abertos nesse perfil para "
+                        "reaproveitar a sessão (e pular o 2FA)."
+                    )
+                    try:
+                        driver = _iniciar_navegador(nome, headless, None)
+                    except Exception as exc2:
+                        erros.append(f"{nome}: {type(exc2).__name__}: {exc2}")
+                        continue
+                else:
+                    _navegador_ok = nome
+                    return driver
+            else:
+                erros.append(f"{nome}: {type(exc).__name__}: {exc}")
+                continue
+
+        if _navegador_ok != nome:
+            _log_seguro(f"Navegador em uso: {nome}")
+        _navegador_ok = nome
+        return driver
+
+    instalados = navegadores_disponiveis()
+    raise RuntimeError(
+        "Nenhum navegador pôde ser aberto. "
+        + (
+            f"Detectados nesta máquina: {', '.join(instalados)}. "
+            if instalados else
+            "Nenhum navegador compatível foi encontrado — instale o Google Chrome "
+            "ou o Microsoft Edge. "
+        )
+        + "Tentativas: " + " | ".join(erros)
+    )
 
 
 class TribunalScraper(ABC):

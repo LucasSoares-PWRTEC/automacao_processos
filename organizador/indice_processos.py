@@ -17,20 +17,34 @@ import os
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from . import base_embutida
 from .models import Processo
 from .organizacao import (
     _dict_para_processo,
     _juntar_nomes,
     carregar_processos_base,
 )
-from .padroes import PAPEIS_ATIVO, PAPEIS_PASSIVO
+from .padroes import PAPEIS_ATIVO_UP as _ATIVO_UP, PAPEIS_PASSIVO_UP as _PASSIVO_UP
+from .perf import marca as _perf
 
 INDICE_VERSAO = 1
 ORIGEM_EMBUTIDO = "embutido"
 
-_ATIVO_UP = {p.upper() for p in PAPEIS_ATIVO}
-_PASSIVO_UP = {p.upper() for p in PAPEIS_PASSIVO}
 
+def caminho_sqlite(processos_base: Path) -> Path:
+    """A base SQLite irmã do snapshot .json.gz (mesma pasta, sufixo .sqlite).
+
+    Deriva do caminho do .gz em vez de ser uma constante própria para que os
+    testes (e o `--destino` do gerador) consigam apontar para um tmp_path."""
+    p = Path(processos_base)
+    nome = p.name
+    for sufixo in (".json.gz", ".json"):
+        if nome.endswith(sufixo):
+            nome = nome[: -len(sufixo)]
+            break
+    else:
+        nome = p.stem
+    return p.with_name(nome + ".sqlite")
 
 @dataclass
 class ResumoProcesso:
@@ -149,6 +163,51 @@ def _atualizar_fonte_disco(
     return resumos
 
 
+def _resumos_embutidos(
+    processos_base: Path, indice: dict
+) -> tuple[list[ResumoProcesso], dict]:
+    """Resumos do snapshot embutido na release.
+
+    Devolve ``(resumos, meta)``, onde `meta` é o que o índice em disco precisa
+    guardar para reaproveitar na próxima abertura — vazio no caminho SQLite,
+    porque lá não há nada a cachear.
+
+    Caminho normal: lê a tabela `resumos` do SQLite — milhares de linhas curtas,
+    sem tocar no JSON completo de nenhum processo.
+
+    Fallback (rodando do código-fonte, com o .sqlite ainda não gerado): parseia o
+    .json.gz como antes e reaproveita o resultado pelo `mtime`, que do fonte é
+    estável. No .exe esse cache nunca acertava, porque o onefile extrai o arquivo
+    em _MEIPASS com timestamp novo a cada abertura — era o custo de ~25 s por
+    abertura num i3 que motivou a migração para SQLite.
+    """
+    caminho = Path(processos_base)
+    sqlite_path = caminho_sqlite(caminho)
+    if base_embutida.disponivel(sqlite_path):
+        # `fonte`/`origem` são constantes nesta fonte — não vale gravar 3.100
+        # cópias da mesma string; são preenchidas na leitura.
+        return [
+            ResumoProcesso(**d, fonte=ORIGEM_EMBUTIDO, origem=ORIGEM_EMBUTIDO)
+            for d in base_embutida.ler_resumos(sqlite_path)
+        ], {}
+
+    try:
+        gz_mtime = os.stat(caminho).st_mtime
+    except OSError:
+        gz_mtime = None
+    if gz_mtime is not None and gz_mtime == indice.get("gz_mtime") and indice.get("embutidos"):
+        resumos = [ResumoProcesso(**r) for r in indice["embutidos"]]
+    else:
+        resumos = [
+            _resumo_de_processo(p, ORIGEM_EMBUTIDO, ORIGEM_EMBUTIDO)
+            for p in carregar_processos_base(caminho)
+        ]
+    return resumos, {
+        "gz_mtime": gz_mtime,
+        "embutidos": [asdict(r) for r in resumos],
+    }
+
+
 def carregar_resumos_pesquisa(
     pasta_base: Path,
     processos_online_dir: Path,
@@ -158,8 +217,8 @@ def carregar_resumos_pesquisa(
     """Resumos das três fontes (base > online > embutido), com dedup por número.
 
     Usa o índice em `indice_path`: inalterados vêm do índice; novos/alterados são
-    reparseados; o índice é reescrito ao final. Nunca levanta — na pior hipótese
-    reconstrói do zero (custo da carga antiga)."""
+    reparseados; o índice é reescrito ao final SÓ SE algo mudou. Nunca levanta —
+    na pior hipótese reconstrói do zero (custo da carga antiga)."""
     pasta_base = Path(pasta_base).expanduser()
     indice = _ler_indice(indice_path)
     disco_prev: dict = indice.get("disco") or {}
@@ -167,27 +226,17 @@ def carregar_resumos_pesquisa(
 
     base = _atualizar_fonte_disco(pasta_base, "base", disco_prev, disco_novo)
     online = _atualizar_fonte_disco(processos_online_dir, "online", disco_prev, disco_novo)
+    _perf(f"resumos:disco({len(base)}+{len(online)})")
 
-    # Embutido: reusa por mtime do .gz (arquivo único).
-    gz_mtime = None
-    try:
-        gz_mtime = os.stat(processos_base_json).st_mtime
-    except OSError:
-        pass
-    if gz_mtime is not None and gz_mtime == indice.get("gz_mtime") and indice.get("embutidos"):
-        embutidos = [ResumoProcesso(**r) for r in indice["embutidos"]]
-    else:
-        embutidos = [
-            _resumo_de_processo(p, ORIGEM_EMBUTIDO, ORIGEM_EMBUTIDO)
-            for p in carregar_processos_base(Path(processos_base_json))
-        ]
+    embutidos, meta_embutidos = _resumos_embutidos(Path(processos_base_json), indice)
+    _perf(f"resumos:embutidos({len(embutidos)})")
 
-    _salvar_indice(indice_path, {
-        "versao": INDICE_VERSAO,
-        "gz_mtime": gz_mtime,
-        "disco": disco_novo,
-        "embutidos": [asdict(r) for r in embutidos],
-    })
+    # Só reescreve o índice se algo mudou. Antes ele era regravado em TODA
+    # abertura (4,9 MB de JSON) mesmo sem nenhum processo novo.
+    novo = {"versao": INDICE_VERSAO, "disco": disco_novo, **meta_embutidos}
+    if novo != {k: indice.get(k) for k in novo}:
+        _salvar_indice(indice_path, novo)
+        _perf("resumos:indice_salvo")
 
     # Mescla por prioridade, dedup por número (mesma regra de
     # mesclar_processos_por_prioridade, mas sobre resumos).
@@ -208,7 +257,10 @@ def carregar_resumos_pesquisa(
 # Carga preguiçosa do Processo completo
 # --------------------------------------------------------------------------
 
-# Cache do snapshot embutido (numero -> dict), reconstruído se o .gz mudar.
+# Fallback do .json.gz: mapa {numero -> Processo} do snapshot inteiro. Só é
+# construído quando NÃO existe a base SQLite (ou seja, rodando do código-fonte
+# sem ter gerado o artefato) — custa ~8 s e retém ~104 MB. Com o SQLite, cada
+# clique lê um registro só e nada fica retido.
 _embutido_cache: dict[str, object] = {"path": None, "mtime": None, "mapa": {}}
 
 
@@ -236,13 +288,25 @@ def carregar_processo_completo(
     """Carrega o Processo completo referente a `resumo`, sob demanda.
 
     Fontes em disco: lê o metadados.json apontado por `resumo.origem`.
-    Embutido: resolve pelo snapshot .gz (parseado uma vez e cacheado)."""
+    Embutido: busca o registro POR NÚMERO na base SQLite (descomprime um só);
+    sem ela, cai no snapshot .json.gz inteiro."""
     if resumo.origem and resumo.origem != ORIGEM_EMBUTIDO:
         try:
             d = json.loads(Path(resumo.origem).read_text(encoding="utf-8"))
             return _dict_para_processo(d)
         except Exception:
             return None
-    if processos_base_json is not None:
-        return _mapa_embutido(processos_base_json).get((resumo.numero or "").strip())
-    return None
+    if processos_base_json is None:
+        return None
+
+    numero = (resumo.numero or "").strip()
+    sqlite_path = caminho_sqlite(Path(processos_base_json))
+    if base_embutida.disponivel(sqlite_path):
+        d = base_embutida.ler_processo(sqlite_path, numero)
+        if d is None:
+            return None
+        try:
+            return _dict_para_processo(d)
+        except Exception:
+            return None
+    return _mapa_embutido(processos_base_json).get(numero)

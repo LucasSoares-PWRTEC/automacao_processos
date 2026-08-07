@@ -85,14 +85,6 @@ def _obter_docx_cacheado(template_path: Path) -> Path:
     return template_path
 
 
-_PALAVRAS_IMOBILIARIO = ("imobiliári", "imovel", "imóvel", "matricula", "matrícula")
-
-
-def _template_eh_imobiliario(nome_arquivo: str) -> bool:
-    """Heurística: o template trata de imóvel(eis)? Olha o nome do arquivo."""
-    n = _strip_accents(nome_arquivo).lower()
-    alvos = [_strip_accents(p).lower() for p in _PALAVRAS_IMOBILIARIO]
-    return any(p in n for p in alvos)
 
 
 def _texto_sem_vermelho(paragrafo) -> str:
@@ -337,115 +329,35 @@ def _gerar_peticao_consolidada(
     return saida
 
 
-# Placeholders reais usados nos modelos .docx da pasta "Petições".
-# Cada chave é o texto que aparece entre parênteses no modelo; o valor é
-# a chave correspondente no dict `dados` montado em _gerar_peticoes.
-PLACEHOLDERS_PETICAO = {
-    "secretaria": "secretaria",
-    "vara": "vara",
-    "município ou regional": "municipio",
-    "municipio ou regional": "municipio",
-    "abreviação do estado": "estado",
-    "abreviacao do estado": "estado",
-    "número do processo": "numero",
-    "numero do processo": "numero",
-    "autor": "autor",
-    # Juiz/magistrado — preenchidos com proc.juiz (ou o que o usuário editar na GUI).
-    # Match case-insensitive: cobre "(juiz)", "(Juiz)", "(JUIZ)" do cabeçalho.
-    "juiz": "juiz",
-    "juíza": "juiz",
-    "juiza": "juiz",
-    "magistrado": "juiz",
-    "magistrada": "juiz",
-    "nome do juiz": "juiz",
-    "juiz da causa": "juiz",
-    "réu": "reu",
-    "reu": "reu",
-    "ré": "reu",
-    "re": "reu",
-    "executado": "reu",
-    "executada": "reu",
-    "devedor": "reu",
-    "devedora": "reu",
-    "requerido": "reu",
-    "requerida": "reu",
-    "réu ou réus": "reu",
-    "reu ou reus": "reu",
-    "ré ou rés ou réu ou réus": "reu",
-    # NB: "(nome ou nomes)" NÃO entra aqui de propósito — não deve virar o nome do
-    # réu. É tratado só em PLACEHOLDERS_AUTO ("nome"/"nomes" por número de réus),
-    # ex.: SERASAJUD "inclusão dos nomes dos executados".
-    "executado ou executados": "reu",
-    "devedor ou devedores": "reu",
-    "empresa ou empresas": "reu",
-    "oab uf": "oab_uf",
-    "uf da oab": "oab_uf",
-    "oab numero": "oab_numero",
-    "oab número": "oab_numero",
-    "numero da oab": "oab_numero",
-    "número da oab": "oab_numero",
-    # OAB completa do estado de tramitação (ex.: "OAB/SP 346.433").
-    # Match é case-insensitive; mantemos com e sem acento.
-    "oab do estado de tramitação do processo": "oab_completa",
-    "oab do estado de tramitacao do processo": "oab_completa",
+# As tabelas de placeholders moram em organizador/placeholders.py (módulo sem
+# dependências) porque a GUI precisa delas na abertura, sem pagar o import do
+# python-docx. Reexportadas aqui para não quebrar quem já importava de peticoes.
+from .placeholders import (  # noqa: E402
+    PLACEHOLDERS_AUTO, PLACEHOLDERS_PETICAO,
+    _PALAVRAS_IMOBILIARIO, _template_eh_imobiliario,
+)
+
+
+# Regex de cada placeholder, compilada UMA vez. Antes o padrão era remontado
+# dentro dos laços (concat + re.escape + consulta ao cache interno do módulo re);
+# no caso aninhado de _substituir_preservando_formatacao isso acontecia
+# len(runs) × len(PLACEHOLDERS_PETICAO) vezes POR PARÁGRAFO.
+_RE_PLACEHOLDER: dict[str, "re.Pattern[str]"] = {
+    _ph: re.compile(r"\(" + re.escape(_ph) + r"\)", re.IGNORECASE)
+    for _ph in PLACEHOLDERS_PETICAO
 }
 
 
-# Placeholders "X ou Y" resolvidos por contexto (sem precisar de input manual).
-# Formato: ph_lowercase -> (fonte, *formas). O nº de formas depende da fonte:
-#   - "imovel"                    : (forma_sing, forma_plur)   -> flag multiplos_imoveis
-#   - "reu_gen" / "autor_gen"     : (forma_masc, forma_fem)    -> gênero da parte
-#   - "reu_num" / "autor_num"     : (forma_sing, forma_plur)   -> número da parte
-#   - "reu_genum"                 : (masc_sing, masc_plur, fem_sing, fem_plur) -> gênero+número do réu
-PLACEHOLDERS_AUTO: dict[str, tuple[str, ...]] = {
-    # Imóvel propriamente dito (controlado pelo checkbox "Múltiplos imóveis").
-    # Só aparecem em "Penhora imobiliária": o substantivo e o verbo "é/são".
-    "imóvel ou imóveis": ("imovel", "imóvel", "imóveis"),
-    "imovel ou imoveis": ("imovel", "imóvel", "imóveis"),
-    "são":               ("imovel", "é", "são"),
+def _re_placeholder(ph: str) -> "re.Pattern[str]":
+    """Regex de `ph`, vinda da tabela pré-compilada.
 
-    # Conectores (artigo/preposição) — concordam SEMPRE com o nº de réus que os segue,
-    # nunca com imóvel: "(do ou dos) (executado ou executados)", "(da ou das) (parte ou partes)".
-    "do ou dos":         ("reu_num", "do", "dos"),
-    "da ou das":         ("reu_num", "da", "das"),
-    "o ou os":           ("reu_num", "o", "os"),
-    "a ou as":           ("reu_num", "a", "as"),
-
-    # Réu — singular/plural por Contexto
-    "réu ou ré":         ("reu_gen", "réu", "ré"),
-    "reu ou re":         ("reu_gen", "réu", "ré"),
-    "réus ou rés":       ("reu_gen", "réus", "rés"),
-    "reus ou res":       ("reu_gen", "réus", "rés"),
-
-    # Autor — singular/plural por Contexto
-    "autor ou autora":      ("autor_gen", "autor", "autora"),
-    "autores ou autoras":   ("autor_gen", "autores", "autoras"),
-
-    # Concordância de NÚMERO pela quantidade de réus (singular vs. plural).
-    # Usado nas petições de Citação/Juntada e em "Descumprimento de acordo".
-    "parte ou partes":      ("reu_num", "parte", "partes"),
-    "ré ou rés":            ("reu_num", "ré", "rés"),
-    "citado ou citados":    ("reu_num", "citado", "citados"),
-    "compôs ou compuseram": ("reu_num", "compôs", "compuseram"),
-    "cumpriu ou cumpriram": ("reu_num", "cumpriu", "cumpriram"),
-    "deu ou deram":         ("reu_num", "deu", "deram"),
-
-    # Substantivo/verbo do polo passivo por NÚMERO de réus. Sao os
-    # placeholders mais comuns dos modelos (ex.: "(réu ou réus)" aparece em
-    # ~20 modelos, "(executado ou executados)" em ~8). Sem registro aqui o
-    # placeholder ficava literal e a flexao gerava lixo ("(réus ou réus)").
-    # O genero, quando aplicavel (réu/executado/devedor estao em FLEXOES), eh
-    # ajustado depois por _inflexionar_texto na zona BODY/CLOSING.
-    "réu ou réus":             ("reu_num", "réu", "réus"),
-    "reu ou reus":             ("reu_num", "réu", "réus"),
-    "executado ou executados": ("reu_num", "executado", "executados"),
-    "devedor ou devedores":    ("reu_num", "devedor", "devedores"),
-    "empresa ou empresas":     ("reu_num", "empresa", "empresas"),
-    "nome ou nomes":           ("reu_num", "nome", "nomes"),
-    "mantém ou mantêm":        ("reu_num", "mantém", "mantêm"),
-    "mantem ou mantêm":        ("reu_num", "mantém", "mantêm"),
-
-}
+    Placeholders fora de PLACEHOLDERS_PETICAO (ex.: campos editáveis descobertos
+    no modelo) são compilados na 1ª vez e memorizados."""
+    padrao = _RE_PLACEHOLDER.get(ph)
+    if padrao is None:
+        padrao = re.compile(r"\(" + re.escape(ph) + r"\)", re.IGNORECASE)
+        _RE_PLACEHOLDER[ph] = padrao
+    return padrao
 
 
 _RE_DO_S_EXECUTADO_S = re.compile(
@@ -547,8 +459,7 @@ def _aplicar_substituicoes(
             valor = valor.upper()
         # Match case-insensitive: cobre "(REU)", "(Reu)", "(reu)" — templates
         # com small-caps em Word guardam o texto em caixa mista no .docx.
-        padrao = re.compile(r"\(" + re.escape(placeholder) + r"\)", re.IGNORECASE)
-        resultado = padrao.sub(lambda _m, v=valor: v, resultado)
+        resultado = _re_placeholder(placeholder).sub(lambda _m, v=valor: v, resultado)
 
     def _repl(m: re.Match) -> str:
         nome = m.group(1).strip().lower()
@@ -593,8 +504,7 @@ def _cobertura_resolvivel(
     for placeholder, chave in PLACEHOLDERS_PETICAO.items():
         if not (dados.get(chave) or "").strip():
             continue
-        padrao = re.compile(r"\(" + re.escape(placeholder) + r"\)", re.IGNORECASE)
-        for m in padrao.finditer(texto):
+        for m in _re_placeholder(placeholder).finditer(texto):
             _marcar(m.start(), m.end())
 
     # Placeholders de concordância "(X ou Y)" e demais campos preenchidos por
@@ -756,6 +666,47 @@ def _aplicar_fmt(run, fmt: tuple) -> None:
     run.font.highlight_color = None
 
 
+# Acima deste tamanho, o diff caractere a caractere sai do orçamento de CPU de
+# uma máquina fraca e caímos no alinhamento linear de _opcodes_prefixo_sufixo.
+_MAX_DIFF_CARACTERES = 2000
+
+
+def _opcodes_prefixo_sufixo(a: str, b: str) -> list[tuple[str, int, int, int, int]]:
+    """Opcodes no formato de ``SequenceMatcher.get_opcodes()``, em tempo linear.
+
+    Casa o prefixo e o sufixo comuns e trata o miolo como uma substituição única.
+    É o alinhamento correto para o caso que nos interessa (um placeholder trocado
+    dentro de um texto que continua igual dos dois lados) e degrada de forma
+    previsível quando há várias mudanças espalhadas: o formato do miolo passa a
+    ser o do início da região trocada, mesmo critério que o ramo `replace` do
+    algoritmo completo já aplica."""
+    n_pre = 0
+    limite = min(len(a), len(b))
+    while n_pre < limite and a[n_pre] == b[n_pre]:
+        n_pre += 1
+    n_suf = 0
+    while (
+        n_suf < limite - n_pre
+        and a[len(a) - 1 - n_suf] == b[len(b) - 1 - n_suf]
+    ):
+        n_suf += 1
+
+    opcodes: list[tuple[str, int, int, int, int]] = []
+    if n_pre:
+        opcodes.append(("equal", 0, n_pre, 0, n_pre))
+    i1, i2 = n_pre, len(a) - n_suf
+    j1, j2 = n_pre, len(b) - n_suf
+    if i1 < i2 and j1 < j2:
+        opcodes.append(("replace", i1, i2, j1, j2))
+    elif j1 < j2:
+        opcodes.append(("insert", i1, i1, j1, j2))
+    elif i1 < i2:
+        opcodes.append(("delete", i1, i2, j1, j1))
+    if n_suf:
+        opcodes.append(("equal", len(a) - n_suf, len(a), len(b) - n_suf, len(b)))
+    return opcodes
+
+
 def _reescrever_preservando_formato(paragrafo, texto_original: str, texto_final: str) -> None:
     """Reescreve o parágrafo preservando a formatação de caractere do modelo.
 
@@ -770,9 +721,19 @@ def _reescrever_preservando_formato(paragrafo, texto_original: str, texto_final:
         fmts_orig.extend([_fmt_basico(run)] * len(run.text))
     default = fmts_orig[0] if fmts_orig else (None, None, None, None, None)
 
-    sm = difflib.SequenceMatcher(None, texto_original, texto_final, autojunk=False)
+    # Alinhamento caractere a caractere: `SequenceMatcher` é quadrático no pior
+    # caso e `autojunk=False` desliga justamente a heurística que o limita. Num
+    # parágrafo muito longo (modelos com uma cláusula inteira num só parágrafo)
+    # isso pode travar a geração por segundos numa máquina fraca. Acima do teto,
+    # usamos um alinhamento simples por prefixo/sufixo comum — que é exatamente o
+    # caso real (só o miolo do placeholder muda) e roda em tempo linear.
+    if max(len(texto_original), len(texto_final)) > _MAX_DIFF_CARACTERES:
+        opcodes = _opcodes_prefixo_sufixo(texto_original, texto_final)
+    else:
+        sm = difflib.SequenceMatcher(None, texto_original, texto_final, autojunk=False)
+        opcodes = sm.get_opcodes()
     fmts_final: list[tuple] = [default] * len(texto_final)
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+    for tag, i1, i2, j1, j2 in opcodes:
         if tag == "equal":
             for k in range(j2 - j1):
                 if i1 + k < len(fmts_orig):
@@ -955,7 +916,7 @@ def _substituir_paragrafo(
     preservar_roxo = [False] * len(texto_original)
     if any(roxo_arr):
         for _ph in PLACEHOLDERS_PETICAO:
-            for m in re.finditer(r"\(" + re.escape(_ph) + r"\)", texto_original, re.IGNORECASE):
+            for m in _re_placeholder(_ph).finditer(texto_original):
                 if all(roxo_arr[i] for i in range(m.start(), m.end())):
                     for i in range(m.start(), m.end()):
                         preservar_roxo[i] = True

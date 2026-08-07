@@ -1,11 +1,39 @@
 # -*- coding: utf-8 -*-
-"""Busca online de processos via scraper internalizado (imports tardios, isolados)."""
+"""Busca online de processos via scraper internalizado (imports tardios, isolados).
+
+IMPORTS TARDIOS — NÃO PROMOVA PARA O TOPO
+-----------------------------------------
+A GUI importa este módulo no topo (por ``_LogWriter``, ``CHAVES_2FA`` e
+``ler_config_2fa``, que são baratos). Se ``selenium``/``webdriver_manager``/``bs4``
+forem importados aqui em nível de módulo, eles entram no caminho de ABERTURA da
+janela — 2,5 s numa máquina rápida (dos quais 1,5 s são só o
+``charset_normalizer`` que o bs4 puxa), e bem mais num i3.
+
+Por isso ``criar_scraper`` (selenium) e os extratores do ``parser`` (bs4) são
+resolvidos sob demanda por ``__getattr__`` de módulo (PEP 562): o código abaixo
+os usa como nomes globais normais, mas o import só acontece na primeira chamada —
+e o nome fica sendo um atributo de módulo, que continua sendo o ponto de injeção
+dos testes (``monkeypatch.setattr(scraper, "criar_scraper", ...)``).
+
+Medir com:
+    python -X importtime -c "import organizador.gui"
+"""
 
 from __future__ import annotations
 
 import io
+import queue
 import shutil
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    # NUNCA executado: existe só para linters e type-checkers verem os nomes que
+    # `__getattr__` resolve em tempo de execução (sem isto, um pyflakes acusa
+    # "undefined name 'criar_scraper'").
+    from .integracoes.tjsp_scraper.parser import (  # noqa: F401
+        _extrair_blocos_com_origem, extrair_penhora_bloqueio_tribunais,
+    )
+    from .integracoes.tjsp_scraper.scrapers import criar_scraper  # noqa: F401
 
 from .config import (
     CONFIG_DIR,
@@ -15,11 +43,40 @@ from .config import (
     TJ_SISTEMAS,
     _ESTADO_TJ_UF,
 )
-from .integracoes.tjsp_scraper.parser import _extrair_blocos_com_origem, extrair_penhora_bloqueio_tribunais
-from .integracoes.tjsp_scraper.scrapers import criar_scraper
 from .models import Processo
 from .organizacao import _dict_para_processo
 from .padroes import MAPA_UF_CNJ, RE_CNJ_TR, RE_NUMERO_CNJ
+
+# nome exposto -> (módulo de origem, nome no módulo). Ver cabeçalho.
+_TARDIOS = {
+    "criar_scraper": (".integracoes.tjsp_scraper.scrapers", "criar_scraper"),
+    "extrair_penhora_bloqueio_tribunais": (
+        ".integracoes.tjsp_scraper.parser", "extrair_penhora_bloqueio_tribunais",
+    ),
+    "_extrair_blocos_com_origem": (
+        ".integracoes.tjsp_scraper.parser", "_extrair_blocos_com_origem",
+    ),
+}
+
+
+def __getattr__(nome: str):
+    """Resolve os símbolos pesados na 1ª utilização (PEP 562).
+
+    Depois de resolvido, o objeto é gravado nos globais do módulo: as chamadas
+    seguintes são busca normal de global, sem passar por aqui."""
+    alvo = _TARDIOS.get(nome)
+    if alvo is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {nome!r}")
+    from importlib import import_module
+
+    modulo, atributo = alvo
+    valor = getattr(import_module(modulo, __package__), atributo)
+    globals()[nome] = valor
+    return valor
+
+
+def __dir__() -> list[str]:
+    return sorted(list(globals()) + list(_TARDIOS))
 
 
 class _LogWriter(io.TextIOBase):
@@ -33,6 +90,41 @@ class _LogWriter(io.TextIOBase):
         if s:
             self._put(s)
         return len(s)
+
+
+def fila_de_log(maxsize: int = 5000) -> "queue.Queue[str]":
+    """Fila de log com teto que DESCARTA O MAIS ANTIGO quando enche.
+
+    As filas de log eram `queue.Queue()` sem limite, alimentadas por todo
+    `print()` dos scrapers. Numa passada longa o produtor (thread worker) é mais
+    rápido que o consumidor (a GUI, que drena a cada 200-300 ms), então a fila
+    vira memória pura numa máquina que já está apertada.
+
+    Descartar o mais antigo é o comportamento certo aqui: log de scraper é
+    informativo, e o widget da tela também só mantém as últimas linhas
+    (ver `App._append_log`). O que NÃO pode acontecer é `put` bloquear a thread
+    worker — por isso `put_nowait` com descarte, nunca `put()`.
+    """
+    return _FilaDescartavel(maxsize)
+
+
+class _FilaDescartavel(queue.Queue):
+    def put(self, item, block=True, timeout=None):  # noqa: ARG002 - assinatura da base
+        """Nunca bloqueia e nunca levanta: se estiver cheia, joga fora o mais
+        antigo para abrir espaço.
+
+        Chama `queue.Queue.put` explicitamente, e não `self.put_nowait`: o
+        `put_nowait` da classe base é implementado como `self.put(block=False)`,
+        o que voltaria para cá em recursão infinita."""
+        for _ in range(3):  # 3 tentativas bastam; evita laço infinito sob corrida
+            try:
+                queue.Queue.put(self, item, block=False)
+                return
+            except queue.Full:
+                try:
+                    self.get_nowait()
+                except queue.Empty:
+                    return  # esvaziou entre as duas operações; desiste desta linha
 
 
 # Marcadores de "processo não encontrado" por site. Quando a página de

@@ -21,8 +21,10 @@ Contrato do ``log``: recebe UMA linha SEM ``\\n`` no fim; quem chama formata
 from __future__ import annotations
 
 import json
+import os
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -77,6 +79,23 @@ def _candidatos(uf: str) -> list[str]:
     return [c for c in candidatos_tj_para_uf(uf) if c not in _ROTAS_INOPERANTES]
 
 
+def _teto_navegadores() -> int:
+    """Quantos navegadores podem ficar abertos ao mesmo tempo.
+
+    Lê o Modo leve do ``ui_state.json`` — a passada também roda pelo CLI
+    (scripts/monitor.py), sem a GUI para consultar. Falha de leitura cai no
+    padrão, nunca derruba a passada."""
+    from .maquina import resolver_modo_leve
+
+    try:
+        from .config import UI_STATE_PATH
+
+        salvo = json.loads(UI_STATE_PATH.read_text(encoding="utf-8")).get("modo_leve")
+    except Exception:
+        salvo = None  # sem estado salvo: resolver_modo_leve decide pela máquina
+    return MAX_NAVEGADORES_MODO_LEVE if resolver_modo_leve(salvo) else MAX_NAVEGADORES
+
+
 # --- estado (JSON incremental) -------------------------------------------
 def _carregar_estado(path: Path = ESTADO_MONITOR_JSON) -> dict:
     if path.exists():
@@ -88,8 +107,60 @@ def _carregar_estado(path: Path = ESTADO_MONITOR_JSON) -> dict:
 
 
 def _gravar_estado(estado: dict, path: Path = ESTADO_MONITOR_JSON) -> None:
+    """Grava o estado da passada. Gravação atômica (tmp + replace) para uma
+    interrupção no meio não deixar o arquivo truncado — ele é o que permite
+    retomar a passada de onde parou.
+
+    Sem `indent=2`: o estado tem uma entrada por processo e era regravado a cada
+    processo (ver _GravadorThrottled); a indentação inflava o arquivo ~2x sem
+    ninguém ler à mão."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(estado, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(
+        json.dumps(estado, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+    )
+    os.replace(tmp, path)
+
+
+# Intervalo/lote da gravação de estado durante a passada.
+GRAVAR_ESTADO_CADA = 25      # processos
+GRAVAR_ESTADO_SEGUNDOS = 30.0
+
+
+class _GravadorThrottled:
+    """Regula a frequência de gravação do estado da passada.
+
+    O estado era regravado por INTEIRO depois de CADA processo. Com ~1.600
+    processos e um estado que já passa de 500 KB, isso é centenas de MB escritos
+    em disco por passada — em HD mecânico o custo aparece.
+
+    Aqui a gravação acontece a cada `GRAVAR_ESTADO_CADA` processos ou
+    `GRAVAR_ESTADO_SEGUNDOS`, o que vier primeiro, mais um `finalizar()`
+    garantido no fim. O pior caso de perda por queda de energia é um lote de
+    processos que teriam de ser reconsultados — nada é corrompido, porque a
+    passada é idempotente por número."""
+
+    def __init__(self, path: Path = ESTADO_MONITOR_JSON):
+        self.path = path
+        self._pendentes = 0
+        self._ultimo = time.monotonic()
+
+    def talvez(self, estado: dict) -> bool:
+        self._pendentes += 1
+        agora = time.monotonic()
+        if (
+            self._pendentes >= GRAVAR_ESTADO_CADA
+            or (agora - self._ultimo) >= GRAVAR_ESTADO_SEGUNDOS
+        ):
+            self.finalizar(estado)
+            return True
+        return False
+
+    def finalizar(self, estado: dict) -> None:
+        """Gravação incondicional (fim da passada, cancelamento, erro)."""
+        _gravar_estado(estado, self.path)
+        self._pendentes = 0
+        self._ultimo = time.monotonic()
 
 
 def _cnj_normalizado(texto: str) -> str:
@@ -111,22 +182,55 @@ def _numeros_no_cache() -> set[str]:
 
 
 # --- pool de scrapers (1 login por sistema) -------------------------------
+# Teto de navegadores vivos ao mesmo tempo. Cada scraper é uma árvore de
+# processos do Chrome (browser + renderer + rede + GPU): 300-500 MB cada.
+# `TJ_SISTEMAS` tem 18 rótulos e, sem teto, uma passada larga chegava a manter
+# ~15 abertos simultaneamente — em 4 GB isso é swap garantido, e a passada
+# atolava. Reusar sessão continua sendo o objetivo (evita relogar e ser
+# bloqueado); o teto só descarta a MENOS usada recentemente quando estoura.
+MAX_NAVEGADORES = 4
+MAX_NAVEGADORES_MODO_LEVE = 2
+
+
 class PoolScrapers:
-    """Mantém 1 scraper logado por sistema (reuso de sessão → evita bloqueio).
+    """Mantém scrapers logados por sistema (reuso de sessão → evita bloqueio),
+    com teto LRU de navegadores simultâneos.
 
     ``obter`` cria+loga na 1ª vez e reusa depois; se o login de um sistema já
     falhou nesta corrida, levanta RuntimeError sem tentar de novo."""
 
-    def __init__(self, headless: bool):
+    def __init__(self, headless: bool, maximo: int = MAX_NAVEGADORES):
         self.headless = headless
-        self._scrapers: dict[str, object] = {}
+        self.maximo = max(1, int(maximo))
+        # OrderedDict como LRU: a ordem de inserção/uso define quem é descartado.
+        self._scrapers: "OrderedDict[str, object]" = OrderedDict()
         self._login_falhou: set[str] = set()
+
+    def _fechar(self, tj_label: str) -> None:
+        scraper = self._scrapers.pop(tj_label, None)
+        if scraper is None:
+            return
+        try:
+            scraper.fechar()
+        except Exception:
+            pass
+
+    def _respeitar_teto(self) -> None:
+        while len(self._scrapers) >= self.maximo:
+            antigo, _ = next(iter(self._scrapers.items()))
+            print(
+                f"   ♻️ fechando {antigo} para respeitar o teto de "
+                f"{self.maximo} navegador(es) simultâneo(s)"
+            )
+            self._fechar(antigo)
 
     def obter(self, tj_label: str):
         if tj_label in self._login_falhou:
             raise RuntimeError(f"login de {tj_label} já falhou nesta corrida")
         if tj_label in self._scrapers:
+            self._scrapers.move_to_end(tj_label)  # usado agora = mais recente
             return self._scrapers[tj_label]
+        self._respeitar_teto()
         site, estado, url, perfil = TJ_SISTEMAS[tj_label]
         print(f"   🔐 abrindo e logando em {tj_label} (1ª vez nesta corrida)...")
         try:
@@ -142,11 +246,8 @@ class PoolScrapers:
         return scraper
 
     def fechar_todos(self):
-        for _tj_label, scraper in self._scrapers.items():
-            try:
-                scraper.fechar()
-            except Exception:
-                pass
+        for tj_label in list(self._scrapers):
+            self._fechar(tj_label)
         self._scrapers.clear()
 
 
@@ -371,7 +472,9 @@ def rodar_passada(
     def _cancelado() -> bool:
         return cancel is not None and cancel.is_set()
 
-    pool = PoolScrapers(headless=headless)
+    # Teto de navegadores: em modo leve fica em 2 (ver MAX_NAVEGADORES).
+    pool = PoolScrapers(headless=headless, maximo=_teto_navegadores())
+    gravador = _GravadorThrottled()
     try:
         for i, numero in enumerate(fila, 1):
             if _cancelado():
@@ -388,7 +491,7 @@ def rodar_passada(
             if not candidatos:
                 estado[numero] = {"status": "sem_rota", "uf": uf, "campanha": campanha,
                                   "obs": "UF sem sistema suportado", "quando": _quando()}
-                _gravar_estado(estado)
+                gravador.talvez(estado)
                 log("   🗺️ sem rota — pulando.")
                 continue
 
@@ -455,10 +558,10 @@ def rodar_passada(
                 resumo["nao_encontrados"] += 1
                 log("   🔎 não encontrado em nenhum sistema.")
 
-            _gravar_estado(estado)
+            gravador.talvez(estado)
     finally:
         pool.fechar_todos()
-        _gravar_estado(estado)
+        gravador.finalizar(estado)
         try:
             _gerar_relatorios(estado)
         except Exception:

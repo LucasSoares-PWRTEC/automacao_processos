@@ -82,20 +82,40 @@ def _carregar_credenciais() -> list[dict[str, str]]:
         return saida
 
     if SENHAS_XLSX_PATH.exists():
-        import pandas as pd
+        # openpyxl em vez de pandas: é o mesmo motor que o pandas usaria para .xlsx,
+        # sem arrastar numpy/pyarrow para o bundle (ver OrganizadorProcessos.spec).
+        from openpyxl import load_workbook
 
-        df = pd.read_excel(SENHAS_XLSX_PATH)
-        df.columns = [str(c).strip() for c in df.columns]
-        df = df.dropna(subset=["tj"]).copy()
-        return [
-            {
-                "tj": _to_str(linha["tj"]),
-                "login": _to_str(linha["Login"]),
-                "senha": _to_str(linha["Senha"]),
-                "_tj_norm": _norm(linha["tj"]),
-            }
-            for _, linha in df.iterrows()
-        ]
+        wb = load_workbook(SENHAS_XLSX_PATH, read_only=True, data_only=True)
+        try:
+            linhas = wb[wb.sheetnames[0]].iter_rows(values_only=True)
+            cabecalho = [str(c).strip() if c is not None else "" for c in next(linhas, ())]
+            idx = {nome: i for i, nome in enumerate(cabecalho)}
+            faltando = [c for c in ("tj", "Login", "Senha") if c not in idx]
+            if faltando:
+                raise KeyError(
+                    f"{SENHAS_XLSX_PATH}: coluna(s) ausente(s) {faltando} "
+                    f"(cabeçalho lido: {cabecalho})"
+                )
+
+            def celula(linha: tuple, coluna: str) -> str:
+                i = idx[coluna]
+                return _to_str(linha[i]) if i < len(linha) else ""
+
+            saida = []
+            for linha in linhas:
+                tj = celula(linha, "tj")
+                if not tj:  # equivale ao dropna(subset=["tj"]) do pandas
+                    continue
+                saida.append({
+                    "tj": tj,
+                    "login": celula(linha, "Login"),
+                    "senha": celula(linha, "Senha"),
+                    "_tj_norm": _norm(tj),
+                })
+            return saida
+        finally:
+            wb.close()
 
     raise FileNotFoundError(
         "Credenciais não encontradas. Configure "
