@@ -95,6 +95,32 @@ def _html_para_texto(html: str) -> str:
 
 
 
+class _LinhaEvento:
+    """Par (linha, célula) do autocomplete de Evento, com a cara de um elemento.
+
+    O TEXTO e o selo 'T' estão na linha (`tr`), mas o clique tem de ir na célula
+    (`td`) — clicar no `tr` não seleciona no PrimeFaces. Isto deixa
+    `_clicar_item` tratar os dois como um só alvo. Os acessos são repassados ao
+    vivo de propósito: se a linha ficar obsoleta, o StaleElementReferenceException
+    sobe e o `_clicar_item` refaz a busca."""
+
+    __slots__ = ("linha", "alvo")
+
+    def __init__(self, linha, alvo):
+        self.linha = linha
+        self.alvo = alvo
+
+    @property
+    def text(self) -> str:
+        return self.linha.text
+
+    def find_elements(self, *args, **kwargs):
+        return self.linha.find_elements(*args, **kwargs)
+
+    def click(self) -> None:
+        self.alvo.click()
+
+
 class AutojurScraper(TribunalScraper):
 
     def __init__(self, headless: bool = False, user_data_dir: Optional[str] = None):
@@ -151,6 +177,96 @@ class AutojurScraper(TribunalScraper):
             )
         except Exception:
             pass
+
+    # ------------------------------------------------------------------
+    # Estabilidade do DOM (PrimeFaces re-renderiza listas depois de exibi-las)
+    # ------------------------------------------------------------------
+    # O PrimeFaces mostra a primeira linha de uma lista e SUBSTITUI o bloco
+    # inteiro logo depois (autocomplete carregando sugestões, datatable
+    # paginando). Quem guarda uma referência de elemento nesse intervalo recebe
+    # StaleElementReferenceException ao usá-la — foi o que passou a acontecer
+    # quando as esperas fixas viraram esperas condicionais: a espera devolve o
+    # controle no PRIMEIRO item, não no último.
+    #
+    # A resposta certa não é dormir mais: é (1) esperar a lista parar de mudar e
+    # (2) reencontrar o elemento no momento de usá-lo. Os dois helpers abaixo.
+
+    def _esperar_lista_estavel(
+        self, by, seletor, ciclos: int = 2, intervalo: float = 0.2,
+        timeout: float = 10.0,
+    ) -> int:
+        """Espera a QUANTIDADE de elementos casados parar de mudar.
+
+        Devolve a contagem final. É a condição que os `time.sleep` de "deixa o
+        PrimeFaces terminar" tentavam aproximar — só que verificada, e sem gastar
+        o tempo todo quando a lista já está pronta."""
+        estaveis, anterior, fim = 0, -1, time.time() + timeout
+        agora = 0
+        while time.time() < fim:
+            try:
+                agora = len(self.driver.find_elements(by, seletor))
+            except Exception:
+                agora = -1
+            if agora == anterior:
+                estaveis += 1
+                if estaveis >= ciclos:
+                    return agora
+            else:
+                estaveis, anterior = 0, agora
+            time.sleep(intervalo)
+        return max(agora, 0)
+
+    def _clicar_item(
+        self, achar, casa, descricao: str, tentativas: int = 4,
+        ultimo: bool = False,
+    ) -> str:
+        """Encontra a lista, escolhe o item que casa e clica — tudo numa passada.
+
+        `achar()` refaz a busca (não receba uma lista pronta: ela pode estar
+        obsoleta). `casa(texto, elemento) -> bool` decide o item. Se o DOM for
+        re-renderizado durante a leitura, tenta de novo com elementos frescos.
+
+        `ultimo=True` escolhe a ÚLTIMA ocorrência em vez da primeira — é o que a
+        seleção de Lote fazia (laço sem `break`), e a diferença importa quando mais
+        de uma opção casa o critério.
+
+        Devolve o texto do item clicado."""
+        motivo = "lista vazia"
+        for _ in range(tentativas):
+            try:
+                alvo, texto_alvo = None, ""
+                for el in achar():
+                    texto = (el.text or "").strip()
+                    if not casa(texto, el):
+                        continue
+                    alvo, texto_alvo = el, texto
+                    if not ultimo:
+                        break
+                if alvo is not None:
+                    alvo.click()
+                    return texto_alvo
+                motivo = "nenhum item casou"
+            except StaleElementReferenceException:
+                # A lista foi trocada no meio da leitura: refaz do zero.
+                motivo = "lista re-renderizada durante a leitura"
+                time.sleep(0.3)
+                continue
+        raise RuntimeError(f"Autojur: {descricao} — {motivo}.")
+
+    @staticmethod
+    def _sem_stale(fn, tentativas: int = 4, espera: float = 0.3):
+        """Executa `fn` de novo se ela pegar um elemento obsoleto.
+
+        `fn` PRECISA reencontrar seus elementos a cada chamada, senão a repetição
+        não resolve nada."""
+        ultimo: Exception | None = None
+        for _ in range(tentativas):
+            try:
+                return fn()
+            except StaleElementReferenceException as exc:
+                ultimo = exc
+                time.sleep(espera)
+        raise ultimo if ultimo else RuntimeError("Autojur: falha inesperada.")
 
     def _submit_form(self, form_id: str) -> bool:
         """Aciona o submit PrimeFaces de um form. Os botões de submit do
@@ -463,19 +579,25 @@ class AutojurScraper(TribunalScraper):
         self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
         btn.click()
         self._esperar_dropdown_aberto()
-        itens = self.driver.find_elements(
-            By.XPATH,
+
+        xp_exato = (
             "//div[contains(@class,'bootstrap-select') and contains(@class,'open')]"
-            f"//ul[contains(@class,'dropdown-menu')]//a[.//span[normalize-space()=\"{texto}\"]]",
+            f"//ul[contains(@class,'dropdown-menu')]//a[.//span[normalize-space()=\"{texto}\"]]"
         )
-        if not itens:
-            itens = self.driver.find_elements(
-                By.XPATH,
-                f"//ul[contains(@class,'dropdown-menu')]//a[contains(normalize-space(.),\"{texto}\")]",
-            )
-        if not itens:
-            raise RuntimeError(f"Autojur: opção '{texto}' não encontrada no seletor.")
-        itens[0].click()
+        xp_contem = (
+            f"//ul[contains(@class,'dropdown-menu')]//a[contains(normalize-space(.),\"{texto}\")]"
+        )
+
+        def achar():
+            itens = self.driver.find_elements(By.XPATH, xp_exato)
+            return itens or self.driver.find_elements(By.XPATH, xp_contem)
+
+        # Reencontra e clica na mesma passada: o dropdown do bootstrap-select é
+        # remontado quando a lista termina de popular.
+        self._clicar_item(
+            achar, lambda _txt, _el: True,
+            descricao=f"opção '{texto}' não encontrada no seletor",
+        )
         self._esperar_dropdown_fechado()
 
     def _selecionar_lote(self, lote: str, log=print) -> None:
@@ -488,26 +610,35 @@ class AutojurScraper(TribunalScraper):
         self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", btn)
         btn.click()
         self._esperar_dropdown_aberto()
-        itens = self.driver.find_elements(
-            By.XPATH,
+
+        xp = (
             "//div[contains(@class,'bootstrap-select') and contains(@class,'open')]"
-            "//ul[contains(@class,'dropdown-menu')]//li/a",
+            "//ul[contains(@class,'dropdown-menu')]//li/a"
         )
-        escolhido = None
-        for a in itens:
-            up = a.text.strip().upper()
+        # Espera a lista de lotes parar de crescer antes de ler os rótulos: as
+        # opções trazem a data do dia e chegam por AJAX.
+        self._esperar_lista_estavel(By.XPATH, xp)
+
+        def casa(texto: str, _el) -> bool:
+            up = texto.upper()
             if not up or up.startswith("SELECIONE"):
-                continue
-            if lote == "iniciais" and "INICIAIS" in up:
-                escolhido = a
-            elif lote == "urgente" and "URGENTE" in up:
-                escolhido = a
-            elif lote == "dia_seguinte" and "INICIAIS" not in up and "URGENTE" not in up:
-                escolhido = a
-        if escolhido is None:
-            raise RuntimeError(f"Autojur: não achei a opção de Lote para '{lote}'.")
-        log(f"🗂️  Lote: {escolhido.text.strip()}")
-        escolhido.click()
+                return False
+            if lote == "iniciais":
+                return "INICIAIS" in up
+            if lote == "urgente":
+                return "URGENTE" in up
+            # dia_seguinte: a opção sem sufixo (a data de amanhã).
+            return "INICIAIS" not in up and "URGENTE" not in up
+
+        escolhido = self._clicar_item(
+            lambda: self.driver.find_elements(By.XPATH, xp), casa,
+            descricao=f"não achei a opção de Lote para '{lote}'",
+            # `ultimo=True` preserva o comportamento original: o laço não tinha
+            # `break`, então a ÚLTIMA opção que casava vencia. Muda o resultado
+            # quando há mais de uma sem sufixo (caso 'dia_seguinte').
+            ultimo=True,
+        )
+        log(f"🗂️  Lote: {escolhido}")
         self._esperar_dropdown_fechado()
 
     def _selecionar_evento(self, evento: str, log=print) -> None:
@@ -526,20 +657,36 @@ class AutojurScraper(TribunalScraper):
             and d.find_element(By.ID, SEL_EVENTO_PANEL).find_elements(
                 By.CSS_SELECTOR, "tr.ui-autocomplete-item")
         )
-        painel = self.driver.find_element(By.ID, SEL_EVENTO_PANEL)
-        linhas = painel.find_elements(By.CSS_SELECTOR, "tr.ui-autocomplete-item")
-        escolhido = None
-        for ln in linhas:
-            txt = ln.text.strip()
-            base = txt[:-1].strip() if txt.endswith("T") else txt
-            tem_T = bool(ln.find_elements(By.CSS_SELECTOR, "span.label-success"))
-            if base.lower() == evento.lower() and tem_T:
-                escolhido = ln
-                break
-        if escolhido is None:
-            raise RuntimeError(f"Autojur: evento '{evento}' (com selo T) não encontrado.")
-        tds = escolhido.find_elements(By.TAG_NAME, "td")
-        (tds[0] if tds else escolhido).click()
+
+        def achar_linhas():
+            painel = self.driver.find_element(By.ID, SEL_EVENTO_PANEL)
+            return painel.find_elements(By.CSS_SELECTOR, "tr.ui-autocomplete-item")
+
+        # A espera acima devolve o controle na PRIMEIRA sugestão; o PrimeFaces
+        # troca o painel inteiro conforme o resto chega. Ler as linhas antes disso
+        # dava StaleElementReferenceException no meio do laço.
+        self._esperar_lista_estavel(By.CSS_SELECTOR, "tr.ui-autocomplete-item")
+
+        def casa(texto: str, el) -> bool:
+            # O selo 'T' (span.label-success) marca as linhas que são TAREFA; o
+            # texto da linha termina com esse 'T', então tiramos antes de comparar.
+            base = texto[:-1].strip() if texto.endswith("T") else texto
+            if base.lower() != evento.lower():
+                return False
+            return bool(el.find_elements(By.CSS_SELECTOR, "span.label-success"))
+
+        def achar_clicaveis():
+            """A célula é o alvo do clique; cai na própria linha se não houver td."""
+            alvos = []
+            for ln in achar_linhas():
+                tds = ln.find_elements(By.TAG_NAME, "td")
+                alvos.append(_LinhaEvento(ln, tds[0] if tds else ln))
+            return alvos
+
+        self._clicar_item(
+            achar_clicaveis, casa,
+            descricao=f"evento '{evento}' (com selo T) não encontrado",
+        )
         time.sleep(1.5)  # a seleção dispara auto-preenchimento (Responsável/prazos)
 
     def buscar_pasta(self, numero_processo: str, log=print) -> list[dict]:
@@ -586,17 +733,27 @@ class AutojurScraper(TribunalScraper):
             return bool(t) and "utilize os filtros" not in t
 
         WebDriverWait(self.driver, 40).until(_tem_resultado)
-        linhas = self.driver.find_elements(By.CSS_SELECTOR, SEL_LINHAS_RESULTADO)
-        resultados = []
-        for i, ln in enumerate(linhas):
-            txt = ln.text.strip()
-            resultados.append({
-                "indice": i,
-                "texto": " | ".join(l.strip() for l in txt.splitlines() if l.strip()),
-                "cnj": self._extrair_rotulo(txt, ("CNJ", "Processo")),
-                "pasta": self._extrair_rotulo(txt, ("Pasta / Subpasta", "Pasta/Subpasta")),
-                "assunto": self._extrair_rotulo(txt, ("Assunto/Resumo", "Assunto / Resumo")),
-            })
+        # `_tem_resultado` satisfaz-se com a PRIMEIRA linha; o datatable do
+        # PrimeFaces continua montando as demais e troca o corpo da tabela. Ler
+        # `.text` de cada linha nesse meio dava StaleElementReferenceException.
+        self._esperar_lista_estavel(By.CSS_SELECTOR, SEL_LINHAS_RESULTADO)
+
+        def ler_resultados() -> list[dict]:
+            itens = []
+            for i, ln in enumerate(
+                self.driver.find_elements(By.CSS_SELECTOR, SEL_LINHAS_RESULTADO)
+            ):
+                txt = ln.text.strip()
+                itens.append({
+                    "indice": i,
+                    "texto": " | ".join(l.strip() for l in txt.splitlines() if l.strip()),
+                    "cnj": self._extrair_rotulo(txt, ("CNJ", "Processo")),
+                    "pasta": self._extrair_rotulo(txt, ("Pasta / Subpasta", "Pasta/Subpasta")),
+                    "assunto": self._extrair_rotulo(txt, ("Assunto/Resumo", "Assunto / Resumo")),
+                })
+            return itens
+
+        resultados = self._sem_stale(ler_resultados)
         log(f"📁 Autojur: {len(resultados)} resultado(s) para {numero_processo}.")
         return resultados
 
@@ -614,12 +771,22 @@ class AutojurScraper(TribunalScraper):
     def _abrir_resultado(self, indice: int, log=print) -> None:
         """Abre a linha `indice` do resultado (duplo clique) e clica em Adicionar
         Tarefa, deixando o iframe do formulário pronto. Passo 3."""
-        linhas = self.driver.find_elements(By.CSS_SELECTOR, SEL_LINHAS_RESULTADO)
-        if indice < 0 or indice >= len(linhas):
-            raise IndexError(f"Autojur: índice de resultado {indice} fora do intervalo.")
-        alvo = linhas[indice]
-        log(f"📂 Autojur: abrindo pasta — {alvo.text[:80].strip()}")
-        ActionChains(self.driver).double_click(alvo).perform()
+        self._esperar_lista_estavel(By.CSS_SELECTOR, SEL_LINHAS_RESULTADO)
+
+        def abrir():
+            # Reencontra a linha DENTRO da tentativa: entre a leitura do texto e o
+            # duplo clique o datatable pode ser remontado.
+            linhas = self.driver.find_elements(By.CSS_SELECTOR, SEL_LINHAS_RESULTADO)
+            if indice < 0 or indice >= len(linhas):
+                raise IndexError(
+                    f"Autojur: índice de resultado {indice} fora do intervalo."
+                )
+            alvo = linhas[indice]
+            rotulo = alvo.text[:80].strip()
+            ActionChains(self.driver).double_click(alvo).perform()
+            return rotulo
+
+        log(f"📂 Autojur: abrindo pasta — {self._sem_stale(abrir)}")
         WebDriverWait(self.driver, 30).until(
             lambda d: d.execute_script("return document.readyState") == "complete"
         )
