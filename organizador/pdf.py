@@ -133,22 +133,30 @@ def limpar_memo() -> None:
 # --------------------------------------------------------------------------
 # Conversores
 # --------------------------------------------------------------------------
+def _converter_com_word_aberto(word, docx_path: Path) -> Path:
+    """Converte usando uma instância do Word JÁ aberta — não abre nem fecha o
+    processo. Existe para o lote (`_lote_word`) reaproveitar a mesma sessão em
+    vez de pagar o custo de subir/derrubar o Word a cada documento."""
+    pdf_path = docx_path.with_suffix(".pdf")
+    doc = word.Documents.Open(str(docx_path.resolve()))
+    try:
+        doc.SaveAs(str(pdf_path.resolve()), FileFormat=17)  # 17 = wdFormatPDF
+    finally:
+        doc.Close(SaveChanges=False)
+    return pdf_path
+
+
 def _converter_com_word(docx_path: Path) -> Path:
     import pythoncom
     import win32com.client
 
-    pdf_path = docx_path.with_suffix(".pdf")
     pythoncom.CoInitialize()
     word = None
     try:
         word = win32com.client.Dispatch("Word.Application")
         word.Visible = False
         word.DisplayAlerts = False
-        doc = word.Documents.Open(str(docx_path.resolve()))
-        try:
-            doc.SaveAs(str(pdf_path.resolve()), FileFormat=17)  # 17 = wdFormatPDF
-        finally:
-            doc.Close(SaveChanges=False)
+        return _converter_com_word_aberto(word, docx_path)
     finally:
         if word is not None:
             try:
@@ -159,7 +167,6 @@ def _converter_com_word(docx_path: Path) -> Path:
             pythoncom.CoUninitialize()
         except Exception:
             pass
-    return pdf_path
 
 
 def _converter_com_libreoffice(docx_path: Path) -> Path:
@@ -218,3 +225,96 @@ def converter_para_pdf(docx_path: Path, log=None) -> Path:
             if log and len(candidatos) > 1:
                 log(f"  {rotulo(nome)} falhou; tentando outro conversor...")
     raise RuntimeError("falha ao converter para PDF — " + " | ".join(erros))
+
+
+def _lote_word(docx_paths: list[Path], pdfs: list[Path], log=None) -> list[tuple[Path, str]]:
+    """Converte o que puder de `docx_paths` usando UMA única instância do Word
+    para o lote inteiro (abrir/fechar o Word custa segundos; pagar esse custo
+    uma vez por lote em vez de uma vez por arquivo é o ganho real numa máquina
+    fraca gerando várias petições).
+
+    Devolve os que falharam nesta sessão, junto com o motivo, para o chamador
+    tentar outro conversor — mesma semântica de fallback do `converter_para_pdf`
+    de arquivo único."""
+    import pythoncom
+    import win32com.client
+
+    pendentes: list[tuple[Path, str]] = []
+    pythoncom.CoInitialize()
+    word = None
+    try:
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        word.DisplayAlerts = False
+        for docx_path in docx_paths:
+            try:
+                pdf_path = _converter_com_word_aberto(word, docx_path)
+                pdfs.append(pdf_path)
+                if log:
+                    log(f"  PDF: {pdf_path.name}")
+            except Exception as exc:
+                if log:
+                    log(f"  Microsoft Word falhou em {docx_path.name}; tentando outro conversor...")
+                pendentes.append(
+                    (docx_path, f"{rotulo('word')}: {type(exc).__name__}: {exc}")
+                )
+    finally:
+        if word is not None:
+            try:
+                word.Quit(SaveChanges=False)
+            except Exception:
+                pass
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
+    return pendentes
+
+
+def converter_lote_para_pdf(
+    docx_paths: list[Path], log=None
+) -> tuple[list[Path], list[str]]:
+    """Converte vários `.docx` para PDF, reaproveitando um único conversor
+    aberto para o lote inteiro (o Word, em particular — ver `_lote_word`).
+
+    Uma falha isolada não aborta o lote: o arquivo que falhou é reportado em
+    `erros` e os demais continuam. Devolve `(pdfs, erros)`."""
+    docx_paths = [Path(p) for p in docx_paths]
+    if not docx_paths:
+        return [], []
+
+    candidatos = [n for n in CONVERSORES if (
+        word_instalado() if n == "word" else caminho_libreoffice()
+    )]
+    if not candidatos:
+        raise RuntimeError(descricao_indisponivel())
+
+    pdfs: list[Path] = []
+    erros: list[str] = []
+
+    if "word" in candidatos:
+        pendentes = _lote_word(docx_paths, pdfs, log=log)
+    else:
+        pendentes = [(p, "") for p in docx_paths]
+
+    outros = [n for n in candidatos if n != "word"]
+    for docx_path, detalhe_word in pendentes:
+        detalhes = [detalhe_word] if detalhe_word else []
+        sucesso = False
+        for nome in outros:
+            try:
+                pdf_path = _FUNCAO[nome](docx_path)
+                pdfs.append(pdf_path)
+                sucesso = True
+                if log:
+                    log(f"  PDF: {pdf_path.name}")
+                break
+            except Exception as exc:
+                detalhes.append(f"{rotulo(nome)}: {type(exc).__name__}: {exc}")
+        if not sucesso:
+            motivo = " | ".join(detalhes) if detalhes else "nenhum conversor disponível"
+            erros.append(f"{docx_path.name}: {motivo}")
+            if log:
+                log(f"  ERRO ao gerar PDF de {docx_path.name}: {motivo}")
+
+    return pdfs, erros

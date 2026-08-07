@@ -11,6 +11,7 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 from collections import OrderedDict
 from pathlib import Path
 from tkinter import filedialog, font as tkfont, messagebox
@@ -150,8 +151,8 @@ from .indice_processos import (
 )
 from .integracoes.tjsp_scraper.credenciais import listar_credenciais, salvar_credenciais
 from .scraper import (
-    CHAVES_2FA, _LogWriter, buscar_processo_online, fila_de_log, ler_config_2fa,
-    salvar_config_2fa,
+    CHAVES_2FA, CHAVES_AUTOJUR, _LogWriter, buscar_processo_online, fila_de_log,
+    ler_config_2fa, ler_config_autojur, salvar_config_2fa, salvar_config_autojur,
 )
 
 _perf("import:fim")
@@ -194,6 +195,15 @@ def _converter_docx_para_pdf(docx_path: Path) -> Path:
     from . import pdf
 
     return pdf.converter_para_pdf(docx_path)
+
+
+def _converter_lote_docx_para_pdf(docx_paths: list, log=None) -> tuple[list, list]:
+    """Converte vários .docx para .pdf reaproveitando um único Word aberto para
+    o lote inteiro, em vez de abrir/fechar o Word a cada arquivo. Devolve
+    (pdfs_gerados, mensagens_de_erro) — uma falha isolada não aborta o lote."""
+    from . import pdf
+
+    return pdf.converter_lote_para_pdf(docx_paths, log=log)
 
 
 # Fontes e constantes visuais
@@ -435,10 +445,11 @@ class App(ttk.Window):
         self.var_vara.trace_add("write", self._espelhar_vara_para_secretaria)
 
         # Estado da aba Configurações (editor de senhas, persistido entre sessões).
-        # _cred_rows: uma linha por credencial de tribunal; _2fa_rows: um campo por
-        # segredo de 2FA. Os Entry de senha guardam a referência para o toggle de
-        # visibilidade ("Mostrar senhas").
+        # _cred_rows: uma linha por credencial de tribunal; _autojur_rows: login
+        # do Autojur; _2fa_rows: um campo por segredo de 2FA. Os Entry de senha
+        # guardam a referência para o toggle de visibilidade ("Mostrar senhas").
         self._cred_rows: list[dict] = []
+        self._autojur_rows: dict[str, dict] = {}
         self._2fa_rows: dict[str, dict] = {}
         self._entries_senha: list[ttk.Entry] = []
         self.var_mostrar_senhas = tk.BooleanVar(value=False)
@@ -1478,6 +1489,28 @@ class App(ttk.Window):
         self._frame_cred = ttk.Frame(sec_cred)
         self._frame_cred.pack(fill="x")
 
+        # ── Seção: Acesso ao Autojur ────────────────────────────────────
+        sec_autojur = ttk.Labelframe(
+            inner, text="  Acesso ao Autojur  ", bootstyle="default", padding=(12, 8),
+        )
+        sec_autojur.pack(fill="x", pady=(0, 8))
+        f_autojur = ttk.Frame(sec_autojur)
+        f_autojur.pack(fill="x")
+        f_autojur.columnconfigure(1, weight=1)
+        self._autojur_rows.clear()
+        for i, (rotulo, chave) in enumerate(CHAVES_AUTOJUR.items()):
+            ttk.Label(f_autojur, text=rotulo + ":", font=_FONT_BASE, anchor="e", width=32).grid(
+                row=i, column=0, sticky="e", padx=(0, 8), pady=3,
+            )
+            var = tk.StringVar(value="")
+            secreto = chave == "senha_autojur"
+            entry = ttk.Entry(f_autojur, textvariable=var, font=_FONT_BASE)
+            if secreto:
+                entry.configure(show="•")
+                self._entries_senha.append(entry)
+            entry.grid(row=i, column=1, sticky="ew", pady=3)
+            self._autojur_rows[chave] = {"var": var, "entry": entry, "secreto": secreto}
+
         # ── Seção: 2FA ─────────────────────────────────────────────────
         sec_2fa = ttk.Labelframe(
             inner, text="  Autenticação em dois fatores (2FA)  ", bootstyle="default", padding=(12, 8),
@@ -1501,6 +1534,12 @@ class App(ttk.Window):
                 self._entries_senha.append(entry)
             entry.grid(row=i, column=1, sticky="ew", pady=3)
             self._2fa_rows[chave] = {"var": var, "entry": entry, "secreto": secreto}
+            if chave == "IMAP_PASS":
+                ttk.Button(
+                    f2, text="🔗 Gerar senha de app (Google)",
+                    command=lambda: webbrowser.open("https://myaccount.google.com/apppasswords"),
+                    bootstyle="link",
+                ).grid(row=i, column=2, sticky="w", padx=(8, 0), pady=3)
 
         # ── Ações ──────────────────────────────────────────────────────
         f_acoes = ttk.Frame(inner)
@@ -1582,9 +1621,11 @@ class App(ttk.Window):
         for w in self._frame_cred.winfo_children():
             w.destroy()
         self._cred_rows.clear()
-        # Mantém só os Entry de 2FA na lista de senhas; os de credenciais serão
-        # readicionados abaixo (evita referências a widgets destruídos).
+        # Mantém só os Entry de Autojur/2FA na lista de senhas; os de credenciais
+        # serão readicionados abaixo (evita referências a widgets destruídos).
         self._entries_senha = [
+            r["entry"] for r in self._autojur_rows.values() if r["secreto"]
+        ] + [
             r["entry"] for r in self._2fa_rows.values() if r["secreto"]
         ]
 
@@ -1621,6 +1662,11 @@ class App(ttk.Window):
                     {"tj": cred["tj"], "var_login": var_login, "var_senha": var_senha}
                 )
 
+        # Autojur: preenche os campos com os valores do .env.
+        valores_autojur = ler_config_autojur()
+        for chave, row in self._autojur_rows.items():
+            row["var"].set(valores_autojur.get(chave, ""))
+
         # 2FA: preenche os campos com os valores do .env.
         valores_2fa = ler_config_2fa()
         for chave, row in self._2fa_rows.items():
@@ -1649,6 +1695,10 @@ class App(ttk.Window):
             ]
             if itens:
                 salvar_credenciais(itens)
+            valores_autojur = {
+                chave: row["var"].get().strip() for chave, row in self._autojur_rows.items()
+            }
+            salvar_config_autojur(valores_autojur)
             valores_2fa = {chave: row["var"].get().strip() for chave, row in self._2fa_rows.items()}
             salvar_config_2fa(valores_2fa)
         except Exception as exc:
@@ -3219,15 +3269,11 @@ class App(ttk.Window):
                 )
                 todos: list[Path] = list(gerados)
                 if gerar_pdf:
-                    falhas_pdf: list[str] = []
-                    for docx_path in gerados:
-                        try:
-                            pdf_gerado = _converter_docx_para_pdf(docx_path)
-                            todos.append(pdf_gerado)
-                            self._pesquisa_log_queue.put(f"  PDF: {pdf_gerado.name}\n")
-                        except Exception as exc:
-                            falhas_pdf.append(str(exc))
-                            self._pesquisa_log_queue.put(f"  ERRO ao gerar PDF: {exc}\n")
+                    pdfs_gerados, falhas_pdf = _converter_lote_docx_para_pdf(
+                        gerados,
+                        log=lambda msg: self._pesquisa_log_queue.put(msg + "\n"),
+                    )
+                    todos.extend(pdfs_gerados)
                     # Antes a falha ficava só nesta linha do log (oculto por
                     # padrão): o .docx aparecia, o PDF não, e ninguém sabia por
                     # quê. Agora avisa de forma visível — foi o sintoma relatado
@@ -3370,21 +3416,13 @@ class App(ttk.Window):
 
         def run() -> None:
             try:
-                novos_pdfs: list[Path] = []
-                erro_pdf = ""
-                for docx_path in docs:
-                    try:
-                        pdf = _converter_docx_para_pdf(docx_path)
-                        novos_pdfs.append(pdf)
-                        self._pesquisa_log_queue.put(f"  PDF atualizado: {pdf.name}\n")
-                    except Exception as exc:
-                        erro_pdf = erro_pdf or str(exc)
-                        self._pesquisa_log_queue.put(
-                            f"  ERRO ao gerar PDF de {docx_path.name}: {exc}\n"
-                        )
-                if not novos_pdfs and erro_pdf:
+                novos_pdfs, falhas_pdf = _converter_lote_docx_para_pdf(
+                    docs,
+                    log=lambda msg: self._pesquisa_log_queue.put(msg + "\n"),
+                )
+                if not novos_pdfs and falhas_pdf:
                     # Nenhum PDF saiu: avisa, em vez de deixar só no log oculto.
-                    self._notificar("PDF não gerado", erro_pdf, nivel="warning")
+                    self._notificar("PDF não gerado", falhas_pdf[0], nivel="warning")
                 # Lista atualizada = base ∪ pdfs (re)gerados, sem duplicar.
                 # Um docx editado sobrescreve o pdf de mesmo path (já em base);
                 # um pdf novo é acrescentado.

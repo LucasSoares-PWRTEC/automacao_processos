@@ -192,17 +192,24 @@ CHAVES_2FA: dict[str, str] = {
     "TOTP eproc TJSP (TOTP_EPROC_TJSP)": "TOTP_EPROC_TJSP",
 }
 
+# Login individual do Autojur, editável na aba Configurações (cada colaborador
+# usa sua própria máquina, então cada instalação tem seu próprio config/.env).
+CHAVES_AUTOJUR: dict[str, str] = {
+    "Usuário do Autojur": "email_autojur",
+    "Senha do Autojur": "senha_autojur",
+}
 
-def ler_config_2fa() -> dict[str, str]:
-    """Lê os segredos de 2FA do config/.env como ``{chave_env: valor}``."""
+
+def _ler_valores_env(chaves: dict[str, str]) -> dict[str, str]:
+    """Lê as chaves informadas (rótulo -> chave .env) do config/.env."""
     from dotenv import dotenv_values
     _preparar_env_local()
     valores = dotenv_values(CONFIG_ENV_PATH)
-    return {chave: (valores.get(chave) or "") for chave in CHAVES_2FA.values()}
+    return {chave: (valores.get(chave) or "") for chave in chaves.values()}
 
 
-def salvar_config_2fa(valores: dict[str, str]) -> None:
-    """Grava os segredos de 2FA no config/.env preservando as outras chaves.
+def _salvar_valores_env(valores: dict[str, str], chaves_validas: set[str]) -> None:
+    """Grava ``valores`` no config/.env preservando as outras chaves.
 
     Também atualiza ``os.environ`` para que as mudanças valham já na sessão
     atual (``load_dotenv`` não sobrescreve variáveis já carregadas)."""
@@ -210,13 +217,32 @@ def salvar_config_2fa(valores: dict[str, str]) -> None:
 
     from dotenv import set_key
     _preparar_env_local()
-    chaves_validas = set(CHAVES_2FA.values())
     for chave, valor in valores.items():
         if chave not in chaves_validas:
             continue
         valor = valor or ""
         set_key(str(CONFIG_ENV_PATH), chave, valor)
         os.environ[chave] = valor
+
+
+def ler_config_2fa() -> dict[str, str]:
+    """Lê os segredos de 2FA do config/.env como ``{chave_env: valor}``."""
+    return _ler_valores_env(CHAVES_2FA)
+
+
+def salvar_config_2fa(valores: dict[str, str]) -> None:
+    """Grava os segredos de 2FA no config/.env preservando as outras chaves."""
+    _salvar_valores_env(valores, set(CHAVES_2FA.values()))
+
+
+def ler_config_autojur() -> dict[str, str]:
+    """Lê o login do Autojur do config/.env como ``{chave_env: valor}``."""
+    return _ler_valores_env(CHAVES_AUTOJUR)
+
+
+def salvar_config_autojur(valores: dict[str, str]) -> None:
+    """Grava o login do Autojur no config/.env preservando as outras chaves."""
+    _salvar_valores_env(valores, set(CHAVES_AUTOJUR.values()))
 
 
 def _consultar_e_extrair(

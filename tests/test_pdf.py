@@ -240,3 +240,80 @@ def test_caminho_libreoffice_none_quando_nao_existe(monkeypatch):
     monkeypatch.setattr(pdf, "_CAMINHOS_SOFFICE", (r"Z:\nao\existe\soffice.exe",))
     pdf.limpar_memo()
     assert pdf.caminho_libreoffice() is None
+
+
+# ---------------------------------------------------------------------
+# Conversão em lote — reaproveita UMA instância do Word para o lote inteiro
+# ---------------------------------------------------------------------
+def test_lote_word_usa_uma_unica_sessao(tmp_path, monkeypatch):
+    """N documentos == 1 abertura/fechamento do Word, não N."""
+    _forjar(word=True, soffice=None)
+    docs = [tmp_path / f"peticao{i}.docx" for i in range(3)]
+    for d in docs:
+        d.write_bytes(b"PK\x03\x04")
+
+    aberturas = {"n": 0}
+    fechamentos = {"n": 0}
+
+    def abrir_lote(paths, pdfs, log=None):
+        aberturas["n"] += 1
+        for p in paths:
+            saida = p.with_suffix(".pdf")
+            saida.write_bytes(b"%PDF-1.4")
+            pdfs.append(saida)
+            fechamentos["n"] += 1  # simboliza 1 conversão dentro da mesma sessão
+        return []
+
+    monkeypatch.setattr(pdf, "_lote_word", abrir_lote)
+    pdfs, erros = pdf.converter_lote_para_pdf(docs)
+
+    assert aberturas["n"] == 1, "deveria abrir o Word 1x para o lote inteiro"
+    assert fechamentos["n"] == 3
+    assert not erros
+    assert all(p.is_file() for p in pdfs)
+
+
+def test_lote_uma_falha_isolada_nao_aborta_as_demais(tmp_path, monkeypatch):
+    _forjar(word=True, soffice=r"C:\LO\soffice.exe")
+    doc_ok1 = tmp_path / "ok1.docx"
+    doc_falha = tmp_path / "falha.docx"
+    doc_ok2 = tmp_path / "ok2.docx"
+    for d in (doc_ok1, doc_falha, doc_ok2):
+        d.write_bytes(b"PK\x03\x04")
+
+    def lote_word_falso(paths, pdfs, log=None):
+        pendentes = []
+        for p in paths:
+            if p.name == "falha.docx":
+                pendentes.append((p, "Microsoft Word: RuntimeError: quebrado"))
+                continue
+            saida = p.with_suffix(".pdf")
+            saida.write_bytes(b"%PDF-1.4")
+            pdfs.append(saida)
+        return pendentes
+
+    def libre_falha(_p):
+        raise RuntimeError("também não converteu")
+
+    monkeypatch.setattr(pdf, "_lote_word", lote_word_falso)
+    monkeypatch.setitem(pdf._FUNCAO, "libreoffice", libre_falha)
+
+    avisos: list[str] = []
+    pdfs, erros = pdf.converter_lote_para_pdf(
+        [doc_ok1, doc_falha, doc_ok2], log=avisos.append
+    )
+
+    assert {p.stem for p in pdfs} == {"ok1", "ok2"}
+    assert len(erros) == 1
+    assert "falha.docx" in erros[0]
+    assert "Microsoft Word" in erros[0] and "LibreOffice" in erros[0]
+
+
+def test_lote_sem_conversor_levanta(tmp_path):
+    _forjar(word=False, soffice=None)
+    with pytest.raises(RuntimeError, match="nenhum conversor de PDF"):
+        pdf.converter_lote_para_pdf([tmp_path / "peticao.docx"])
+
+
+def test_lote_vazio_nao_faz_nada():
+    assert pdf.converter_lote_para_pdf([]) == ([], [])
