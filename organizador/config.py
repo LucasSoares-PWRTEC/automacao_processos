@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -71,17 +72,79 @@ TEMPLATES_CACHE_PATH = APP_DATA_DIR / "templates_placeholders.json"
 # pasta base e que o cache de buscas online do próprio usuário.
 PROCESSOS_BASE_JSON = _RAIZ / "data" / "processos_base.json.gz"
 PASTA_PETICOES = _RAIZ / "Petições"
+# Ícone da janela (mesmo desenho do ícone do .exe, ver *.spec). Fica em _RAIZ
+# (=_MEIPASS no exe) como os demais assets embutidos.
+CAMINHO_ICONE = _RAIZ / "organizador" / "assets" / "icone.ico"
 # Conta de serviço do Google (somente leitura das planilhas de credores). Fica na
 # raiz do projeto (=_MEIPASS no exe); override por GOOGLE_CREDENTIALS_FILE. Usada
 # por organizador.sheets para o monitoramento periódico planilhas → mapeamento.
 GOOGLE_SA_PATH = Path(
     os.getenv("GOOGLE_CREDENTIALS_FILE") or (_RAIZ / "token_google_api.json")
 )
-CONFIG_DIR = _RAIZ / "config"
+# --------------------------------------------------------------------------
+# Config editável (senhas dos tribunais + segredos de 2FA)
+# --------------------------------------------------------------------------
+# A config VIAJA no bundle (ver OrganizadorProcessos.spec), mas o bundle é
+# somente-leitura na prática: no onefile ele é extraído em `sys._MEIPASS`, uma
+# pasta temporária APAGADA quando o app fecha. Gravar ali fazia a aba
+# Configurações parecer funcionar e perder a edição — trocar uma senha vencida
+# não surtia efeito nenhum em nenhuma máquina que rodasse o .exe.
+#
+# Solução: o bundle é a SEMENTE; a config viva mora em APP_DATA_DIR, que persiste.
+# Na 1ª execução copiamos uma para a outra (`semear_config`), e daí em diante só
+# APP_DATA_DIR é lido e escrito. Rodando do código-fonte nada muda de lugar: as
+# duas raízes coincidem e a semeadura não faz nada.
+CONFIG_SEMENTE_DIR = _RAIZ / "config"
+
+def _dir_config_ativo() -> Path:
+    """Onde a config viva mora. Igual à semente quando não empacotado."""
+    if getattr(sys, "frozen", False):
+        return APP_DATA_DIR / "config"
+    return CONFIG_SEMENTE_DIR
+
+
+CONFIG_DIR = _dir_config_ativo()
 CONFIG_ENV_PATH = CONFIG_DIR / ".env"
 CONFIG_ENV_EXAMPLE_PATH = CONFIG_DIR / ".env.example"
 CREDENCIAIS_PATH = CONFIG_DIR / "credenciais.json"
 CREDENCIAIS_EXAMPLE_PATH = CONFIG_DIR / "credenciais.example.json"
+# NB: `senhas.xlsx` é derivado de CONFIG_DIR em integracoes/.../credenciais.py, e
+# portanto acompanha esta mudança automaticamente.
+
+# Arquivos copiados do bundle na 1ª execução, se ainda não existirem no destino.
+_ARQUIVOS_CONFIG = (
+    ".env", ".env.example",
+    "credenciais.json", "credenciais.example.json",
+    "senhas.xlsx",
+)
+
+
+def semear_config() -> list[str]:
+    """Copia a config do bundle para APP_DATA_DIR quando ainda não há uma lá.
+
+    Devolve os nomes copiados. NUNCA sobrescreve: o que o usuário editou na
+    máquina dele vence o que veio compilado — inclusive depois de uma
+    atualização, senão o update apagaria a senha que ele acabou de corrigir.
+
+    Best-effort: falha de disco não pode impedir o app de abrir (ele ainda
+    consegue ler a semente, só não persiste a edição)."""
+    if CONFIG_DIR == CONFIG_SEMENTE_DIR:
+        return []  # rodando do fonte: mesma pasta, nada a copiar
+    copiados: list[str] = []
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return copiados
+    for nome in _ARQUIVOS_CONFIG:
+        origem, destino = CONFIG_SEMENTE_DIR / nome, CONFIG_DIR / nome
+        if destino.exists() or not origem.is_file():
+            continue
+        try:
+            shutil.copy2(origem, destino)
+            copiados.append(nome)
+        except OSError:
+            pass
+    return copiados
 LEGACY_SCRAPER_DIR = _RAIZ.parent / "TJSP-Scraper"
 LEGACY_ENV_PATH = LEGACY_SCRAPER_DIR / ".env"
 LEGACY_SENHAS_XLSX_PATH = LEGACY_SCRAPER_DIR / "data" / "senhas.xlsx"

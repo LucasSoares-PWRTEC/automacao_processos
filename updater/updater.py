@@ -28,6 +28,12 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 from urllib.parse import urlsplit
 
+def _caminho_icone() -> Path:
+    """Ícone da janela — mesmo arquivo embutido no Peticoes.exe (ver *.spec)."""
+    raiz = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    return raiz / "icone.ico"
+
+
 REPO = "LucasTalen/automacao_processos"
 API_LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "Peticoes.exe"
@@ -294,6 +300,10 @@ class AtualizadorApp:
         self.parent_pid = parent_pid
         self.root = tk.Tk()
         self.root.title("Atualizador — Organizador de Processos")
+        try:
+            self.root.iconbitmap(str(_caminho_icone()))
+        except Exception:
+            pass
         self.root.geometry("440x170")
         self.root.resizable(False, False)
         self._centralizar()

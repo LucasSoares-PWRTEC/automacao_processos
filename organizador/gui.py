@@ -25,9 +25,10 @@ from ttkbootstrap.constants import *
 from organizador import __version__
 
 from .config import (
-    OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES, PROCESSOS_BASE_JSON,
-    PROCESSOS_INDICE_JSON, PROCESSOS_ONLINE_DIR, TEMPLATES_CACHE_PATH,
-    TJ_SISTEMAS, UI_STATE_PATH, sugerir_tj_para_uf, uf_efetiva_tj,
+    CAMINHO_ICONE, OAB_ESCRITORIO_POR_UF, PASTA_PADRAO, PASTA_PETICOES,
+    PROCESSOS_BASE_JSON, PROCESSOS_INDICE_JSON, PROCESSOS_ONLINE_DIR,
+    TEMPLATES_CACHE_PATH, TJ_SISTEMAS, UI_STATE_PATH, semear_config,
+    sugerir_tj_para_uf, uf_efetiva_tj,
 )
 
 
@@ -194,6 +195,8 @@ _PROGRESS_MS = 80
 class App(ttk.Window):
     def __init__(self) -> None:
         super().__init__(title=f"Organizador de Processos — eproc — v{__version__}", themename="litera")
+        with contextlib.suppress(Exception):
+            self.iconbitmap(str(CAMINHO_ICONE))
         # Geometria responsiva: ~90% da tela (com teto), centrada. Mantém a
         # janela redimensionável/maximizável; o layout interno usa fill/expand
         # e pesos de grid para fluir em qualquer tamanho.
@@ -3820,6 +3823,14 @@ def _limpar_temp_orfaos() -> int:
 
 
 def main() -> None:
+    # Semeia a config editável em APP_DATA_DIR na 1ª execução. Tem de vir ANTES
+    # de qualquer leitura de credenciais/2FA: no .exe a config do bundle está numa
+    # pasta temporária, e gravar lá perdia toda edição ao fechar o app.
+    with contextlib.suppress(Exception):
+        copiados = semear_config()
+        if copiados:
+            _perf(f"config:semeada({len(copiados)})")
+
     app = App()
     _perf("app:construido")
     # Numa thread: é I/O de disco e não pode atrasar o primeiro desenho.

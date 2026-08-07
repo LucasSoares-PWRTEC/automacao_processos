@@ -25,7 +25,13 @@ from dotenv import load_dotenv
 
 _RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_RAIZ))
-load_dotenv(_RAIZ / "config" / ".env")
+
+# Semeia a config editável antes de carregar o .env: no app empacotado ela mora em
+# APP_DATA_DIR (ver organizador/config.semear_config). Rodando do fonte é no-op.
+from organizador.config import CONFIG_ENV_PATH, semear_config  # noqa: E402
+
+semear_config()
+load_dotenv(CONFIG_ENV_PATH)
 
 # Console do Windows costuma ser cp1252; os logs usam emojis/acentos.
 try:

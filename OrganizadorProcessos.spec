@@ -31,7 +31,12 @@ import os
 from PyInstaller.utils.hooks import collect_all
 
 datas = [
-    ("config", "config"),        # credenciais.json + .env (embutidos)
+    # Config do escritório: credenciais.json, senhas.xlsx e o .env (que guarda
+    # IMAP_USER/IMAP_PASS do 2FA por e-mail, TOTP_PDPJ/TOTP_EPROC_* do 2FA dos
+    # tribunais e email_autojur/senha_autojur). Entrada de DIRETÓRIO leva a pasta
+    # inteira, inclusive os arquivos que começam com ponto — conferido no TOC do
+    # build. A trava no fim deste arquivo garante que continue assim.
+    ("config", "config"),
     ("Petições", "Petições"),    # modelos .docx das petições
     # Processos pré-carregados. SQLite (não mais o .json.gz de 8 MB) porque a
     # abertura só precisa da tabela de resumos, e o Processo completo é buscado
@@ -42,6 +47,9 @@ datas = [
     # (=_MEIPASS no exe), onde config.GOOGLE_SA_PATH a procura. Sem isto, o
     # monitoramento falha em outras máquinas ("credencial não encontrada").
     ("token_google_api.json", "."),
+    # Ícone da janela (gui.py lê via organizador.config.CAMINHO_ICONE) — mesmo
+    # desenho aplicado ao ícone do .exe (parâmetro `icon=` do EXE abaixo).
+    ("organizador/assets/icone.ico", "organizador/assets"),
 ]
 binaries = []
 hiddenimports = []
@@ -141,6 +149,34 @@ def _podar(lista, rotulo):
 a.binaries = _podar(a.binaries, "binaries")
 a.datas = _podar(a.datas, "datas")
 
+# --------------------------------------------------------------------------
+# Trava: a config do escritório TEM de estar no bundle.
+# --------------------------------------------------------------------------
+# Sem estes arquivos o app abre e parece são, mas em outra máquina o Autojur não
+# loga e PJe/eproc/e-SAJ não passam do 2FA — falha que só aparece no uso, longe
+# de quem compilou. Melhor reprovar o build aqui do que distribuir um .exe mudo.
+# Cobre também erro de digitação num caminho de `datas` e arquivo renomeado.
+_OBRIGATORIOS = {
+    "config/.env": "2FA (IMAP_*/TOTP_*) e credenciais do Autojur",
+    "config/credenciais.json": "logins dos tribunais",
+    "token_google_api.json": "conta de serviço que lê as planilhas",
+    "data/processos_base.sqlite": "base de processos pré-carregada",
+}
+_no_bundle = {str(e[0]).replace("\\", "/") for e in a.datas}
+_faltando = [
+    f"{alvo} ({motivo})"
+    for alvo, motivo in _OBRIGATORIOS.items()
+    if alvo not in _no_bundle
+]
+if _faltando:
+    raise SystemExit(
+        "[spec] ERRO: arquivos obrigatórios ausentes do bundle:\n  - "
+        + "\n  - ".join(_faltando)
+        + "\n\nSe o nome começa com ponto, acrescente uma entrada EXPLÍCITA em "
+          "`datas` — o glob do PyInstaller não pega dotfiles."
+    )
+print(f"[spec] config do escritório conferida ({len(_OBRIGATORIOS)} arquivos)")
+
 # Relatório do que sobrou — comparar entre builds pega regressão de tamanho.
 _total = sum(
     os.path.getsize(e[1])
@@ -162,6 +198,7 @@ exe = EXE(
     a.datas,
     [],
     name="Peticoes",
+    icon="organizador/assets/icone.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

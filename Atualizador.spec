@@ -20,7 +20,9 @@ a = Analysis(
     ["updater/updater.py"],
     pathex=["updater"],
     binaries=[],
-    datas=[],
+    # Mesmo ícone do Peticoes.exe (ver OrganizadorProcessos.spec), copiado para
+    # a raiz do bundle (=_MEIPASS no exe) — é onde updater._caminho_icone() procura.
+    datas=[("organizador/assets/icone.ico", ".")],
     hiddenimports=["_token"],
     hookspath=[],
     hooksconfig={},
@@ -42,6 +44,7 @@ exe = EXE(
     a.datas,
     [],
     name="Atualizador",
+    icon="organizador/assets/icone.ico",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
