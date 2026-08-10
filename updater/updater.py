@@ -439,6 +439,16 @@ class AtualizadorApp:
         except UpdaterError as e:
             self._post(lambda: self._mostrar_erro(e))
             return
+        except Exception as e:
+            # Sem isto, qualquer exceção fora das UpdaterError (proxy corporativo
+            # devolvendo HTML em vez de JSON, erro de SSL não-OSError, resposta da
+            # API sem os campos esperados etc.) mata esta thread em silêncio: o
+            # log fica só no "iniciado", a janela trava em "Verificando..." (modo
+            # manual) ou nunca aparece (--auto), e não há erro nenhum pra investigar.
+            self._post(lambda: self._mostrar_erro(
+                NetworkError(f"Erro inesperado ao verificar atualização: {e}")
+            ))
+            return
         self._post(lambda: self._resultado_checagem(release))
 
     def _resultado_checagem(self, release: dict) -> None:
@@ -502,6 +512,13 @@ class AtualizadorApp:
             return
         except UpdaterError as e:
             self._post(lambda: self._mostrar_erro(e))
+            return
+        except Exception as e:
+            # Mesma lacuna de _checar: sem isto o download trava a thread em
+            # silêncio numa exceção que não é UpdaterError.
+            self._post(lambda: self._mostrar_erro(
+                NetworkError(f"Erro inesperado ao baixar atualização: {e}")
+            ))
             return
         self._post(lambda: self._instalar(destino, alvo))
 
