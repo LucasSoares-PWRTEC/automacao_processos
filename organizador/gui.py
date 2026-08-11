@@ -478,6 +478,31 @@ class App(ttk.Window):
         # silêncio (cadência semanal). Pode ser acionado a qualquer momento pelo
         # botão "Sincronizar planilhas & mapear" na aba Pesquisa.
         self.after(2500, self._verificar_monitoramento_semanal)
+        # Sem isso, fechar a janela (X) só destrói os widgets: navegadores do
+        # Autojur/debug retidos e a passada de monitoramento em curso ficam
+        # órfãos rodando em segundo plano (chrome.exe de 300-500MB cada).
+        self.protocol("WM_DELETE_WINDOW", self._ao_fechar)
+
+    def _ao_fechar(self) -> None:
+        """Encerra navegadores retidos e sinaliza cancelamento aos workers
+        antes de destruir a janela. Best-effort: nada aqui pode impedir o
+        fechamento, mesmo se algum navegador já tiver sido morto por fora."""
+        if self._monitor_worker and self._monitor_worker.is_alive():
+            self._monitor_cancel.set()
+        if self._worker and self._worker.is_alive():
+            self._cancel_event.set()
+        for scraper in (self._autojur_scraper, self._debug_scraper):
+            if scraper is None:
+                continue
+
+            def _fechar(s=scraper) -> None:
+                with contextlib.suppress(Exception):
+                    s.fechar()
+
+            threading.Thread(target=_fechar, daemon=True).start()
+        self._autojur_scraper = None
+        self._debug_scraper = None
+        self.destroy()
 
     def _build_widgets(self) -> None:
         nb = ttk.Notebook(self, bootstyle="primary")
@@ -643,6 +668,34 @@ class App(ttk.Window):
         self.txt.pack(fill="both", expand=True)
 
     def _build_aba_pesquisa(self, parent: ttk.Frame) -> None:
+        # Área rolável: com muitas categorias de modelo ou janela pequena, o
+        # conteúdo da aba passa da altura disponível. Sem isto o excedente
+        # simplesmente ficava inacessível — agora rola independente do
+        # tamanho da tela, como na aba Configurações.
+        pesq_canvas = tk.Canvas(parent, highlightthickness=0, bg="#f0f2f5")
+        pesq_scroll = ttk.Scrollbar(
+            parent, orient="vertical", command=pesq_canvas.yview, bootstyle="round",
+        )
+        pesq_canvas.configure(yscrollcommand=pesq_scroll.set)
+        pesq_canvas.pack(side="left", fill="both", expand=True)
+        pesq_scroll.pack(side="right", fill="y")
+        inner = ttk.Frame(pesq_canvas, padding=4)
+        pesq_window = pesq_canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: pesq_canvas.configure(scrollregion=pesq_canvas.bbox("all")))
+        pesq_canvas.bind("<Configure>", lambda e: pesq_canvas.itemconfigure(pesq_window, width=e.width))
+
+        def _on_pesq_mousewheel(event: tk.Event) -> None:
+            pesq_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        # Canvases aninhados (modelos de petição, detalhes) tomam o wheel pra si
+        # enquanto o mouse está sobre eles; ao saírem, devolvem para este canvas
+        # externo em vez de simplesmente desligar a rolagem (bind_all é global e
+        # só há um handler ativo por vez).
+        self._pesq_mousewheel = _on_pesq_mousewheel
+        pesq_canvas.bind("<Enter>", lambda e: pesq_canvas.bind_all("<MouseWheel>", _on_pesq_mousewheel))
+        pesq_canvas.bind("<Leave>", lambda e: pesq_canvas.unbind_all("<MouseWheel>"))
+        parent = inner
+
         # ── Seção: Pasta base ──────────────────────────────────────────
         section_base = ttk.Labelframe(
             parent, text="  Base de dados  ", bootstyle="default",
@@ -765,15 +818,45 @@ class App(ttk.Window):
         self._btn_monitor.pack(side="right", padx=(0, 8))
 
         # ── Modelos de petição (full-width, acima do painel de processos) ─
+        # Altura travada com scroll próprio: em janelas estreitas o número de
+        # categorias força colunas finas, o texto quebra em várias linhas e a
+        # seção crescia sem limite — sobrando 0px para a árvore de processos
+        # abaixo (ela ficava com altura zero/negativa e "desaparecia").
         f_templates = ttk.Labelframe(
             parent, text="  Modelos de petição  ",
             bootstyle="default", padding=(12, 8),
         )
         f_templates.pack(fill="x", expand=False, pady=(0, 4))
-        self._templates_inner = ttk.Frame(f_templates, padding=4)
-        self._templates_inner.pack(fill="both", expand=True)
+        templates_canvas = tk.Canvas(
+            f_templates, highlightthickness=0, bg="#f0f2f5", height=210,
+        )
+        templates_scroll = ttk.Scrollbar(
+            f_templates, orient="vertical", command=templates_canvas.yview,
+            bootstyle="round",
+        )
+        templates_canvas.configure(yscrollcommand=templates_scroll.set)
+        templates_canvas.pack(side="left", fill="both", expand=True)
+        templates_scroll.pack(side="right", fill="y")
+        self._templates_inner = ttk.Frame(templates_canvas, padding=4)
+        templates_window = templates_canvas.create_window(
+            (0, 0), window=self._templates_inner, anchor="nw",
+        )
+
+        def _on_templates_inner_configure(event: tk.Event) -> None:
+            templates_canvas.configure(scrollregion=templates_canvas.bbox("all"))
+            self._requebrar_templates(event)
+
         # Requebra o texto dos checkbuttons de petição quando a área muda de largura.
-        self._templates_inner.bind("<Configure>", self._requebrar_templates)
+        self._templates_inner.bind("<Configure>", _on_templates_inner_configure)
+        templates_canvas.bind(
+            "<Configure>",
+            lambda e: templates_canvas.itemconfigure(templates_window, width=e.width),
+        )
+        templates_canvas.bind("<Enter>", lambda e: templates_canvas.bind_all(
+            "<MouseWheel>", lambda ev: templates_canvas.yview_scroll(int(-ev.delta / 120), "units")))
+        # Ao sair, devolve o wheel para o canvas externo da aba (não desliga).
+        templates_canvas.bind("<Leave>", lambda e: templates_canvas.bind_all(
+            "<MouseWheel>", self._pesq_mousewheel))
 
         f_btn_t = ttk.Frame(parent)
         f_btn_t.pack(fill="x", pady=(0, 6))
@@ -828,6 +911,11 @@ class App(ttk.Window):
         )
         scroll_tree.pack(side="right", fill="y")
         self.tree.configure(yscrollcommand=scroll_tree.set)
+        # A tree tem rolagem própria (barra + wheel nativo do Treeview); sem
+        # isto o wheel sobre ela também rolaria o canvas externo da aba,
+        # dando um scroll duplicado/​errático.
+        self.tree.bind("<Enter>", lambda e: pesq_canvas.unbind_all("<MouseWheel>"))
+        self.tree.bind("<Leave>", lambda e: pesq_canvas.bind_all("<MouseWheel>", self._pesq_mousewheel))
         f_main.add(f_lista, weight=1)
 
         # ── Painel direito: Detalhes (scrollável) ─────────────────────
@@ -856,7 +944,8 @@ class App(ttk.Window):
             det_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
         det_canvas.bind("<Enter>", lambda e: det_canvas.bind_all("<MouseWheel>", _on_det_mousewheel))
-        det_canvas.bind("<Leave>", lambda e: det_canvas.unbind_all("<MouseWheel>"))
+        # Ao sair, devolve o wheel para o canvas externo da aba (não desliga).
+        det_canvas.bind("<Leave>", lambda e: det_canvas.bind_all("<MouseWheel>", self._pesq_mousewheel))
 
         # ── Dados do processo ──────────────────────────────────────────
         self._detalhes_frame = ttk.Labelframe(

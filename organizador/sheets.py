@@ -134,6 +134,7 @@ def _baixar_bytes(s, fid: str) -> io.BytesIO:
     meta = s.get(
         f"https://www.googleapis.com/drive/v3/files/{fid}",
         params={"fields": "name,mimeType", "supportsAllDrives": "true"},
+        timeout=30,
     ).json()
     if "error" in meta:
         raise RuntimeError(meta["error"].get("message", str(meta["error"]))[:120])
@@ -141,11 +142,13 @@ def _baixar_bytes(s, fid: str) -> io.BytesIO:
         r = s.get(
             f"https://www.googleapis.com/drive/v3/files/{fid}/export",
             params={"mimeType": MIME_XLSX},
+            timeout=30,
         )
     else:
         r = s.get(
             f"https://www.googleapis.com/drive/v3/files/{fid}",
             params={"alt": "media", "supportsAllDrives": "true"},
+            timeout=30,
         )
     r.raise_for_status()
     return io.BytesIO(r.content)

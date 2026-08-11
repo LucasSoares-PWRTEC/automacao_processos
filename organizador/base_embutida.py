@@ -59,12 +59,23 @@ CREATE TABLE processos (numero TEXT PRIMARY KEY, blob BLOB);
 """
 
 
+_con_cache: dict[str, sqlite3.Connection] = {}
+
+
 def _conectar(caminho: Path) -> sqlite3.Connection:
-    """Conexão somente-leitura. O URI evita criar um arquivo vazio quando o
-    caminho não existe (o que faria a checagem de esquema passar por engano)."""
-    uri = Path(caminho).resolve().as_uri().replace("file:", "file:", 1)
+    """Conexão somente-leitura, reaproveitada entre chamadas (a base nunca é
+    escrita em tempo de execução, só regravada pelo gerador no release, com o
+    app fechado). Evita reabrir o arquivo a cada clique na lista de Pesquisa.
+    O URI evita criar um arquivo vazio quando o caminho não existe (o que
+    faria a checagem de esquema passar por engano)."""
+    chave = str(Path(caminho).resolve())
+    con = _con_cache.get(chave)
+    if con is not None:
+        return con
+    uri = Path(caminho).resolve().as_uri()
     con = sqlite3.connect(f"{uri}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
+    _con_cache[chave] = con
     return con
 
 
@@ -76,7 +87,6 @@ def disponivel(caminho: Path) -> bool:
     p = Path(caminho)
     if not p.is_file():
         return False
-    con: sqlite3.Connection | None = None
     try:
         con = _conectar(p)
         linha = con.execute(
@@ -85,9 +95,6 @@ def disponivel(caminho: Path) -> bool:
         return bool(linha) and int(linha["valor"]) == VERSAO_ESQUEMA
     except Exception:
         return False
-    finally:
-        if con is not None:
-            con.close()
 
 
 def ler_resumos(caminho: Path) -> list[dict]:
@@ -95,7 +102,6 @@ def ler_resumos(caminho: Path) -> list[dict]:
 
     `tags` volta de JSON para lista. Não levanta: base ausente/corrompida devolve
     lista vazia (a lista da Pesquisa fica sem os embutidos, o app abre)."""
-    con: sqlite3.Connection | None = None
     try:
         con = _conectar(caminho)
         linhas = con.execute(
@@ -103,9 +109,6 @@ def ler_resumos(caminho: Path) -> list[dict]:
         ).fetchall()
     except Exception:
         return []
-    finally:
-        if con is not None:
-            con.close()
     saida: list[dict] = []
     for linha in linhas:
         d = {c: (linha[c] or "") for c in COLUNAS_RESUMO}
@@ -124,7 +127,6 @@ def ler_processo(caminho: Path, numero: str) -> dict | None:
     numero = (numero or "").strip()
     if not numero:
         return None
-    con: sqlite3.Connection | None = None
     try:
         con = _conectar(caminho)
         linha = con.execute(
@@ -135,9 +137,6 @@ def ler_processo(caminho: Path, numero: str) -> dict | None:
         return json.loads(zlib.decompress(linha["blob"]).decode("utf-8"))
     except Exception:
         return None
-    finally:
-        if con is not None:
-            con.close()
 
 
 # --------------------------------------------------------------------------
