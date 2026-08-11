@@ -18,7 +18,7 @@ from docx.table import Table
 from docx.text.paragraph import Paragraph
 from docx.shared import Pt
 
-from .config import LINE_SPACING, SPACE_AFTER_PT
+from .config import LIMITE_CHARS_PETICAO_CURTA, LINE_SPACING, LINHAS_VAZIAS_PETICAO_CURTA, SPACE_AFTER_PT
 from .flexao import _classificar_paragrafos, _flex_judicial_treatment, _inflexionar_texto, _norm_paragrafo, _resolver_disjuncoes_flexao, _strip_accents
 from .models import Contexto, Processo
 
@@ -1091,11 +1091,12 @@ def _padronizar_espacamento(paragrafo) -> None:
     pf.line_spacing = LINE_SPACING
 
 
-def _colapsar_paragrafos_vazios(doc: Document) -> None:
+def _colapsar_paragrafos_vazios(doc: Document, vazios_entre_blocos: int = 1) -> None:
     """Remove parágrafos vazios consecutivos do corpo do documento.
 
-    Mantém no máximo um parágrafo vazio entre blocos de texto. Também remove
-    parágrafos vazios no início e no fim do documento.
+    Mantém no máximo `vazios_entre_blocos` parágrafos vazios entre blocos de
+    texto (o padrão é 1). Também remove parágrafos vazios no início e no fim
+    do documento.
     """
     paragrafos = list(doc.paragraphs)
     if not paragrafos:
@@ -1114,11 +1115,23 @@ def _colapsar_paragrafos_vazios(doc: Document) -> None:
             a_remover.append(p)
         else:
             break
+    a_remover_ids = {id(p) for p in a_remover}
     for p in a_remover:
         elem = p._element
         parent = elem.getparent()
         if parent is not None:
             parent.remove(elem)
+    if vazios_entre_blocos > 1:
+        # Cada separador vazio remanescente ganha cópias extras para abrir
+        # mais espaço entre parágrafos de petições curtas.
+        remanescentes = [
+            p for p in paragrafos
+            if id(p) not in a_remover_ids and not p.text.strip()
+        ]
+        for p in remanescentes:
+            elem = p._element
+            for _ in range(vazios_entre_blocos - 1):
+                elem.addnext(deepcopy(elem))
 
 
 # Linha de assinatura que carrega a OAB (ex.: "OAB/MG 104.784").
@@ -1199,7 +1212,15 @@ def _preencher_campos_docx(
                     _padronizar_espacamento(paragrafo)
 
     _deduplicar_oab(doc)
-    _colapsar_paragrafos_vazios(doc)
+    chars_corpo = sum(
+        len(p.text.strip())
+        for p, zona in zip(paragrafos_top, zonas_paragrafos)
+        if zona == "BODY"
+    )
+    vazios_entre_blocos = (
+        LINHAS_VAZIAS_PETICAO_CURTA if chars_corpo < LIMITE_CHARS_PETICAO_CURTA else 1
+    )
+    _colapsar_paragrafos_vazios(doc, vazios_entre_blocos=vazios_entre_blocos)
 
 
 def _converter_doc_para_docx(

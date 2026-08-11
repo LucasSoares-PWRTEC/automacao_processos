@@ -282,3 +282,9 @@ OAB_ESCRITORIO_POR_UF: dict[str, str] = {
 # Padronização de layout do consolidado.
 SPACE_AFTER_PT = 6
 LINE_SPACING = 1.5
+
+# Petições cujo corpo (zona BODY) tem menos que este total de caracteres são
+# consideradas "curtas": ganham mais linhas em branco entre os blocos para
+# ocupar melhor a folha, em vez do padrão de 1 linha em branco.
+LIMITE_CHARS_PETICAO_CURTA = 700
+LINHAS_VAZIAS_PETICAO_CURTA = 3

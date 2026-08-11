@@ -3582,6 +3582,30 @@ class App(ttk.Window):
             return
         self._modal_enviar_autojur(pdfs, numero)
 
+    @staticmethod
+    def _renomear_pdf_para_envio(caminho_original: str, nome_desejado: str) -> str:
+        """Devolve o caminho a enviar ao Autojur com o nome escolhido pelo
+        usuário. Se o nome não mudou, devolve o caminho original sem tocar
+        nele; se mudou, cria uma CÓPIA com o novo nome numa pasta temporária
+        — o arquivo original (ex.: já indexado em outras abas) nunca é
+        renomeado nem movido."""
+        import re as _re
+        import shutil
+        import tempfile
+
+        original = Path(caminho_original)
+        nome = nome_desejado.strip()
+        if _re.search(r'[<>:"/\\|?*\x00-\x1f]', nome):
+            raise OSError(f"Nome de arquivo inválido: {nome_desejado!r}")
+        if not nome.lower().endswith(".pdf"):
+            nome += ".pdf"
+        if nome == original.name:
+            return str(original)
+        pasta_tmp = Path(tempfile.mkdtemp(prefix="autojur_envio_"))
+        destino = pasta_tmp / nome
+        shutil.copy2(original, destino)
+        return str(destino)
+
     def _modal_enviar_autojur(self, pdfs: list, numero: str) -> None:
         """Modal: confirma dados e dispara o envio ao Autojur (1 tarefa por PDF)."""
         top = tk.Toplevel(self)
@@ -3627,26 +3651,46 @@ class App(ttk.Window):
         txt_cont.insert("1.0", "Protocolo de peça processual")
         txt_cont.grid(row=3, column=1, sticky="ew", pady=4)
 
-        # Cabeçalho da lista (contador dinâmico) + lista de PDFs em container
-        # próprio, para poder anexar arquivos extras sem quebrar o layout.
-        lbl_lista = ttk.Label(frm, font=_FONT_BOLD)
-        lbl_lista.grid(row=4, column=0, sticky="w", pady=(8, 2))
+        # Cabeçalho da lista (contador dinâmico + botão "Adicionar") numa
+        # sub-frame própria com pack: um Label sem columnspan e com texto
+        # longo força a coluna 0 do grid de `frm` a ficar larga demais e
+        # empurra as outras linhas (Nº processo, Local...) para fora da
+        # janela — por isso o cabeçalho fica isolado do grid principal.
+        frm_header = ttk.Frame(frm)
+        frm_header.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(8, 2))
+        lbl_lista = ttk.Label(frm_header, font=_FONT_BOLD, wraplength=460)
+        lbl_lista.pack(side="left", fill="x", expand=True)
+        ttk.Button(
+            frm_header, text="➕  Adicionar arquivo", command=lambda: _adicionar_arquivo(),
+            bootstyle="outline-primary", width=20,
+        ).pack(side="right")
 
         frm_pdfs = ttk.Frame(frm)
         frm_pdfs.grid(row=5, column=0, columnspan=2, sticky="ew")
 
-        # Fonte da verdade da lista (mutável): [ (BooleanVar marcado?, caminho) ].
-        vars_pdf: list = [(tk.BooleanVar(value=True), pdf) for pdf in pdfs]
+        # Fonte da verdade da lista (mutável): [ (BooleanVar marcado?, caminho
+        # original, StringVar com o nome — editável, pré-preenchido com o nome
+        # do arquivo). O nome editado só afeta a CÓPIA enviada ao Autojur; o
+        # arquivo original em disco nunca é tocado.
+        vars_pdf: list = [
+            (tk.BooleanVar(value=True), pdf, tk.StringVar(value=Path(pdf).name))
+            for pdf in pdfs
+        ]
 
         def _render_pdfs() -> None:
             for w in frm_pdfs.winfo_children():
                 w.destroy()
-            for i, (v, pdf) in enumerate(vars_pdf):
+            frm_pdfs.columnconfigure(1, weight=1)
+            for i, (v, pdf, nome_var) in enumerate(vars_pdf):
                 ttk.Checkbutton(
-                    frm_pdfs, text=f"📄  {Path(pdf).name}", variable=v, bootstyle="info",
+                    frm_pdfs, text="📄", variable=v, bootstyle="info",
                 ).grid(row=i, column=0, sticky="w", pady=1)
+                ttk.Entry(
+                    frm_pdfs, textvariable=nome_var, font=_FONT_BASE,
+                ).grid(row=i, column=1, sticky="ew", padx=(4, 0), pady=1)
             lbl_lista.configure(
-                text=f"Arquivos a anexar ({len(vars_pdf)} — todos em UMA tarefa):"
+                text=f"Arquivos a anexar ({len(vars_pdf)} — todos em UMA tarefa). "
+                     "Nome editável — só afeta a cópia enviada:"
             )
 
         def _adicionar_arquivo() -> None:
@@ -3654,20 +3698,17 @@ class App(ttk.Window):
                 parent=top, title="Adicionar arquivo(s) ao envio",
                 filetypes=[("PDF", "*.pdf"), ("Todos", "*.*")],
             )
-            existentes = {str(p) for _, p in vars_pdf}
+            existentes = {str(p) for _, p, _ in vars_pdf}
             novos = 0
             for c in caminhos:
                 if c and str(c) not in existentes:
-                    vars_pdf.append((tk.BooleanVar(value=True), c))
+                    vars_pdf.append(
+                        (tk.BooleanVar(value=True), c, tk.StringVar(value=Path(c).name))
+                    )
                     existentes.add(str(c))
                     novos += 1
             if novos:
                 _render_pdfs()
-
-        ttk.Button(
-            frm, text="➕  Adicionar arquivo", command=_adicionar_arquivo,
-            bootstyle="outline-primary", width=20,
-        ).grid(row=4, column=1, sticky="e", pady=(8, 2))
 
         _render_pdfs()
 
@@ -3693,9 +3734,22 @@ class App(ttk.Window):
         f_b.pack(fill="x", padx=12, pady=12)
 
         def enviar() -> None:
-            selecionados = [pdf for v, pdf in vars_pdf if v.get()]
-            if not selecionados:
+            marcados = [(pdf, nome_var.get().strip()) for v, pdf, nome_var in vars_pdf if v.get()]
+            if not marcados:
                 messagebox.showwarning("Autojur", "Marque ao menos um PDF.", parent=top)
+                return
+            for _, nome in marcados:
+                if not nome:
+                    messagebox.showwarning(
+                        "Autojur", "O nome do arquivo não pode ficar vazio.", parent=top,
+                    )
+                    return
+            try:
+                selecionados = [
+                    self._renomear_pdf_para_envio(pdf, nome) for pdf, nome in marcados
+                ]
+            except OSError as exc:
+                messagebox.showerror("Autojur", f"Falha ao preparar arquivo renomeado: {exc}", parent=top)
                 return
             dados = {
                 "numero": var_num.get().strip(),
