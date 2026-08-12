@@ -297,7 +297,7 @@ def _caminho_chromedriver() -> str:
     return caminho
 
 
-# Um processo morto à força (o Atualizador encerra o app com TerminateProcess)
+# Um processo morto à força (crash, "Finalizar tarefa", queda de energia)
 # deixa o lock do webdriver-manager para trás. Com o lock preso, TODA criação de
 # driver espera e estoura em TimeoutError — e o Chrome nunca mais sobe, mesmo
 # havendo chromedriver baixado. Foi assim que uma execução caiu silenciosamente

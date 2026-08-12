@@ -6,7 +6,6 @@ build/
 dist/
 *.spec
 !OrganizadorProcessos.spec
-!Atualizador.spec
 config/.env
 config/credenciais.json
 config/*.local.*
@@ -29,6 +28,4 @@ modelos_origem_word/
 
 # Segredos do auto-updater — NUNCA commitar
 secrets/
-updater/_token.py
-updater/Peticoes.exe
-version.txt
+organizador/_token.py

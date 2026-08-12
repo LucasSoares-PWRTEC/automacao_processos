@@ -2,8 +2,8 @@
 """Limpeza das pastas _MEI* órfãs no %TEMP% (organizador.gui).
 
 Por que existe: no modo onefile o app extrai ~98 MB para uma pasta ``_MEIxxxxx``
-nova a cada abertura e a apaga ao sair — mas o Atualizador encerra o app com
-TerminateProcess para trocar o .exe, e um processo morto assim nunca faz essa
+nova a cada abertura e a apaga ao sair — mas um processo morto sem passar por
+essa saída normal (crash, "Finalizar tarefa", queda de energia) nunca faz essa
 limpeza. Foram encontradas 16 pastas órfãs nesta máquina, o que dói justamente
 nas máquinas fracas, que têm disco pequeno.
 

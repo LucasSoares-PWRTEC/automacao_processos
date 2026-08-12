@@ -27,8 +27,25 @@ Build:  python -m PyInstaller --noconfirm OrganizadorProcessos.spec
 Saída:  dist/Peticoes.exe
 """
 import os
+from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
+
+# Token do auto-updater (ver organizador/atualizacao.py): normalmente gerado
+# pelo release.ps1 a partir de secrets\token_github.txt ANTES deste build. Um
+# build direto (sem passar pelo release.ps1) não pode falhar por causa disto —
+# só perde a capacidade de auto-atualizar, do mesmo jeito que já tolera token
+# ausente em tempo de execução (organizador/atualizacao.py: GITHUB_TOKEN vazio).
+_token_py = Path("organizador/_token.py")
+if not _token_py.exists():
+    _token_py.write_text(
+        '# -*- coding: utf-8 -*-\n'
+        '# Placeholder: sem token real, o app builda mas nao auto-atualiza.\n'
+        '# O real vem do release.ps1, a partir de secrets\\token_github.txt.\n'
+        'GITHUB_TOKEN = ""\n',
+        encoding="utf-8",
+    )
+    print("[spec] organizador/_token.py ausente — gerado placeholder sem token.")
 
 datas = [
     # Config do escritório: credenciais.json, senhas.xlsx e o .env (que guarda
@@ -75,6 +92,11 @@ hiddenimports += [
     "google.auth.transport.requests",
     "google.auth.crypt._cryptography_rsa",
     "cachetools",
+    # Token do auto-updater (organizador/_token.py, gerado pelo release.ps1):
+    # está dentro de um try/except ImportError em atualizacao.py, e esse padrão
+    # confunde o analisador estático do PyInstaller (foi por isso que o extinto
+    # Atualizador.spec também precisava hiddenimports para o mesmo arquivo).
+    "organizador._token",
 ]
 
 # Nada aqui é importado pelo app; tudo vinha de carona (a maior parte pelo

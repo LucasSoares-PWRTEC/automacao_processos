@@ -7,7 +7,6 @@ import contextlib
 import json
 import os
 import queue
-import subprocess
 import sys
 import threading
 import tkinter as tk
@@ -25,6 +24,7 @@ from ttkbootstrap.constants import *
 
 from organizador import __version__
 
+from . import atualizacao
 from .config import (
     APP_DATA_DIR, CAMINHO_ICONE, OAB_ESCRITORIO_POR_UF, PASTA_PADRAO,
     PASTA_PETICOES, PROCESSOS_BASE_JSON, PROCESSOS_INDICE_JSON,
@@ -40,22 +40,6 @@ def _carregar_ui_state() -> dict:
         return dados if isinstance(dados, dict) else {}
     except Exception:
         return {}
-
-
-def _registrar_updater(msg: str) -> None:
-    """Anexa uma linha ao mesmo log que o Atualizador usa.
-
-    O app precisa escrever nele porque há um caso que o Atualizador nunca chega a
-    ver: ele não estar instalado ao lado do Peticoes.exe. Sem este registro, a
-    máquina simplesmente nunca verifica atualização e não há como descobrir."""
-    try:
-        caminho = APP_DATA_DIR / "updater.log"
-        caminho.parent.mkdir(parents=True, exist_ok=True)
-        quando = __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        with open(caminho, "a", encoding="utf-8") as fh:
-            fh.write(f"{quando}  [app] {msg}\n")
-    except Exception:
-        pass
 
 
 def _salvar_ui_state(**campos) -> None:
@@ -469,9 +453,9 @@ class App(ttk.Window):
         # Modelos de petição disponíveis já na abertura: permite escolher o
         # modelo e preencher tudo à mão (gerar sem buscar/selecionar processo).
         self.after(300, self._carregar_templates)
-        # Verifica atualizações em silêncio na abertura: dispara o Atualizador em
-        # modo --auto, que só mostra a janela se houver versão nova (caso contrário
-        # sai sem exibir nada). Assim o usuário não precisa abrir o Atualizador.
+        # Verifica atualizações em silêncio na abertura: só mostra a janela se
+        # houver versão nova (caso contrário não exibe nada). O próprio
+        # Peticoes.exe se auto-atualiza — ver organizador/atualizacao.py.
         self.after(1500, self._verificar_atualizacao_silenciosa)
         # Monitoramento semanal: na abertura, se já se passaram ≥ 7 dias desde a
         # última passada bem-sucedida, dispara uma sincronização das planilhas em
@@ -3987,76 +3971,28 @@ class App(ttk.Window):
             self._pesquisa_em_progresso = False
             self.progress_pesquisa.stop()
 
-    def _disparar_atualizador(self, *, auto: bool) -> bool:
-        """Inicia o Atualizador (exe ao lado, ou updater.py em modo fonte).
-
-        Devolve False se o Atualizador não foi encontrado ou não pôde ser
-        iniciado — quem chama decide se isso é silencioso (auto) ou um erro
-        a avisar (clique manual).
-        """
-        try:
-            # Passa o PID desta instância para o Atualizador encerrá-la antes de
-            # trocar o exe (senão a versão antiga ficaria aberta após o update).
-            pid = str(os.getpid())
-            if getattr(sys, "frozen", False):
-                # App empacotado: o Atualizador.exe fica ao lado do Peticoes.exe.
-                exe = Path(sys.executable).resolve().parent / "Atualizador.exe"
-                if not exe.exists():
-                    # Cenário real e 100% silencioso até aqui: a máquina recebeu
-                    # só o Peticoes.exe. O app nunca checa atualização e ninguém
-                    # descobre por quê. Deixa rastro.
-                    _registrar_updater(
-                        f"Atualizador.exe NAO encontrado em {exe.parent} — "
-                        "a verificação de atualização não roda nesta máquina"
-                    )
-                    return False
-                cmd = [str(exe), "--parent-pid", pid]
-            else:
-                # Modo fonte (dev): roda o updater.py com o Python atual.
-                updater = Path(__file__).resolve().parent.parent / "updater" / "updater.py"
-                if not updater.exists():
-                    _registrar_updater(f"updater.py não encontrado em {updater}")
-                    return False
-                cmd = [sys.executable, str(updater), "--parent-pid", pid]
-            # A versão do APP é a fonte de verdade — o version.txt ao lado do exe
-            # pode ficar velho ou ser copiado sem o executável correspondente, e aí
-            # o Atualizador conclui "já atualizado" e não mostra nada.
-            cmd += ["--versao-atual", __version__]
-            if auto:
-                cmd.append("--auto")
-            flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # sem console no Windows
-            subprocess.Popen(cmd, close_fds=True, creationflags=flags)
-            return True
-        except OSError as exc:
-            _registrar_updater(f"falha ao iniciar o Atualizador: {exc}")
-            return False
-
     def _verificar_atualizacao_silenciosa(self) -> None:
-        """Dispara o Atualizador em modo silencioso na abertura do app.
+        """Checa atualização em silêncio na abertura do app.
 
-        O Atualizador.exe (que carrega o token de leitura do GitHub) checa a
-        release mais recente e só mostra a janela se houver versão nova; se já
-        estiver atualizado ou houver qualquer erro/sem internet, sai calado.
-        Best-effort: qualquer falha em iniciá-lo é ignorada.
+        Só mostra a janela se houver versão nova; se já estiver atualizado ou
+        houver qualquer erro/sem internet, sai calado (ver atualizacao.py).
+        Best-effort: qualquer falha é ignorada.
         """
-        self._disparar_atualizador(auto=True)
+        with contextlib.suppress(Exception):
+            atualizacao.verificar(self, auto=True)
 
     def _verificar_atualizacao_manual(self) -> None:
-        """Clique no botão "Verificar atualização": sempre mostra a janela do
-        Atualizador, inclusive quando já está na versão mais recente."""
-        if not self._disparar_atualizador(auto=False):
-            messagebox.showerror(
-                "Verificar atualização",
-                "Não encontrei o Atualizador (Atualizador.exe) ao lado do programa.",
-            )
+        """Clique no botão "Verificar atualização": sempre mostra o resultado,
+        inclusive quando já está na versão mais recente."""
+        atualizacao.verificar(self, auto=False)
 
 
 def _limpar_temp_orfaos() -> int:
     """Apaga pastas ``_MEI*`` órfãs no %TEMP%. Devolve quantas foram removidas.
 
     O onefile do PyInstaller extrai o bundle inteiro num ``_MEIxxxxx`` novo a
-    cada abertura e o apaga ao sair — MAS o Atualizador encerra o app com
-    TerminateProcess para trocar o .exe, e um processo morto assim nunca faz essa
+    cada abertura e o apaga ao sair — mas um processo morto sem passar por essa
+    saída normal (crash, "Finalizar tarefa", queda de energia) nunca faz essa
     limpeza. O lixo acumula (16 pastas foram encontradas nesta máquina), o que
     dói justamente nas máquinas fracas, que costumam ter disco pequeno.
 
