@@ -26,6 +26,7 @@ import ssl
 import sys
 import threading
 import tkinter as tk
+import traceback
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -49,6 +50,12 @@ API_LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "Peticoes.exe"
 TIMEOUT = 30  # segundos (conexão/socket)
 CHUNK = 1024 * 1024  # 1 MiB
+# Teto para a checagem INTEIRA. TIMEOUT cobre o socket, mas NÃO o getaddrinfo:
+# numa máquina com DNS em blackhole a resolução do nome pendura sem estourar
+# timeout nenhum, a thread da checagem nunca volta e — em modo auto, com a janela
+# withdraw() — nada aparece na tela nem no log. Foi o que uma máquina apresentou
+# em 14/08/2026: só a linha "iniciado", tentativa após tentativa.
+WATCHDOG = 45  # segundos
 
 
 # ---------------------------------------------------------------------------
@@ -327,8 +334,12 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
 
         if not auto:
             self.barra.start(12)
+        self._respondeu = False
         threading.Thread(target=self._checar, daemon=True).start()
         self.after(100, self._drenar_eventos)
+        # A thread é daemon: se ela pendurar de vez, isto desiste por ela e o
+        # log passa a dizer POR QUE nada aconteceu (ver WATCHDOG).
+        self.after(WATCHDOG * 1000, self._watchdog)
 
     # -- infra -------------------------------------------------------------
     def _centralizar(self) -> None:
@@ -366,8 +377,22 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
     def _post(self, fn) -> None:
         self.eventos.put(fn)
 
+    def _watchdog(self) -> None:
+        """Encerra a checagem que nunca volta, deixando rastro no log."""
+        if self._respondeu or not self.winfo_exists():
+            return
+        self._mostrar_erro(NetworkError(
+            f"Sem resposta em {WATCHDOG} segundos ao verificar a atualização.\n"
+            "A rede desta máquina parece estar bloqueando o acesso ao GitHub "
+            "(DNS ou proxy)."
+        ))
+
     # -- estados -----------------------------------------------------------
     def _checar(self) -> None:
+        # Marco no log ANTES da rede: separa "a thread nem nasceu / a janela
+        # estourou no construtor" de "a chamada de rede pendurou", que produziam
+        # exatamente o mesmo silêncio.
+        registrar(f"consultando {urlsplit(API_LATEST).hostname}")
         try:
             release = fetch_latest_release()
         except UpdaterError as e:
@@ -384,6 +409,7 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
         self._post(lambda: self._resultado_checagem(release))
 
     def _resultado_checagem(self, release: dict) -> None:
+        self._respondeu = True
         self.release = release
         tem_update = parse_version(release["tag"]) > parse_version(__version__)
         registrar(
@@ -503,6 +529,7 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
     def _mostrar_erro(self, erro: UpdaterError) -> None:
         # Sempre registra: em auto o erro não vai para a tela, e sem isto "token
         # expirado", "sem internet" e "já atualizado" ficam indistinguíveis.
+        self._respondeu = True
         registrar(f"ERRO na checagem ({type(erro).__name__}): {erro}")
         if self.auto:
             self.destroy()  # silencioso: não incomoda o usuário a cada abertura
@@ -514,7 +541,7 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
         self._botao("Fechar", self._fechar, default=True)
 
 
-def verificar(master: tk.Misc, *, auto: bool) -> None:  # pragma: no cover - abre a janela
+def verificar(master: tk.Misc, *, auto: bool) -> None:
     """Abre a checagem de atualização como Toplevel de `master`.
 
     `auto=True`: silencioso (chamado na abertura do app) — só aparece se
@@ -522,4 +549,13 @@ def verificar(master: tk.Misc, *, auto: bool) -> None:  # pragma: no cover - abr
     "Verificar atualização" em Configurações).
     """
     registrar(f"iniciado modo={'auto' if auto else 'manual'} versao={__version__}")
-    _JanelaAtualizacao(master, auto=auto)
+    try:
+        _JanelaAtualizacao(master, auto=auto)
+    except Exception:
+        # Sem isto, a janela morrendo no construtor é 100% silenciosa nas DUAS
+        # vias: em auto o `contextlib.suppress(Exception)` de gui.py engole, e em
+        # manual a exceção sobe para o report_callback_exception do Tk, que
+        # imprime em stderr — inexistente no exe --windowed. O log parava no
+        # "iniciado", indistinguível de uma thread pendurada na rede.
+        registrar("ERRO ao abrir a janela de atualização:\n" + traceback.format_exc())
+        raise

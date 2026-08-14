@@ -67,6 +67,9 @@ datas = [
     # Ícone da janela (gui.py lê via organizador.config.CAMINHO_ICONE) — mesmo
     # desenho aplicado ao ícone do .exe (parâmetro `icon=` do EXE abaixo).
     ("organizador/assets/icone.ico", "organizador/assets"),
+    # Guia de configuração do 2FA, aberto pelo botão da aba Configurações
+    # (config.CAMINHO_GUIA_CREDENCIAIS). HTML autocontido: abre sem internet.
+    ("docs/guia-credenciais.html", "docs"),
 ]
 binaries = []
 hiddenimports = []
@@ -183,6 +186,10 @@ _OBRIGATORIOS = {
     "config/credenciais.json": "logins dos tribunais",
     "token_google_api.json": "conta de serviço que lê as planilhas",
     "data/processos_base.sqlite": "base de processos pré-carregada",
+    # Não quebra o app (o botão avisa e a tela segue usável), mas um guia ausente
+    # só apareceria como um botão que nunca funciona, na mão de quem menos sabe
+    # diagnosticar. Barato travar aqui.
+    "docs/guia-credenciais.html": "guia de configuração do 2FA",
 }
 _no_bundle = {str(e[0]).replace("\\", "/") for e in a.datas}
 _faltando = [

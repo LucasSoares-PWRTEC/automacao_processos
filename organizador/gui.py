@@ -26,8 +26,9 @@ from organizador import __version__
 
 from . import atualizacao
 from .config import (
-    APP_DATA_DIR, CAMINHO_ICONE, CONFIG_SEMENTE_DIR, OAB_ESCRITORIO_POR_UF,
-    PASTA_PADRAO, PASTA_PETICOES, PROCESSOS_BASE_JSON, PROCESSOS_INDICE_JSON,
+    APP_DATA_DIR, CAMINHO_GUIA_CREDENCIAIS, CAMINHO_ICONE, CONFIG_SEMENTE_DIR,
+    OAB_ESCRITORIO_POR_UF, PASTA_PADRAO,
+    PASTA_PETICOES, PROCESSOS_BASE_JSON, PROCESSOS_INDICE_JSON,
     PROCESSOS_ONLINE_DIR, TEMPLATES_CACHE_PATH, TJ_SISTEMAS, UI_STATE_PATH,
     semear_config, sugerir_tj_para_uf, uf_efetiva_tj,
 )
@@ -1554,6 +1555,16 @@ class App(ttk.Window):
             font=_FONT_BASE, wraplength=900, justify="left", bootstyle="secondary",
         ).pack(fill="x", pady=(0, 8))
 
+        # Guia passo a passo. Fica no TOPO e fora do modo dev de propósito: é ele
+        # que ensina a ligar o Modo desenvolvedor para revelar a seção 2FA, então
+        # esconder o guia junto com a seção deixaria o usuário sem saída.
+        f_guia = ttk.Frame(inner)
+        f_guia.pack(fill="x", pady=(0, 10))
+        ttk.Button(
+            f_guia, text="📖  Guia: configurar o e-mail dos códigos de acesso",
+            command=self._abrir_guia_credenciais, bootstyle="outline-primary",
+        ).pack(side="left")
+
         # ── Seção: Credenciais dos tribunais ───────────────────────────
         sec_cred = ttk.Labelframe(
             inner, text="  Credenciais dos tribunais  ", bootstyle="default", padding=(12, 8),
@@ -2581,6 +2592,33 @@ class App(ttk.Window):
             ),
             garantir=garantir,
         )
+
+    def _abrir_guia_credenciais(self) -> None:
+        """Abre no navegador o guia de configuração do e-mail do 2FA.
+
+        O HTML viaja no bundle e não tem dependência externa, então abre offline.
+        `as_uri()` é necessário porque o caminho tem acentos e espaços (e, no exe,
+        fica sob _MEIPASS) — passar a string crua faz o navegador tratar como
+        termo de busca."""
+        if not CAMINHO_GUIA_CREDENCIAIS.exists():
+            messagebox.showwarning(
+                "Guia não encontrado",
+                "O guia não veio nesta instalação do programa.\n\n"
+                "Você ainda consegue configurar tudo por esta tela: ligue o "
+                "Modo desenvolvedor na seção Opções para revelar a seção de "
+                "autenticação em dois fatores.",
+                parent=self,
+            )
+            return
+        try:
+            webbrowser.open(CAMINHO_GUIA_CREDENCIAIS.as_uri())
+        except Exception as exc:
+            messagebox.showerror(
+                "Não foi possível abrir o guia",
+                f"O guia está em:\n{CAMINHO_GUIA_CREDENCIAIS}\n\n"
+                f"Abra esse arquivo no navegador manualmente.\n\nDetalhe: {exc}",
+                parent=self,
+            )
 
     def _toggle_modo_dev(self) -> None:
         """Persiste o modo dev e aplica a visibilidade na hora."""
@@ -3984,7 +4022,18 @@ class App(ttk.Window):
     def _verificar_atualizacao_manual(self) -> None:
         """Clique no botão "Verificar atualização": sempre mostra o resultado,
         inclusive quando já está na versão mais recente."""
-        atualizacao.verificar(self, auto=False)
+        try:
+            atualizacao.verificar(self, auto=False)
+        except Exception as exc:
+            # Sem este try, uma falha ao abrir a janela sobe para o
+            # report_callback_exception do Tk, que imprime em stderr —
+            # inexistente no exe --windowed. O clique não fazia NADA: nem janela,
+            # nem erro, nem segunda linha no updater.log.
+            messagebox.showerror(
+                "Verificar atualização",
+                f"Não consegui abrir a verificação de atualização:\n\n{exc}\n\n"
+                "O detalhe foi gravado em updater.log.",
+            )
 
 
 # Extensões cuja IMAGEM o Windows trava enquanto um processo as tem carregadas.

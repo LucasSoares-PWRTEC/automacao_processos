@@ -376,3 +376,97 @@ def test_limpar_sobras_tolera_arquivo_travado(monkeypatch, tmp_path):
 
 def test_tamanho_em_mb_no_formato_brasileiro():
     assert atualizacao._fmt_mb(55 * 1024 * 1024) == "55,0"
+
+
+# ---------------------------------------------------------------------
+# Diagnóstico: a checagem que não deixa rastro
+#
+# Uma máquina apresentou, tentativa após tentativa, SÓ a linha "iniciado" no
+# updater.log — nos dois modos, e sem nada na tela. Três causas produziam
+# exatamente esse mesmo silêncio (janela estourando no construtor, thread
+# pendurada na rede, callback Tk morrendo), e nenhuma delas era distinguível à
+# distância. Os testes abaixo travam as linhas de log que separam as três.
+# ---------------------------------------------------------------------
+class _JanelaFalsa:
+    """Dublê do Toplevel: só o que `_checar`/`_watchdog` tocam, sem Tk."""
+
+    def __init__(self, *, respondeu: bool = False, existe: bool = True) -> None:
+        self._respondeu = respondeu
+        self._existe = existe
+        self.posts: list = []
+        self.erros: list = []
+
+    def _post(self, fn) -> None:
+        self.posts.append(fn)
+
+    def winfo_exists(self) -> bool:
+        return self._existe
+
+    def _mostrar_erro(self, erro) -> None:
+        self.erros.append(erro)
+
+
+def test_falha_ao_abrir_a_janela_para_de_ser_invisivel(monkeypatch, tmp_path):
+    """O construtor estourando era engolido nas duas vias (suppress em auto,
+    stderr inexistente do exe --windowed em manual): o log parava no "iniciado"."""
+    def _explode(*_a, **_k):
+        raise RuntimeError("simulado: Toplevel não subiu")
+
+    monkeypatch.setattr(atualizacao, "_JanelaAtualizacao", _explode)
+
+    with pytest.raises(RuntimeError):
+        atualizacao.verificar(None, auto=True)
+
+    log = _log(tmp_path)
+    assert "ERRO ao abrir a janela de atualização" in log
+    assert "simulado: Toplevel não subiu" in log
+    assert "Traceback" in log  # o traceback inteiro, não só a mensagem
+
+
+def test_marco_no_log_antes_da_rede(monkeypatch, tmp_path):
+    """Sem esta linha, "a thread nem nasceu" e "a chamada de rede pendurou" são
+    o mesmo log — e pedem correções diferentes."""
+    def _falha():
+        raise atualizacao.NetworkError("sem rede")
+
+    monkeypatch.setattr(atualizacao, "fetch_latest_release", _falha)
+    janela = _JanelaFalsa()
+
+    atualizacao._JanelaAtualizacao._checar(janela)
+
+    linhas = _log(tmp_path).splitlines()
+    assert any("consultando api.github.com" in ln for ln in linhas)
+    assert janela.posts, "o erro tem de continuar chegando à janela"
+
+
+def test_watchdog_desiste_da_checagem_pendurada():
+    """TIMEOUT cobre o socket, NÃO o getaddrinfo: com DNS em blackhole a thread
+    não volta nunca e, em auto (janela withdraw()), nada aparece em lugar nenhum."""
+    janela = _JanelaFalsa()
+
+    atualizacao._JanelaAtualizacao._watchdog(janela)
+
+    assert len(janela.erros) == 1
+    erro = janela.erros[0]
+    assert isinstance(erro, atualizacao.NetworkError)
+    assert str(atualizacao.WATCHDOG) in str(erro)
+
+
+def test_watchdog_nao_atropela_checagem_que_respondeu():
+    """Ele dispara por tempo, não por resultado: sem esta guarda ele sobrescreveria
+    a resposta boa (ou o erro real) que chegou dentro do prazo."""
+    janela = _JanelaFalsa(respondeu=True)
+
+    atualizacao._JanelaAtualizacao._watchdog(janela)
+
+    assert janela.erros == []
+
+
+def test_watchdog_nao_toca_em_janela_ja_destruida():
+    """Em auto a janela se destrói sozinha ao terminar; o `after` agendado ainda
+    dispara depois disso e mexer em widget morto levanta TclError."""
+    janela = _JanelaFalsa(existe=False)
+
+    atualizacao._JanelaAtualizacao._watchdog(janela)
+
+    assert janela.erros == []

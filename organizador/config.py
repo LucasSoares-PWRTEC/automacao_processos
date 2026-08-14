@@ -75,6 +75,10 @@ PASTA_PETICOES = _RAIZ / "Petições"
 # Ícone da janela (mesmo desenho do ícone do .exe, ver *.spec). Fica em _RAIZ
 # (=_MEIPASS no exe) como os demais assets embutidos.
 CAMINHO_ICONE = _RAIZ / "organizador" / "assets" / "icone.ico"
+# Guia de configuração das credenciais do 2FA, aberto no navegador pelo botão da
+# aba Configurações. HTML autocontido (sem CSS/JS externo) de propósito: abre sem
+# internet. Fica em _RAIZ (=_MEIPASS no exe) como os demais assets embutidos.
+CAMINHO_GUIA_CREDENCIAIS = _RAIZ / "docs" / "guia-credenciais.html"
 # Conta de serviço do Google (somente leitura das planilhas de credores). Fica na
 # raiz do projeto (=_MEIPASS no exe); override por GOOGLE_CREDENTIALS_FILE. Usada
 # por organizador.sheets para o monitoramento periódico planilhas → mapeamento.
