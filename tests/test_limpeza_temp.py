@@ -19,23 +19,40 @@ acontecer por outro caminho: dados do bundle ausentes no _MEIPASS.
 
 from __future__ import annotations
 
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
 
 from organizador.gui import (
-    _dados_do_bundle_faltando, _limpar_temp_orfaos, _mei_em_uso,
+    _EXTRACAO_S, _dados_do_bundle_faltando, _limpar_temp_orfaos, _mei_em_uso,
+    _mei_recem_escrito,
 )
 
 
-def _criar_mei(raiz, nome: str, com_arquivo: bool = True):
+def _envelhecer(d: Path, segundos: float | None = None) -> Path:
+    """Recua o mtime de `d` e de tudo dentro dela.
+
+    Órfã de verdade é sempre VELHA: a pasta parou de receber bytes quando o
+    processo morreu. Pasta recém-criada é o que uma instância ABRINDO tem, e
+    apagá-la é o bug que mutilava a extração (ver `_EXTRACAO_S` em gui.py).
+    """
+    quando = time.time() - (segundos if segundos is not None else _EXTRACAO_S + 60)
+    for alvo in sorted(d.rglob("*"), reverse=True):
+        os.utime(alvo, (quando, quando))
+    os.utime(d, (quando, quando))
+    return d
+
+
+def _criar_mei(raiz, nome: str, com_arquivo: bool = True, orfa: bool = True):
     d = raiz / nome
     (d / "sub").mkdir(parents=True)
     if com_arquivo:
         (d / "sub" / "modulo.pyd").write_bytes(b"binario")
         (d / "raiz.txt").write_text("x", encoding="utf-8")
-    return d
+    return _envelhecer(d) if orfa else d
 
 
 def test_remove_orfaos(monkeypatch, tmp_path):
@@ -58,6 +75,42 @@ def test_preserva_a_pasta_do_processo_atual(monkeypatch, tmp_path):
     assert _limpar_temp_orfaos() == 1
     assert atual.exists(), "apagou a pasta do próprio processo"
     assert not outra.exists()
+
+
+def test_nao_apaga_pasta_em_extracao(monkeypatch, tmp_path):
+    """O bug que mutilava instâncias abrindo.
+
+    O bootloader extrai os ~98 MB ANTES de carregar o python3xx.dll, então
+    durante a extração NADA está travado e a sonda `_mei_em_uso` diz "órfã".
+    Numa máquina fraca isso leva segundos, e outra instância abrindo nessa janela
+    fazia rmtree no meio da extração. O app morria depois, longe daqui, num
+    ImportError de .pyd — foi assim que apareceu `cannot import name
+    '_imagingtk' from 'PIL'` numa VM com 96 GB de disco livre.
+    """
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+    extraindo = _criar_mei(tmp_path, "_MEI_EXTRAINDO", orfa=False)
+    velha = _criar_mei(tmp_path, "_MEI_VELHA")
+
+    assert _limpar_temp_orfaos() == 1
+    assert extraindo.exists(), "apagou a pasta de uma instância que está abrindo"
+    assert (extraindo / "sub" / "modulo.pyd").exists(), "mutilou a extração"
+    assert not velha.exists(), "deixou de limpar a órfã de verdade"
+
+
+def test_idade_e_medida_pelo_arquivo_mais_novo(tmp_path):
+    """A pasta em si pode ter mtime velho enquanto os binários chegam: o mtime do
+    diretório só muda quando entradas são criadas/removidas nele."""
+    d = _criar_mei(tmp_path, "_MEI_MISTA")
+    assert not _mei_recem_escrito(str(d))
+
+    (d / "chegou_agora.pyd").write_bytes(b"novo")
+    assert _mei_recem_escrito(str(d)), "não viu o arquivo recém-escrito"
+
+
+def test_pasta_ilegivel_e_tratada_como_recente(tmp_path):
+    """Na dúvida sobra lixo, que é barato — não se mutila extração alheia."""
+    assert _mei_recem_escrito(str(tmp_path / "nem_existe"))
 
 
 def test_ignora_o_que_nao_e_mei(monkeypatch, tmp_path):

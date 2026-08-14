@@ -322,6 +322,23 @@ def test_download_grava_o_arquivo_e_reporta_progresso(monkeypatch, tmp_path):
     assert progresso[-1] == (len(conteudo), len(conteudo))
 
 
+def test_progresso_aparece_antes_do_primeiro_mib(monkeypatch, tmp_path):
+    """A janela só mostra os MB quando `progress_cb` roda. Com chunk de 1 MiB, um
+    download lento ficava em "Baixando atualização..." sem número e com a barra em
+    zero — foi exatamente o que uma VM apresentou como "infinito"."""
+    conteudo = b"z" * (300 * 1024)  # 300 KiB: menos de 1 MiB
+    _usar_opener(monkeypatch, _Resposta(conteudo, {"Content-Length": str(len(conteudo))}))
+    progresso: list = []
+
+    atualizacao.download_asset(
+        _URL_ASSET, tmp_path / "Peticoes.exe.download", len(conteudo),
+        lambda d, t: progresso.append(d), threading.Event(),
+    )
+
+    assert len(progresso) >= 4, f"feedback grosso demais: {progresso}"
+    assert progresso[0] <= 64 * 1024, "o primeiro aviso tem de vir logo"
+
+
 def test_download_truncado_nao_vira_o_exe_do_usuario(monkeypatch, tmp_path):
     """O pior desfecho possível: instalar meio executável. O tamanho declarado
     pela API é conferido, e o arquivo parcial é apagado."""
@@ -388,13 +405,20 @@ def test_tamanho_em_mb_no_formato_brasileiro():
 # distância. Os testes abaixo travam as linhas de log que separam as três.
 # ---------------------------------------------------------------------
 class _JanelaFalsa:
-    """Dublê do Toplevel: só o que `_checar`/`_watchdog` tocam, sem Tk."""
+    """Dublê do Toplevel: só o que `_checar`/`_watchdog`/`_vigiar_download`
+    tocam, sem Tk. `after` guarda o que foi reagendado em vez de agendar."""
 
     def __init__(self, *, respondeu: bool = False, existe: bool = True) -> None:
         self._respondeu = respondeu
         self._existe = existe
         self.posts: list = []
         self.erros: list = []
+        self.agendados: list = []
+        self._baixando = False
+        self._baixados = 0
+        self._ultimo_avanco = 0.0
+        self._avisou_parado = False
+        self.release: dict = {"size": 55_000_000}
 
     def _post(self, fn) -> None:
         self.posts.append(fn)
@@ -404,6 +428,16 @@ class _JanelaFalsa:
 
     def _mostrar_erro(self, erro) -> None:
         self.erros.append(erro)
+
+    def after(self, _ms, fn) -> None:
+        self.agendados.append(fn)
+
+    def _vigiar_download(self) -> None:
+        atualizacao._JanelaAtualizacao._vigiar_download(self)
+
+
+def _parado_ha(segundos: float) -> float:
+    return atualizacao.time.monotonic() - segundos
 
 
 def test_falha_ao_abrir_a_janela_para_de_ser_invisivel(monkeypatch, tmp_path):
@@ -460,6 +494,62 @@ def test_watchdog_nao_atropela_checagem_que_respondeu():
     atualizacao._JanelaAtualizacao._watchdog(janela)
 
     assert janela.erros == []
+
+
+def test_download_parado_aparece_no_log(tmp_path):
+    """Barra travada em 0 MB era indistinguível de app morto: nenhuma linha saía.
+    O vigia denuncia sem cancelar — 53 MB numa rede ruim levam minutos e um
+    cancelamento por tempo total mataria download que ia terminar."""
+    janela = _JanelaFalsa()
+    janela._baixando = True
+    janela._baixados = 3 * 1024 * 1024
+    janela._ultimo_avanco = _parado_ha(atualizacao.PARADO + 5)
+
+    janela._vigiar_download()
+
+    log = _log(tmp_path)
+    assert "download PARADO" in log
+    assert "3145728 de 55000000 bytes" in log
+    assert janela.agendados, "o vigia tem de continuar armado"
+
+
+def test_vigia_do_download_cala_enquanto_avanca(tmp_path):
+    janela = _JanelaFalsa()
+    janela._baixando = True
+    janela._baixados = 10 * 1024 * 1024
+    janela._ultimo_avanco = atualizacao.time.monotonic()  # avançou agora
+
+    janela._vigiar_download()
+
+    assert "download PARADO" not in _log(tmp_path)
+    assert janela.agendados, "segue vigiando enquanto o download anda"
+
+
+def test_vigia_avisa_uma_vez_so(tmp_path):
+    """Ele se re-arma a cada PARADO segundos; sem a trava, um download morto
+    encheria o log e empurraria as linhas úteis para fora das 200 mantidas."""
+    janela = _JanelaFalsa()
+    janela._baixando = True
+    janela._baixados = 0
+    janela._ultimo_avanco = _parado_ha(atualizacao.PARADO + 5)
+
+    janela._vigiar_download()
+    janela._vigiar_download()
+
+    assert _log(tmp_path).count("download PARADO") == 1
+
+
+def test_vigia_para_quando_o_download_termina(tmp_path):
+    """`_instalar`/`_cancelado`/`_mostrar_erro` baixam a flag; o `after` já
+    agendado ainda dispara depois disso."""
+    janela = _JanelaFalsa()
+    janela._baixando = False
+    janela._ultimo_avanco = _parado_ha(9999)
+
+    janela._vigiar_download()
+
+    assert "download PARADO" not in _log(tmp_path)
+    assert janela.agendados == [], "não deve se re-armar depois de terminar"
 
 
 def test_watchdog_nao_toca_em_janela_ja_destruida():

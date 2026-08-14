@@ -9,6 +9,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from collections import OrderedDict
@@ -4039,6 +4040,22 @@ class App(ttk.Window):
 # Extensões cuja IMAGEM o Windows trava enquanto um processo as tem carregadas.
 _EXT_BINARIAS = (".dll", ".pyd", ".exe")
 
+# Idade mínima para uma pasta _MEI ser considerada órfã.
+#
+# A sonda de travamento (_mei_em_uso) NÃO cobre uma instância que está abrindo
+# AGORA: o bootloader do onefile extrai os ~98 MB inteiros ANTES de carregar o
+# python3xx.dll e iniciar o Python, e durante a extração nenhum binário está
+# travado. Uma instância que abre nessa janela vê a pasta da outra como órfã e
+# faz rmtree no meio da extração dela. O resultado é uma extração mutilada, com
+# os binários que ainda não haviam sido escritos ou já apagados — e o app morre
+# depois, longe daqui, num ImportError de .pyd (visto ao vivo em 14/08/2026:
+# `cannot import name '_imagingtk' from 'PIL'`, com 96 GB de disco livre).
+#
+# Extrair 98 MB leva SEGUNDOS numa máquina fraca, então a janela é larga — e é
+# por isso que o problema só aparecia nas máquinas lentas. Uma pasta que ainda
+# está recebendo bytes tem mtime de agora; órfã de verdade é sempre velha.
+_EXTRACAO_S = 300  # 5 min
+
 
 def _mei_em_uso(caminho: str) -> bool:
     """True se algum binário de `caminho` ainda está carregado por um processo.
@@ -4074,6 +4091,27 @@ def _mei_em_uso(caminho: str) -> bool:
     return False
 
 
+def _mei_recem_escrito(caminho: str, segundos: int = _EXTRACAO_S) -> bool:
+    """True se `caminho` recebeu bytes nos últimos `segundos` (extração em curso).
+
+    Olha a própria pasta e os filhos diretos — é ali que o onefile escreve as
+    DLLs e os .pyd, então o mtime mais novo desse nível acompanha a extração sem
+    custo de percorrer a árvore toda. Na dúvida devolve True: sobra lixo, que é
+    barato, em vez de mutilar a extração de uma instância que está abrindo.
+    """
+    try:
+        mais_novo = os.stat(caminho).st_mtime
+        with os.scandir(caminho) as entradas:
+            for entrada in entradas:
+                try:
+                    mais_novo = max(mais_novo, entrada.stat().st_mtime)
+                except OSError:
+                    continue
+    except OSError:
+        return True
+    return (time.time() - mais_novo) < segundos
+
+
 def _limpar_temp_orfaos() -> int:
     """Apaga pastas ``_MEI*`` órfãs no %TEMP%. Devolve quantas foram removidas.
 
@@ -4083,10 +4121,14 @@ def _limpar_temp_orfaos() -> int:
     limpeza. O lixo acumula (16 pastas foram encontradas nesta máquina), o que
     dói justamente nas máquinas fracas, que costumam ter disco pequeno.
 
-    Só apaga o que está comprovadamente órfão: a pasta do processo ATUAL é
-    pulada por caminho, e as das outras instâncias vivas são puladas pela sonda
-    ``_mei_em_uso``. Não há corrida com uma instância que esteja abrindo agora:
-    o bootloader sempre cria um ``_MEI`` NOVO, nunca reaproveita um existente."""
+    Só apaga o que está comprovadamente órfão, em três filtros que cobrem coisas
+    diferentes: a pasta do processo ATUAL é pulada por caminho; as das instâncias
+    já RODANDO são puladas pela sonda ``_mei_em_uso`` (binário carregado = imagem
+    travada); e as que estão sendo EXTRAÍDAS agora são puladas por idade
+    (``_mei_recem_escrito``), porque durante a extração nada está travado ainda e
+    a sonda daria "órfã" para uma instância que está abrindo — ver ``_EXTRACAO_S``.
+
+    O bootloader sempre cria um ``_MEI`` NOVO, nunca reaproveita um existente."""
     import shutil
     import tempfile
 
@@ -4102,6 +4144,10 @@ def _limpar_temp_orfaos() -> int:
             if not os.path.isdir(caminho):
                 continue
             if atual_norm and os.path.normcase(os.path.abspath(caminho)) == atual_norm:
+                continue
+            # Antes da sonda: durante a extração nenhum binário está travado, e
+            # a sonda diria "órfã" para uma instância que está abrindo agora.
+            if _mei_recem_escrito(caminho):
                 continue
             if _mei_em_uso(caminho):
                 continue

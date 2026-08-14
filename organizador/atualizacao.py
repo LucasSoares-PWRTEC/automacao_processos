@@ -25,6 +25,7 @@ import queue
 import ssl
 import sys
 import threading
+import time
 import tkinter as tk
 import traceback
 import urllib.error
@@ -49,13 +50,27 @@ REPO = "LucasTalen/automacao_processos"
 API_LATEST = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "Peticoes.exe"
 TIMEOUT = 30  # segundos (conexão/socket)
-CHUNK = 1024 * 1024  # 1 MiB
+# Tamanho da leitura do socket. Era 1 MiB, e isso NÃO é detalhe de desempenho: o
+# progresso só é reportado ao fechar um chunk, então até o 1º MiB chegar a janela
+# fica em "Baixando atualização..." sem número nenhum e com a barra em zero —
+# indistinguível de travada. Foi assim que uma VM de 2 GB apareceu "infinita"
+# baixando: o rótulo sem os MB provou que nem um chunk havia completado. 64 KiB dá
+# ~850 avisos nos 53 MB (barra andando desde o 1º segundo) e é o que torna o
+# vigia de PARADO honesto: 60 s sem 64 KiB é travamento de verdade, 60 s sem
+# 1 MiB pode ser só rede ruim.
+CHUNK = 64 * 1024  # 64 KiB
 # Teto para a checagem INTEIRA. TIMEOUT cobre o socket, mas NÃO o getaddrinfo:
 # numa máquina com DNS em blackhole a resolução do nome pendura sem estourar
 # timeout nenhum, a thread da checagem nunca volta e — em modo auto, com a janela
 # withdraw() — nada aparece na tela nem no log. Foi o que uma máquina apresentou
 # em 14/08/2026: só a linha "iniciado", tentativa após tentativa.
 WATCHDOG = 45  # segundos
+# O download tem seu próprio vigia, e não podia ser o mesmo WATCHDOG: baixar 53 MB
+# leva ~12 s numa rede boa, mas legitimamente minutos numa ruim, então desistir por
+# tempo TOTAL cancelaria download que ia terminar. O que denuncia travamento é
+# ficar sem UM byte novo — e isso o log não registrava: barra parada em 0 MB era
+# indistinguível de app morto, e nenhuma linha saía do processo.
+PARADO = 60  # segundos sem avanço nenhum no download
 
 
 # ---------------------------------------------------------------------------
@@ -304,6 +319,10 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
         self.eventos: queue.Queue = queue.Queue()
         self.cancel = threading.Event()
         self.release: dict | None = None
+        self._baixando = False
+        self._baixados = 0
+        self._ultimo_avanco = 0.0
+        self._avisou_parado = False
 
         frame = ttk.Frame(self, padding=16)
         frame.pack(fill="both", expand=True)
@@ -451,13 +470,34 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
         self.lbl.configure(text="Baixando atualização...")
         self._limpar_botoes()
         self._botao("Cancelar", self._cancelar_download)
+        self._baixando = True
+        self._baixados = 0
+        self._ultimo_avanco = time.monotonic()
+        self._avisou_parado = False
         threading.Thread(target=self._baixar_e_instalar, daemon=True).start()
+        self.after(PARADO * 1000, self._vigiar_download)
 
     def _cancelar_download(self) -> None:
         self.cancel.set()
 
+    def _vigiar_download(self) -> None:
+        """Denuncia no log o download que parou de avançar (sem cancelá-lo)."""
+        if not self._baixando or not self.winfo_exists():
+            return
+        parado = time.monotonic() - self._ultimo_avanco
+        if parado >= PARADO and not self._avisou_parado:
+            self._avisou_parado = True
+            registrar(
+                f"download PARADO: {self._baixados} de {self.release['size']} bytes, "
+                f"{parado:.0f}s sem avanço"
+            )
+        self.after(PARADO * 1000, self._vigiar_download)
+
     def _progresso(self, done: int, total: int) -> None:
         def aplicar() -> None:
+            # No thread principal: é daqui que o vigia lê o avanço.
+            self._baixados = done
+            self._ultimo_avanco = time.monotonic()
             if total:
                 self.barra.configure(maximum=total, value=done)
             self.lbl.configure(
@@ -468,6 +508,11 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
     def _baixar_e_instalar(self) -> None:
         alvo = _exe_atual()
         destino = alvo.with_name(alvo.name + ".download")
+        # Marco de entrada: sem ele, "o usuário nunca clicou em Atualizar" e "o
+        # download começou e sumiu" davam o mesmo log — nada depois de
+        # "checagem ok". O destino vai junto porque é ele que precisa de
+        # permissão de escrita, e é a pasta que varia de máquina para máquina.
+        registrar(f"baixando {self.release['tag']} ({self.release['size']} bytes) -> {destino}")
         try:
             download_asset(self.release["asset_url"], destino,
                            self.release["size"], self._progresso, self.cancel)
@@ -485,6 +530,7 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
         self._post(lambda: self._instalar(destino, alvo))
 
     def _instalar(self, destino: Path, alvo: Path) -> None:
+        self._baixando = False
         try:
             substituir_a_si_mesmo(destino, alvo)
         except AppRunningError as e:
@@ -503,6 +549,8 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
         self._fechar()
 
     def _cancelado(self) -> None:
+        self._baixando = False
+        registrar("download cancelado pelo usuário")
         self.lbl.configure(text="Atualização cancelada.")
         self.barra.configure(value=0)
         self._limpar_botoes()
@@ -530,6 +578,7 @@ class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui
         # Sempre registra: em auto o erro não vai para a tela, e sem isto "token
         # expirado", "sem internet" e "já atualizado" ficam indistinguíveis.
         self._respondeu = True
+        self._baixando = False
         registrar(f"ERRO na checagem ({type(erro).__name__}): {erro}")
         if self.auto:
             self.destroy()  # silencioso: não incomoda o usuário a cada abertura
