@@ -277,7 +277,7 @@ def _fmt_mb(n: int) -> str:
     return f"{n / (1024 * 1024):.1f}".replace(".", ",")
 
 
-class _JanelaAtualizacao(tk.Toplevel):
+class _JanelaAtualizacao(tk.Toplevel):  # pragma: no cover - janela Tk, como gui.py
     def __init__(self, master: tk.Misc, *, auto: bool) -> None:
         super().__init__(master)
         self._app = master
@@ -514,7 +514,7 @@ class _JanelaAtualizacao(tk.Toplevel):
         self._botao("Fechar", self._fechar, default=True)
 
 
-def verificar(master: tk.Misc, *, auto: bool) -> None:
+def verificar(master: tk.Misc, *, auto: bool) -> None:  # pragma: no cover - abre a janela
     """Abre a checagem de atualização como Toplevel de `master`.
 
     `auto=True`: silencioso (chamado na abertura do app) — só aparece se

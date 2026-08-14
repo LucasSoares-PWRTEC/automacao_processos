@@ -239,3 +239,129 @@ def test_credenciais_apontam_para_o_local_persistente(tmp_path, semente):
     )
     assert str(appdata) in r["senhas"]
     assert str(appdata) in r["cred"]
+
+
+# ===========================================================================
+# As mesmas decisões, testadas NO PROCESSO (sem reload)
+#
+# Os casos acima rodam num interpretador novo — a única forma de simular o app
+# empacotado de ponta a ponta — mas o que roda em subprocesso não é medido pela
+# cobertura, e essas funções decidem onde a config, os modelos e a base do
+# escritório são procurados. Aqui elas são chamadas direto, com os globais do
+# módulo trocados por monkeypatch (que restaura no fim, sem vazar para os
+# outros testes — o problema que o cabeçalho deste arquivo documenta).
+# ===========================================================================
+import organizador.config as C
+
+
+def test_raiz_do_app_no_exe_e_o_meipass(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert C._raiz_app() == tmp_path
+
+
+def test_raiz_do_app_no_exe_sem_meipass_cai_na_pasta_do_executavel(monkeypatch, tmp_path):
+    """onedir (ou bootloader que não exporta _MEIPASS): a raiz é onde está o exe."""
+    exe = tmp_path / "Peticoes.exe"
+    exe.write_bytes(b"")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+    monkeypatch.setattr(sys, "executable", str(exe), raising=False)
+    assert C._raiz_app() == tmp_path
+
+
+def test_raiz_do_app_do_fonte_e_a_pasta_do_pacote(monkeypatch):
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    assert (C._raiz_app() / "organizador" / "config.py").is_file()
+
+
+def test_pasta_padrao_respeita_a_variavel_de_ambiente(monkeypatch, tmp_path):
+    monkeypatch.setenv("ORGANIZADOR_PASTA_PADRAO", str(tmp_path / "Meus Processos"))
+    assert C._resolver_pasta_padrao() == str(tmp_path / "Meus Processos")
+
+
+def test_pasta_padrao_prefere_o_desktop_quando_existe(monkeypatch, tmp_path):
+    monkeypatch.delenv("ORGANIZADOR_PASTA_PADRAO", raising=False)
+    (tmp_path / "Desktop" / "Processos").mkdir(parents=True)
+    monkeypatch.setattr(C.Path, "home", staticmethod(lambda: tmp_path))
+    assert C._resolver_pasta_padrao() == str(tmp_path / "Desktop" / "Processos")
+
+
+def test_pasta_padrao_sem_desktop_cai_na_home(monkeypatch, tmp_path):
+    """Máquina sem a pasta Desktop\\Processos (ou OneDrive redirecionando o
+    Desktop): não pode devolver um caminho que não existe em lugar nenhum."""
+    monkeypatch.delenv("ORGANIZADOR_PASTA_PADRAO", raising=False)
+    monkeypatch.setattr(C.Path, "home", staticmethod(lambda: tmp_path))
+    assert C._resolver_pasta_padrao() == str(tmp_path / "Processos")
+
+
+def test_dir_config_ativo_no_exe_fica_fora_do_bundle(monkeypatch, tmp_path):
+    """O bug original: apontar para o _MEIPASS fazia toda edição sumir ao fechar."""
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(C, "APP_DATA_DIR", tmp_path)
+    assert C._dir_config_ativo() == tmp_path / "config"
+
+
+def test_dir_config_ativo_do_fonte_e_a_propria_semente(monkeypatch):
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    assert C._dir_config_ativo() == C.CONFIG_SEMENTE_DIR
+
+
+@pytest.fixture
+def semeadura(monkeypatch, tmp_path):
+    """Semente (bundle) e destino (APP_DATA_DIR) separados, como no .exe."""
+    origem, destino = tmp_path / "bundle", tmp_path / "appdata"
+    origem.mkdir()
+    for nome in (".env", "credenciais.json", "senhas.xlsx"):
+        (origem / nome).write_text(f"conteudo de {nome}", encoding="utf-8")
+    monkeypatch.setattr(C, "CONFIG_SEMENTE_DIR", origem)
+    monkeypatch.setattr(C, "CONFIG_DIR", destino)
+    return origem, destino
+
+
+def test_semear_copia_o_que_falta(semeadura):
+    origem, destino = semeadura
+    copiados = C.semear_config()
+    assert set(copiados) == {".env", "credenciais.json", "senhas.xlsx"}
+    assert (destino / ".env").read_text(encoding="utf-8") == "conteudo de .env"
+
+
+def test_semear_preserva_a_edicao_do_usuario(semeadura):
+    """Uma atualização não pode apagar a senha que a pessoa acabou de corrigir."""
+    _origem, destino = semeadura
+    destino.mkdir()
+    (destino / ".env").write_text("SENHA=corrigida-pelo-usuario", encoding="utf-8")
+
+    copiados = C.semear_config()
+
+    assert ".env" not in copiados
+    assert (destino / ".env").read_text(encoding="utf-8") == "SENHA=corrigida-pelo-usuario"
+
+
+def test_semear_do_fonte_nao_copia_nada(monkeypatch, tmp_path):
+    monkeypatch.setattr(C, "CONFIG_SEMENTE_DIR", tmp_path)
+    monkeypatch.setattr(C, "CONFIG_DIR", tmp_path)
+    assert C.semear_config() == []
+
+
+def test_semear_com_destino_impossivel_nao_levanta(monkeypatch, semeadura):
+    """Best-effort: disco cheio/sem permissão não pode impedir o app de abrir."""
+    def _mkdir_falha(*_a, **_k):
+        raise OSError("simulado: sem permissão")
+
+    monkeypatch.setattr(C.Path, "mkdir", _mkdir_falha)
+    assert C.semear_config() == []
+
+
+def test_semear_tolera_falha_de_copia_de_um_arquivo(monkeypatch, semeadura):
+    _origem, destino = semeadura
+
+    def _copy_falha(origem, _destino):
+        if Path(origem).name == "senhas.xlsx":
+            raise OSError("simulado: arquivo em uso")
+        Path(_destino).write_text("copiado", encoding="utf-8")
+
+    monkeypatch.setattr(C.shutil, "copy2", _copy_falha)
+    copiados = C.semear_config()
+    assert "senhas.xlsx" not in copiados
+    assert ".env" in copiados, "uma falha isolada abortou a semeadura inteira"

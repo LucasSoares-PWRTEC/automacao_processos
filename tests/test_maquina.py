@@ -102,3 +102,79 @@ def test_ajustes_documentados_para_a_ui():
     """A aba Configurações exibe esta lista; vazia seria um toggle sem explicação."""
     assert maquina.AJUSTES_MODO_LEVE
     assert all(isinstance(t, str) and t for t in maquina.AJUSTES_MODO_LEVE)
+
+
+# ---------------------------------------------------------------------
+# _ram_total_mb: RAM desconhecida vale 0, nunca uma exceção
+#
+# É lido na abertura para decidir o Modo leve. Se a leitura explodir, o app não
+# abre — e justamente nas máquinas problemáticas é onde isso apareceria.
+# ---------------------------------------------------------------------
+class _GlobalMemoryStatusExFalso:
+    """Dublê da função da kernel32. Precisa aceitar `argtypes`/`restype`, que o
+    código atribui antes de chamar — por isso é um objeto, não uma função."""
+
+    def __init__(self, total_bytes: int, retorno: int = 1):
+        self.total_bytes = total_bytes
+        self.retorno = retorno
+        self.argtypes = None
+        self.restype = None
+
+    def __call__(self, ponteiro):
+        if self.retorno:
+            ponteiro._obj.ullTotalPhys = self.total_bytes
+        return self.retorno
+
+
+def _kernel32_falso(monkeypatch, funcao) -> None:
+    import ctypes
+
+    kernel = type("Kernel32Falso", (), {"GlobalMemoryStatusEx": funcao})()
+    monkeypatch.setattr(maquina.os, "name", "nt")
+    monkeypatch.setattr(ctypes, "WinDLL", lambda _n, **_k: kernel)
+
+
+def test_ram_lida_do_windows(monkeypatch):
+    _kernel32_falso(monkeypatch, _GlobalMemoryStatusExFalso(8 * 1024**3))
+    assert maquina._ram_total_mb() == 8 * 1024
+
+
+def test_api_do_windows_recusando_vale_ram_desconhecida(monkeypatch):
+    _kernel32_falso(monkeypatch, _GlobalMemoryStatusExFalso(8 * 1024**3, retorno=0))
+    assert maquina._ram_total_mb() == 0
+
+
+def test_ctypes_indisponivel_vale_ram_desconhecida(monkeypatch):
+    import ctypes
+
+    def _explode(*_a, **_k):
+        raise OSError("simulado: kernel32 inacessível")
+
+    monkeypatch.setattr(maquina.os, "name", "nt")
+    monkeypatch.setattr(ctypes, "WinDLL", _explode)
+    assert maquina._ram_total_mb() == 0
+
+
+def test_ram_lida_no_posix(monkeypatch):
+    """Ramo usado ao rodar o app em dev fora do Windows."""
+    monkeypatch.setattr(maquina.os, "name", "posix")
+    monkeypatch.setattr(
+        maquina.os, "sysconf",
+        lambda chave: 4096 if chave == "SC_PAGE_SIZE" else 512 * 1024,
+        raising=False,
+    )
+    assert maquina._ram_total_mb() == 2048
+
+
+def test_posix_sem_sysconf_vale_ram_desconhecida(monkeypatch):
+    monkeypatch.setattr(maquina.os, "name", "posix")
+    monkeypatch.delattr(maquina.os, "sysconf", raising=False)
+    assert maquina._ram_total_mb() == 0
+
+
+def test_perfil_propaga_ram_desconhecida(monkeypatch):
+    """0 MB chega intacto ao perfil; quem decide que isso NÃO é máquina fraca é
+    a classificação (ver test_ram_desconhecida_nao_conta_como_fraca)."""
+    monkeypatch.setattr(maquina, "_ram_total_mb", lambda: 0)
+    p = perfil_maquina()
+    assert p.ram_total_mb == 0 and p.nucleos >= 1

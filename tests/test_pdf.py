@@ -317,3 +317,256 @@ def test_lote_sem_conversor_levanta(tmp_path):
 
 def test_lote_vazio_nao_faz_nada():
     assert pdf.converter_lote_para_pdf([]) == ([], [])
+
+
+def test_lote_sem_word_vai_direto_ao_outro_conversor(tmp_path, monkeypatch):
+    """Máquina só com LibreOffice: nada de Word é chamado, e os PDFs saem."""
+    _forjar(word=False, soffice=r"C:\LO\soffice.exe")
+    docs = [tmp_path / f"p{i}.docx" for i in range(2)]
+    for d in docs:
+        d.write_bytes(b"PK\x03\x04")
+
+    def _lote_word_proibido(*_a, **_k):
+        raise AssertionError("não pode tentar o Word numa máquina sem Word")
+
+    def libre_ok(p):
+        saida = p.with_suffix(".pdf")
+        saida.write_bytes(b"%PDF-1.4")
+        return saida
+
+    monkeypatch.setattr(pdf, "_lote_word", _lote_word_proibido)
+    monkeypatch.setitem(pdf._FUNCAO, "libreoffice", libre_ok)
+
+    avisos: list[str] = []
+    pdfs, erros = pdf.converter_lote_para_pdf(docs, log=avisos.append)
+    assert {p.stem for p in pdfs} == {"p0", "p1"}
+    assert not erros
+    assert sum("PDF:" in a for a in avisos) == 2
+
+
+# ---------------------------------------------------------------------
+# Detecção: os desfechos degradados
+# ---------------------------------------------------------------------
+def test_pywin32_ausente_nao_derruba_a_deteccao(monkeypatch):
+    """Rodando do código-fonte fora do bundle o pywin32 pode não existir; isso é
+    "sem Word", não uma exceção subindo pelo caminho de abertura."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "win32com.client", None)  # import -> ImportError
+    assert pdf._pywin32_ok() is False
+
+
+def test_registro_ilegivel_e_tratado_como_sem_word(monkeypatch):
+    """Erro inesperado do winreg (não OSError) não pode virar traceback: sem
+    certeza de que há Word, o certo é seguir para o LibreOffice."""
+    import winreg
+
+    monkeypatch.setattr(pdf, "_pywin32_ok", lambda: True)
+    monkeypatch.setattr(winreg, "OpenKey", lambda *_a, **_k: (_ for _ in ()).throw(ValueError("registro corrompido")))
+    pdf.limpar_memo()
+    assert pdf.word_instalado() is False
+
+
+def test_libreoffice_encontrado_fora_do_path(monkeypatch, tmp_path):
+    """Instalação padrão do LibreOffice não põe o soffice no PATH."""
+    import shutil
+
+    soffice = tmp_path / "soffice.exe"
+    soffice.write_bytes(b"")
+    monkeypatch.setattr(shutil, "which", lambda _n: None)
+    monkeypatch.setattr(pdf, "_CAMINHOS_SOFFICE", (r"Z:\nao\existe.exe", str(soffice)))
+    pdf.limpar_memo()
+    assert pdf.caminho_libreoffice() == str(soffice)
+
+
+def test_converter_com_libreoffice_sem_o_programa_levanta(tmp_path):
+    _forjar(word=False, soffice=None)
+    with pytest.raises(RuntimeError, match="LibreOffice não encontrado"):
+        pdf._converter_com_libreoffice(tmp_path / "peticao.docx")
+
+
+# ---------------------------------------------------------------------
+# Word via COM — dublês de pythoncom/win32com
+#
+# Estes caminhos rodam em TODA geração de PDF na máquina do escritório e nunca
+# tiveram teste: um `doc` não fechado ou um Word não encerrado deixa WINWORD.EXE
+# pendurado consumindo memória, que é exatamente o que dói na máquina fraca.
+# ---------------------------------------------------------------------
+class _DocFalso:
+    def __init__(self, caminho, falhar=False):
+        self.caminho = caminho
+        self.falhar = falhar
+        self.salvo_em = None
+        self.formato = None
+        self.fechado = False
+
+    def SaveAs(self, destino, FileFormat=None):  # noqa: N803 - assinatura do COM
+        if self.falhar:
+            raise RuntimeError("COM error -2147221005")
+        self.salvo_em = destino
+        self.formato = FileFormat
+
+    def Close(self, SaveChanges=None):  # noqa: N803 - assinatura do COM
+        self.fechado = True
+
+
+class _DocumentsFalso:
+    def __init__(self, dono):
+        self._dono = dono
+
+    def Open(self, caminho):  # noqa: N802 - assinatura do COM
+        doc = _DocFalso(caminho, falhar=Path(caminho).name in self._dono.falham)
+        self._dono.abertos.append(doc)
+        return doc
+
+
+class _WordFalso:
+    def __init__(self, falham=(), quit_falha=False):
+        self.falham = set(falham)
+        self.abertos: list[_DocFalso] = []
+        self.Documents = _DocumentsFalso(self)
+        self.Visible = None
+        self.DisplayAlerts = None
+        self.encerrado = 0
+        self._quit_falha = quit_falha
+
+    def Quit(self, SaveChanges=None):  # noqa: N803 - assinatura do COM
+        self.encerrado += 1
+        if self._quit_falha:
+            raise RuntimeError("Word já morreu")
+
+
+@pytest.fixture
+def com_falso(monkeypatch):
+    """Instala dublês de `pythoncom` e `win32com.client`. Devolve o estado."""
+    import sys
+    import types
+
+    estado = {"co_init": 0, "co_uninit": 0, "dispatch": [], "word": None,
+              "uninit_falha": False}
+
+    pythoncom = types.ModuleType("pythoncom")
+    pythoncom.CoInitialize = lambda: estado.__setitem__("co_init", estado["co_init"] + 1)
+
+    def _co_uninit():
+        estado["co_uninit"] += 1
+        if estado["uninit_falha"]:
+            raise RuntimeError("CoUninitialize falhou")
+
+    pythoncom.CoUninitialize = _co_uninit
+
+    win32com = types.ModuleType("win32com")
+    client = types.ModuleType("win32com.client")
+
+    def _dispatch(progid):
+        estado["dispatch"].append(progid)
+        if estado["word"] is None:
+            estado["word"] = _WordFalso()
+        return estado["word"]
+
+    client.Dispatch = _dispatch
+    win32com.client = client
+
+    monkeypatch.setitem(sys.modules, "pythoncom", pythoncom)
+    monkeypatch.setitem(sys.modules, "win32com", win32com)
+    monkeypatch.setitem(sys.modules, "win32com.client", client)
+    return estado
+
+
+def test_converter_com_word_salva_em_pdf_e_encerra(tmp_path, com_falso):
+    docx = tmp_path / "peticao.docx"
+    docx.write_bytes(b"PK\x03\x04")
+
+    saida = pdf._converter_com_word(docx)
+
+    word = com_falso["word"]
+    assert saida == docx.with_suffix(".pdf")
+    assert com_falso["dispatch"] == ["Word.Application"]
+    assert word.Visible is False and word.DisplayAlerts is False
+    assert word.abertos[0].formato == 17, "17 = wdFormatPDF"
+    assert word.abertos[0].fechado, "documento ficou aberto no Word"
+    assert word.encerrado == 1, "WINWORD.EXE ficaria pendurado"
+    assert com_falso["co_init"] == 1 and com_falso["co_uninit"] == 1
+
+
+def test_falha_na_conversao_ainda_fecha_documento_e_word(tmp_path, com_falso):
+    """O desfecho que enche a máquina de WINWORD.EXE: erro no meio da conversão."""
+    docx = tmp_path / "quebrado.docx"
+    docx.write_bytes(b"PK\x03\x04")
+    com_falso["word"] = _WordFalso(falham={"quebrado.docx"})
+
+    with pytest.raises(RuntimeError):
+        pdf._converter_com_word(docx)
+
+    word = com_falso["word"]
+    assert word.abertos[0].fechado
+    assert word.encerrado == 1
+    assert com_falso["co_uninit"] == 1
+
+
+def test_quit_e_couninitialize_quebrados_nao_mascaram_o_resultado(tmp_path, com_falso):
+    """Limpeza é best-effort: se o Word já morreu, o PDF gerado continua válido."""
+    docx = tmp_path / "peticao.docx"
+    docx.write_bytes(b"PK\x03\x04")
+    com_falso["word"] = _WordFalso(quit_falha=True)
+    com_falso["uninit_falha"] = True
+
+    assert pdf._converter_com_word(docx) == docx.with_suffix(".pdf")
+
+
+def test_lote_word_abre_o_word_uma_vez_para_todos(tmp_path, com_falso):
+    docs = [tmp_path / f"p{i}.docx" for i in range(4)]
+    for d in docs:
+        d.write_bytes(b"PK\x03\x04")
+
+    pdfs: list[Path] = []
+    avisos: list[str] = []
+    pendentes = pdf._lote_word(docs, pdfs, log=avisos.append)
+
+    assert com_falso["dispatch"] == ["Word.Application"], "abriu o Word mais de uma vez"
+    assert com_falso["co_init"] == 1 and com_falso["co_uninit"] == 1
+    assert len(pdfs) == 4 and not pendentes
+    assert com_falso["word"].encerrado == 1
+    assert all(d.fechado for d in com_falso["word"].abertos)
+
+
+def test_lote_word_devolve_pendentes_para_o_proximo_conversor(tmp_path, com_falso):
+    docs = [tmp_path / n for n in ("ok.docx", "ruim.docx", "ok2.docx")]
+    for d in docs:
+        d.write_bytes(b"PK\x03\x04")
+    com_falso["word"] = _WordFalso(falham={"ruim.docx"})
+
+    pdfs: list[Path] = []
+    avisos: list[str] = []
+    pendentes = pdf._lote_word(docs, pdfs, log=avisos.append)
+
+    assert {p.stem for p in pdfs} == {"ok", "ok2"}
+    assert [p.name for p, _ in pendentes] == ["ruim.docx"]
+    assert "Microsoft Word" in pendentes[0][1]
+    assert any("tentando outro conversor" in a for a in avisos)
+    assert com_falso["word"].encerrado == 1, "uma falha isolada não pode deixar o Word aberto"
+
+
+def test_lote_com_word_moribundo_ainda_entrega_os_pdfs(tmp_path, com_falso):
+    """Word que morre no Quit (ou COM que recusa o CoUninitialize) não pode
+    transformar um lote bem convertido em erro."""
+    docx = tmp_path / "peticao.docx"
+    docx.write_bytes(b"PK\x03\x04")
+    com_falso["word"] = _WordFalso(quit_falha=True)
+    com_falso["uninit_falha"] = True
+
+    pdfs: list[Path] = []
+    assert pdf._lote_word([docx], pdfs) == []
+    assert pdfs == [docx.with_suffix(".pdf")]
+
+
+def test_lote_completo_com_word_real_de_mentira(tmp_path, com_falso):
+    """Ponta a ponta de `converter_lote_para_pdf` pelo caminho do Word."""
+    _forjar(word=True, soffice=None)
+    docs = [tmp_path / f"p{i}.docx" for i in range(3)]
+    for d in docs:
+        d.write_bytes(b"PK\x03\x04")
+
+    pdfs, erros = pdf.converter_lote_para_pdf(docs)
+    assert len(pdfs) == 3 and not erros
+    assert com_falso["dispatch"] == ["Word.Application"]

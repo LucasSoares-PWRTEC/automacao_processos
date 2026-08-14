@@ -95,3 +95,37 @@ def test_campos_none_nao_estouram():
     textos = indexar_para_filtro(procs)
     assert filtrar_processos_indexado(procs, textos, "qualquer") == []
     assert filtrar_processos_indexado(procs, textos, "") == procs
+
+
+def test_linhas_da_tree_funcionam_para_resumo_e_para_processo():
+    """`linhas_tree_processos` recebe as duas formas: o ResumoProcesso (lista da
+    aba Pesquisa) e o Processo completo. O prazo vem de campos diferentes em
+    cada uma, e uma delas não tem `partes`."""
+    from organizador.models import Parte, Prazo, Processo
+    from organizador.pesquisa import linhas_tree_processos
+
+    resumo = ResumoProcesso(
+        numero="1001234-56.2025.8.26.0100", classe="Execução",
+        autor="Autor R", reu="Réu R", prazo_fim="10/03/2026",
+    )
+    completo = Processo(
+        numero="2005678-90.2024.8.13.0024", classe="Monitória",
+        partes=[Parte(papel="EXEQUENTE", nome="Autor P"),
+                Parte(papel="EXECUTADO", nome="Réu P")],
+        prazos_abertos=[Prazo(parte_nome="Réu P", inicio="01/03/2026", fim="15/03/2026")],
+    )
+
+    (_id_r, valores_r, _tag_r), (_id_c, valores_c, _tag_c) = linhas_tree_processos(
+        [resumo, completo]
+    )
+    assert valores_r[2:4] == ("Autor R", "Réu R")
+    assert valores_r[-1] == "10/03/2026", "prazo do ResumoProcesso não chegou à coluna"
+    assert valores_c[2:4] == ("Autor P", "Réu P")
+    assert valores_c[-1] == "15/03/2026", "prazo do Processo completo não chegou à coluna"
+
+
+def test_resumo_sem_prazo_fica_em_branco():
+    from organizador.pesquisa import _prazo_de
+
+    assert _prazo_de(ResumoProcesso(numero="1", prazo_fim="")) == ""
+    assert _prazo_de(ResumoProcesso(numero="1", prazo_fim="10/03/2026")) == "10/03/2026"

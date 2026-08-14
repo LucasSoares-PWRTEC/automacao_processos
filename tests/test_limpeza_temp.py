@@ -9,15 +9,24 @@ nas máquinas fracas, que têm disco pequeno.
 
 Requisitos de SEGURANÇA (mais importantes que a limpeza em si):
   - nunca apagar a pasta do processo atual (derrubaria o app em execução);
-  - nunca falhar por causa de pasta em uso por outra instância viva;
+  - nunca tocar na pasta de outra instância viva (era o bug: o rmtree não
+    "falha" nela, apaga tudo que não está travado e deixa só as DLLs);
   - nunca propagar exceção (roda no caminho de abertura).
+
+O fim deste arquivo cobre o alarme que torna o estrago audível caso ele volte a
+acontecer por outro caminho: dados do bundle ausentes no _MEIPASS.
 """
 
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-from organizador.gui import _limpar_temp_orfaos
+import pytest
+
+from organizador.gui import (
+    _dados_do_bundle_faltando, _limpar_temp_orfaos, _mei_em_uso,
+)
 
 
 def _criar_mei(raiz, nome: str, com_arquivo: bool = True):
@@ -65,27 +74,66 @@ def test_ignora_o_que_nao_e_mei(monkeypatch, tmp_path):
     assert not mei.exists()
 
 
-def test_pasta_travada_e_contabilizada_como_nao_removida(monkeypatch, tmp_path):
-    """Instância viva de outra sessão: o rmtree falha e a pasta FICA — sem
-    exceção e sem contar como removida (foi o que aconteceu na verificação
-    manual: 6 pastas em uso por processos vivos, 0 removidas)."""
+def _mei_com_dll_carregada(raiz, nome: str):
+    """Um ``_MEI`` de instância VIVA: DLL de verdade carregada neste processo
+    (o Windows trava a imagem) + os dados que o app lê de ``_MEIPASS``."""
+    import ctypes
+    import shutil as _shutil
+
+    origem = Path(sys.base_prefix) / "vcruntime140.dll"
+    if not origem.exists():
+        candidatas = sorted(Path(sys.base_prefix).glob("*.dll"))
+        if not candidatas:
+            pytest.skip("nenhuma DLL disponível para simular instância viva")
+        origem = candidatas[0]
+
+    d = raiz / nome
+    d.mkdir(parents=True)
+    _shutil.copy2(origem, d / origem.name)
+    (d / "Petições").mkdir()
+    (d / "Petições" / "modelo.docx").write_bytes(b"docx")
+    (d / "data").mkdir()
+    (d / "data" / "processos_base.sqlite").write_bytes(b"sqlite")
+    (d / "config").mkdir()
+    (d / "config" / "credenciais.json").write_text("{}", encoding="utf-8")
+    handle = ctypes.CDLL(str(d / origem.name))  # mantém a DLL carregada
+    return d, handle
+
+
+def test_nao_toca_na_pasta_de_outra_instancia_viva(monkeypatch, tmp_path):
+    """O bug que motivou a sonda: ``rmtree(ignore_errors=True)`` NÃO "falha" numa
+    pasta em uso — ele apaga tudo que não está travado e deixa só as DLLs. A
+    instância viva perdia Petições/, data/ e config/ (que moram em _MEIPASS) e
+    passava a abrir sem modelos e sem os processos pré-carregados, em silêncio.
+
+    Este teste usa uma DLL REAL carregada; mockar o rmtree (como a versão
+    anterior fazia) provava só que o mock funcionava."""
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
     monkeypatch.delattr(sys, "_MEIPASS", raising=False)
-    travada = _criar_mei(tmp_path, "_MEI_TRAVADA")
+    viva, _handle = _mei_com_dll_carregada(tmp_path, "_MEI_VIVA")
     livre = _criar_mei(tmp_path, "_MEI_LIVRE")
 
-    import shutil
-    real = shutil.rmtree
-
-    def rmtree_falso(caminho, *a, **k):
-        if "TRAVADA" in str(caminho):
-            return  # ignore_errors=True: falha silenciosa, igual ao WinError 5
-        return real(caminho, *a, **k)
-
-    monkeypatch.setattr(shutil, "rmtree", rmtree_falso)
     assert _limpar_temp_orfaos() == 1
-    assert travada.exists()
     assert not livre.exists()
+    assert viva.exists(), "apagou a pasta de uma instância viva"
+    assert (viva / "Petições" / "modelo.docx").exists(), "apagou os modelos de petição"
+    assert (viva / "data" / "processos_base.sqlite").exists(), "apagou a base embutida"
+    assert (viva / "config" / "credenciais.json").exists(), "apagou a config do escritório"
+
+
+def test_sonda_distingue_pasta_viva_de_orfa(monkeypatch, tmp_path):
+    viva, _handle = _mei_com_dll_carregada(tmp_path, "_MEI_VIVA")
+    orfa = _criar_mei(tmp_path, "_MEI_ORFA")  # .pyd falso, ninguém carregou
+    assert _mei_em_uso(str(viva)) is True
+    assert _mei_em_uso(str(orfa)) is False
+
+
+def test_sonda_ignora_pasta_sem_binarios(tmp_path):
+    """Sem binário nenhum não há o que travar: é órfã e pode ir embora."""
+    d = tmp_path / "_MEI_SO_DADOS"
+    (d / "config").mkdir(parents=True)
+    (d / "config" / "credenciais.json").write_text("{}", encoding="utf-8")
+    assert _mei_em_uso(str(d)) is False
 
 
 def test_temp_inacessivel_nao_levanta(monkeypatch, tmp_path):
@@ -98,3 +146,58 @@ def test_temp_vazio(monkeypatch, tmp_path):
     monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
     monkeypatch.delattr(sys, "_MEIPASS", raising=False)
     assert _limpar_temp_orfaos() == 0
+
+
+# ---------------------------------------------------------------------------
+# Alarme: dados do bundle sumiram do _MEIPASS
+# ---------------------------------------------------------------------------
+# Perder Petições/ ou a base SQLite não gera erro nenhum: a lista de modelos
+# aparece vazia, nenhum campo é preenchido e os processos pré-carregados somem.
+# O app parece "bugado" sem dizer por quê. Estes testes garantem que ele diz.
+
+
+@pytest.fixture
+def bundle(monkeypatch, tmp_path):
+    """Simula o app empacotado com um _MEIPASS completo."""
+    import organizador.gui as gui
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    peticoes = tmp_path / "Petições"
+    (peticoes / "Alvará").mkdir(parents=True)
+    (peticoes / "Alvará" / "modelo.docx").write_bytes(b"docx")
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "processos_base.sqlite").write_bytes(b"sqlite")
+    (tmp_path / "config").mkdir()
+    monkeypatch.setattr(gui, "PASTA_PETICOES", peticoes)
+    monkeypatch.setattr(gui, "PROCESSOS_BASE_JSON", tmp_path / "data" / "processos_base.json.gz")
+    monkeypatch.setattr(gui, "CONFIG_SEMENTE_DIR", tmp_path / "config")
+    return tmp_path
+
+
+def test_bundle_completo_nao_reclama(bundle):
+    assert _dados_do_bundle_faltando() == []
+
+
+def test_modelos_apagados_sao_denunciados(bundle):
+    (bundle / "Petições" / "Alvará" / "modelo.docx").unlink()
+    assert any("modelos" in item for item in _dados_do_bundle_faltando())
+
+
+def test_base_embutida_apagada_e_denunciada(bundle):
+    (bundle / "data" / "processos_base.sqlite").unlink()
+    assert any("pré-carregados" in item for item in _dados_do_bundle_faltando())
+
+
+def test_bundle_inteiro_apagado_lista_tudo(bundle):
+    import shutil
+
+    shutil.rmtree(bundle / "Petições")
+    (bundle / "data" / "processos_base.sqlite").unlink()
+    shutil.rmtree(bundle / "config")
+    assert len(_dados_do_bundle_faltando()) == 3
+
+
+def test_modo_fonte_nunca_reclama(monkeypatch):
+    """Rodando do código-fonte não existe bundle: a checagem não se aplica."""
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    assert _dados_do_bundle_faltando() == []

@@ -152,3 +152,125 @@ def test_carregar_processo_completo_embutido(tmp_path):
 def test_carregar_processo_completo_arquivo_sumido_retorna_none(tmp_path):
     r = ResumoProcesso(numero="999", origem=str(tmp_path / "nao_existe" / "metadados.json"))
     assert carregar_processo_completo(r) is None
+
+
+# ---------------------------------------------------------------------
+# Desfechos degradados
+#
+# Esta é a carga da aba Pesquisa: roda na abertura, sobre 3.000+ pastas que o
+# usuário mexe à mão. Uma pasta sem metadados.json, um JSON truncado ou um
+# índice que não pôde ser gravado não podem derrubar a lista inteira.
+# ---------------------------------------------------------------------
+def test_pasta_sem_metadados_e_pulada(tmp_path):
+    base, online, gz, idx = _cenario(tmp_path)
+    _gravar_meta(base, Processo(numero="111", classe="Boa"))
+    (base / "pasta_solta").mkdir()                    # sem metadados.json
+    (base / "arquivo_solto.txt").write_text("x", encoding="utf-8")  # nem é pasta
+    _gravar_gz(gz, [])
+
+    resumos = carregar_resumos_pesquisa(base, online, gz, idx)
+    assert [r.numero for r in resumos] == ["111"]
+
+
+def test_metadados_corrompido_nao_derruba_a_lista(tmp_path):
+    base, online, gz, idx = _cenario(tmp_path)
+    _gravar_meta(base, Processo(numero="111", classe="Boa"))
+    ruim = base / "222"
+    ruim.mkdir()
+    (ruim / "metadados.json").write_text("{ isto não é JSON", encoding="utf-8")
+    _gravar_gz(gz, [])
+
+    resumos = carregar_resumos_pesquisa(base, online, gz, idx)
+    assert [r.numero for r in resumos] == ["111"]
+
+
+def test_pasta_base_inexistente_nao_levanta(tmp_path):
+    base, online, gz, idx = _cenario(tmp_path)
+    _gravar_gz(gz, [])
+    assert carregar_resumos_pesquisa(tmp_path / "nunca_existiu", online, gz, idx) == []
+
+
+def test_indice_ilegivel_nao_impede_a_carga(tmp_path):
+    """ui_state/índice corrompido: recomeça do zero em vez de travar a abertura."""
+    base, online, gz, idx = _cenario(tmp_path)
+    _gravar_meta(base, Processo(numero="111", classe="Boa"))
+    _gravar_gz(gz, [])
+    idx.write_text("lixo que não é json", encoding="utf-8")
+
+    resumos = carregar_resumos_pesquisa(base, online, gz, idx)
+    assert [r.numero for r in resumos] == ["111"]
+
+
+def test_falha_ao_gravar_o_indice_e_silenciosa(tmp_path, monkeypatch):
+    """O índice é só cache: não poder gravá-lo custa desempenho, não a lista."""
+    base, online, gz, idx = _cenario(tmp_path)
+    _gravar_meta(base, Processo(numero="111", classe="Boa"))
+    _gravar_gz(gz, [])
+    monkeypatch.setattr(
+        "organizador.indice_processos.os.replace",
+        lambda *_a, **_k: (_ for _ in ()).throw(OSError("simulado: disco cheio")),
+    )
+    resumos = carregar_resumos_pesquisa(base, online, gz, idx)
+    assert [r.numero for r in resumos] == ["111"]
+
+
+def test_snapshot_ausente_deixa_so_o_que_ha_em_disco(tmp_path):
+    """Sem .sqlite e sem .json.gz (o estrago da limpeza do _MEI): os processos
+    do disco continuam aparecendo."""
+    base, online, gz, idx = _cenario(tmp_path)
+    _gravar_meta(base, Processo(numero="111", classe="Boa"))
+    resumos = carregar_resumos_pesquisa(base, online, tmp_path / "nao_existe.gz", idx)
+    assert [r.numero for r in resumos] == ["111"]
+
+
+def test_ultima_movimentacao_aceita_dict_do_scraper(tmp_path):
+    """O scraper devolve {data, descricao}; o metadados.json guarda string."""
+    from organizador.indice_processos import _resumo_de_dict
+
+    r = _resumo_de_dict(
+        {"numero": "111", "ultima_movimentacao": {"data": "01/02/2026", "descricao": "Juntada"}},
+        "base", "origem",
+    )
+    assert r.ultima_movimentacao == "01/02/2026 — Juntada"
+
+
+def test_ultima_movimentacao_dict_vazio_nao_deixa_travessao_solto():
+    from organizador.indice_processos import _ultima_mov_str
+
+    assert _ultima_mov_str({}) == ""
+    assert _ultima_mov_str({"data": "01/02/2026"}) == "01/02/2026"
+    assert _ultima_mov_str(None) == ""
+
+
+def test_processo_completo_sem_snapshot_devolve_none():
+    """Resumo embutido, mas o chamador não informou a base: None, não exceção."""
+    r = ResumoProcesso(numero="333", origem=ORIGEM_EMBUTIDO)
+    assert carregar_processo_completo(r) is None
+
+
+def test_processo_embutido_inexistente_devolve_none(tmp_path):
+    base, online, gz, idx = _cenario(tmp_path)
+    _gravar_gz(gz, [Processo(numero="333", classe="snapshot")])
+    carregar_resumos_pesquisa(base, online, gz, idx)
+    r = ResumoProcesso(numero="000-nao-existe", origem=ORIGEM_EMBUTIDO)
+    assert carregar_processo_completo(r, gz) is None
+
+
+def test_mapa_embutido_e_memoizado_por_mtime(tmp_path):
+    """Sem o memo, cada clique num processo embutido reparsearia o snapshot."""
+    from organizador import indice_processos as ip
+
+    gz = tmp_path / "snapshot.json.gz"
+    _gravar_gz(gz, [Processo(numero="333", classe="snapshot")])
+    ip._embutido_cache.update(path=None, mtime=None, mapa={})
+
+    primeiro = ip._mapa_embutido(gz)
+    segundo = ip._mapa_embutido(gz)
+    assert primeiro is segundo, "reparseou o snapshot inteiro de novo"
+    assert "333" in primeiro
+
+
+def test_mapa_embutido_sem_arquivo_e_vazio(tmp_path):
+    from organizador import indice_processos as ip
+
+    assert ip._mapa_embutido(tmp_path / "nao_existe.json.gz") == {}

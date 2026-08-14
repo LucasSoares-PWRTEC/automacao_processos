@@ -26,8 +26,8 @@ from organizador import __version__
 
 from . import atualizacao
 from .config import (
-    APP_DATA_DIR, CAMINHO_ICONE, OAB_ESCRITORIO_POR_UF, PASTA_PADRAO,
-    PASTA_PETICOES, PROCESSOS_BASE_JSON, PROCESSOS_INDICE_JSON,
+    APP_DATA_DIR, CAMINHO_ICONE, CONFIG_SEMENTE_DIR, OAB_ESCRITORIO_POR_UF,
+    PASTA_PADRAO, PASTA_PETICOES, PROCESSOS_BASE_JSON, PROCESSOS_INDICE_JSON,
     PROCESSOS_ONLINE_DIR, TEMPLATES_CACHE_PATH, TJ_SISTEMAS, UI_STATE_PATH,
     semear_config, sugerir_tj_para_uf, uf_efetiva_tj,
 )
@@ -130,7 +130,7 @@ from .pesquisa import (
     filtrar_processos_indexado, indexar_para_filtro, linhas_tree_processos,
 )
 from .indice_processos import (
-    ResumoProcesso, _resumo_de_processo,
+    ResumoProcesso, _resumo_de_processo, caminho_sqlite,
     carregar_processo_completo, carregar_resumos_pesquisa,
 )
 from .integracoes.tjsp_scraper.credenciais import listar_credenciais, salvar_credenciais
@@ -3987,6 +3987,44 @@ class App(ttk.Window):
         atualizacao.verificar(self, auto=False)
 
 
+# Extensões cuja IMAGEM o Windows trava enquanto um processo as tem carregadas.
+_EXT_BINARIAS = (".dll", ".pyd", ".exe")
+
+
+def _mei_em_uso(caminho: str) -> bool:
+    """True se algum binário de `caminho` ainda está carregado por um processo.
+
+    POR QUE ESTA SONDA EXISTE
+    -------------------------
+    A versão anterior confiava em ``rmtree(..., ignore_errors=True)`` "falhar"
+    numa pasta em uso. Ele NÃO falha: apaga tudo que não está travado e só
+    preserva as DLLs carregadas. Medido aqui — de um ``_MEI`` de instância viva
+    sobrou só a DLL; ``Petições/``, ``data/processos_base.sqlite`` e ``config/``
+    foram apagados. Como esses arquivos ficam em ``_MEIPASS``, a instância aberta
+    perdia os modelos (nada para preencher) e a base embutida (os processos
+    pré-carregados sumiam da lista) sem uma única mensagem de erro.
+
+    O Windows trava a imagem de um .dll/.pyd CARREGADO: abrir para escrita dá
+    PermissionError. É o sinal confiável. Renomear não serve de sonda — o
+    Windows permite renomear tanto a pasta quanto a própria DLL carregada (é
+    justamente disso que a auto-atualização depende, ver atualizacao.py).
+    """
+    for raiz_dir, _dirs, arquivos in os.walk(caminho):
+        for nome in arquivos:
+            if not nome.lower().endswith(_EXT_BINARIAS):
+                continue
+            try:
+                with open(os.path.join(raiz_dir, nome), "r+b"):
+                    pass
+            except PermissionError:
+                # Travado. Na dúvida (ex.: arquivo só-leitura por outro motivo)
+                # o erro é para o lado seguro: sobra lixo, não some dado vivo.
+                return True
+            except OSError:
+                continue      # sumiu no meio do caminho: não conclui nada
+    return False
+
+
 def _limpar_temp_orfaos() -> int:
     """Apaga pastas ``_MEI*`` órfãs no %TEMP%. Devolve quantas foram removidas.
 
@@ -3996,9 +4034,10 @@ def _limpar_temp_orfaos() -> int:
     limpeza. O lixo acumula (16 pastas foram encontradas nesta máquina), o que
     dói justamente nas máquinas fracas, que costumam ter disco pequeno.
 
-    Best-effort e seguro: a pasta em uso pelo processo ATUAL é preservada, e as
-    de outros processos vivos falham no rmtree (arquivos travados) e são
-    ignoradas — nunca derrubamos uma instância aberta."""
+    Só apaga o que está comprovadamente órfão: a pasta do processo ATUAL é
+    pulada por caminho, e as das outras instâncias vivas são puladas pela sonda
+    ``_mei_em_uso``. Não há corrida com uma instância que esteja abrindo agora:
+    o bootloader sempre cria um ``_MEI`` NOVO, nunca reaproveita um existente."""
     import shutil
     import tempfile
 
@@ -4015,6 +4054,8 @@ def _limpar_temp_orfaos() -> int:
                 continue
             if atual_norm and os.path.normcase(os.path.abspath(caminho)) == atual_norm:
                 continue
+            if _mei_em_uso(caminho):
+                continue
             antes = os.path.isdir(caminho)
             shutil.rmtree(caminho, ignore_errors=True)
             if antes and not os.path.isdir(caminho):
@@ -4022,6 +4063,44 @@ def _limpar_temp_orfaos() -> int:
     except OSError:
         pass
     return removidas
+
+
+def _dados_do_bundle_faltando() -> list[str]:
+    """Itens embutidos na release que sumiram do ``_MEIPASS``. Vazio = tudo certo.
+
+    Só faz sentido no .exe. Existe porque a perda desses arquivos é MUDA: sem
+    ``Petições/`` a lista de modelos aparece vazia e nenhum campo é preenchido;
+    sem a base SQLite os processos pré-carregados somem da aba Pesquisa. Nos dois
+    casos o app abre com cara de são, e o usuário conclui que "o programa bugou".
+    Foi exatamente o que a limpeza de ``_MEI*`` provocava ao rodar com duas
+    instâncias abertas (ver ``_mei_em_uso``)."""
+    if not getattr(sys, "frozen", False):
+        return []
+    faltando: list[str] = []
+    if not PASTA_PETICOES.is_dir() or not any(PASTA_PETICOES.rglob("*.docx")):
+        faltando.append("os modelos de petição (Petições/)")
+    if not caminho_sqlite(Path(PROCESSOS_BASE_JSON)).is_file():
+        faltando.append("a base de processos pré-carregados")
+    if not CONFIG_SEMENTE_DIR.is_dir():
+        faltando.append("a configuração do escritório (config/)")
+    return faltando
+
+
+def _avisar_bundle_incompleto(app: "App") -> None:
+    """Registra e avisa o usuário quando o bundle chegou/ficou incompleto."""
+    faltando = _dados_do_bundle_faltando()
+    if not faltando:
+        return
+    lista = "\n".join(f"  • {item}" for item in faltando)
+    atualizacao.registrar(f"BUNDLE INCOMPLETO: {'; '.join(faltando)}")
+    app._notificar(
+        "Instalação incompleta",
+        "Não encontrei estes itens que vêm dentro do programa:\n\n"
+        f"{lista}\n\n"
+        "Feche TODAS as janelas do Organizador de Processos e abra apenas uma. "
+        "Se continuar, baixe o programa novamente.",
+        nivel="error",
+    )
 
 
 def main() -> None:
@@ -4037,6 +4116,8 @@ def main() -> None:
     _perf("app:construido")
     # Numa thread: é I/O de disco e não pode atrasar o primeiro desenho.
     threading.Thread(target=_limpar_temp_orfaos, daemon=True).start()
+    with contextlib.suppress(Exception):
+        _avisar_bundle_incompleto(app)
     # Pré-login do Autojur em 2º plano, se ligado (aquece a sessão sem travar a
     # GUI; na 1ª vez pede o 2FA por e-mail, depois o perfil persistente pula).
     if bool(app.var_autojur_prelogin.get()):

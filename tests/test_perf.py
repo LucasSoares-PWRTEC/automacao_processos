@@ -80,3 +80,82 @@ def test_rss_reflete_alocacao():
     depois = perf._rss_mb()
     assert depois > antes
     del bloco
+
+
+# ---------------------------------------------------------------------
+# _rss_mb nos desfechos degradados
+#
+# A medição vai para dentro do kernel via ctypes. Se qualquer etapa falhar, a
+# resposta tem de ser 0.0 — nunca uma exceção, porque quem chama é `marca()`,
+# no caminho de abertura do app.
+# ---------------------------------------------------------------------
+def _fake_ctypes(monkeypatch, *, windll_falha=False, resultado=1, rss_bytes=0):
+    """Troca ctypes.WinDLL por um dublê que não fala com o Windows de verdade."""
+    import ctypes
+
+    class _Funcao:
+        def __init__(self, retorno):
+            self._retorno = retorno
+            self.restype = None
+            self.argtypes = None
+
+        def __call__(self, *a):
+            if self._retorno == "handle":
+                return 1
+            if a and hasattr(a[1], "_obj"):
+                a[1]._obj.WorkingSetSize = rss_bytes
+            return resultado
+
+    class _Lib:
+        def __init__(self, nome):
+            self.nome = nome
+
+        def __getattr__(self, atributo):
+            fn = _Funcao("handle" if atributo == "GetCurrentProcess" else resultado)
+            object.__setattr__(self, atributo, fn)
+            return fn
+
+    def _windll(nome, **_k):
+        if windll_falha:
+            raise OSError(f"simulado: {nome} indisponível")
+        return _Lib(nome)
+
+    monkeypatch.setattr(ctypes, "WinDLL", _windll)
+
+
+def test_rss_zero_quando_a_api_do_windows_recusa(monkeypatch):
+    """GetProcessMemoryInfo devolvendo 0 (falso) é falha, não 0 MB de memória."""
+    _fake_ctypes(monkeypatch, resultado=0)
+    assert perf._rss_mb() == 0.0
+
+
+def test_rss_converte_bytes_para_mb(monkeypatch):
+    _fake_ctypes(monkeypatch, resultado=1, rss_bytes=150 * 1024 * 1024)
+    assert perf._rss_mb() == 150.0
+
+
+def test_rss_zero_quando_o_ctypes_explode(monkeypatch):
+    """Máquina sem psapi/kernel32 acessível: 0.0, sem traceback."""
+    _fake_ctypes(monkeypatch, windll_falha=True)
+    assert perf._rss_mb() == 0.0
+
+
+def test_rss_fora_do_windows_usa_o_resource(monkeypatch):
+    """Ramo POSIX — o app roda em dev fora do Windows."""
+    import sys
+    import types
+
+    recurso = types.ModuleType("resource")
+    recurso.RUSAGE_SELF = 0
+    recurso.getrusage = lambda _quem: types.SimpleNamespace(ru_maxrss=64 * 1024)
+    monkeypatch.setitem(sys.modules, "resource", recurso)
+    monkeypatch.setattr(perf.os, "name", "posix")
+    assert perf._rss_mb() == 64.0
+
+
+def test_rss_fora_do_windows_sem_resource_devolve_zero(monkeypatch):
+    import sys
+
+    monkeypatch.setitem(sys.modules, "resource", None)  # import -> ImportError
+    monkeypatch.setattr(perf.os, "name", "posix")
+    assert perf._rss_mb() == 0.0

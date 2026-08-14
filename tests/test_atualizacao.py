@@ -6,9 +6,11 @@ TerminateProcess para trocar o .exe. Agora o próprio app se substitui: baixa a
 nova versão, renomeia A SI MESMO para .old (confirmado ao vivo que o Windows
 permite isso com o processo rodando) e move o download para o nome original.
 
-Este módulo testa a parte determinística (comparação de versão, log, troca de
-arquivo). O download/checagem de release já são cobertos indiretamente pelos
-mesmos handlers de erro do antigo updater — a lógica de rede não mudou.
+Cobre a lógica inteira do módulo: comparação de versão, log, troca do arquivo e
+a camada de rede (checagem da release e download), esta com um dublê no lugar do
+``_opener`` — nada aqui toca a internet. Só a janela Tk fica de fora, como
+gui.py. Ficar sem os testes de rede escondia o cenário mais caro de todos: um
+download truncado virando o Peticoes.exe do usuário.
 """
 
 from __future__ import annotations
@@ -182,3 +184,195 @@ def test_log_fica_junto_do_resto_do_estado_do_app(monkeypatch):
     importlib.reload(C)
     monkeypatch.setattr(atualizacao, "APP_DATA_DIR", C.APP_DATA_DIR)
     assert atualizacao._caminho_log().parent == C.APP_DATA_DIR
+
+
+# ---------------------------------------------------------------------
+# Rede: checagem da release e download do asset.
+#
+# É a camada que decide se uma máquina consegue se atualizar e, pior, se um
+# download truncado pode virar o Peticoes.exe da pessoa. Nenhuma dela toca a
+# rede aqui: o _opener do módulo é substituído por um dublê.
+# ---------------------------------------------------------------------
+import io
+import json as _json
+import threading
+import urllib.error
+
+
+class _Resposta(io.BytesIO):
+    """Mínimo que urlopen devolve: context manager + .headers."""
+
+    def __init__(self, dados: bytes, headers: dict | None = None):
+        super().__init__(dados)
+        self.headers = headers or {}
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_a):
+        self.close()
+        return False
+
+
+class _OpenerFalso:
+    def __init__(self, resultado):
+        self._resultado = resultado
+        self.requisicoes: list = []
+
+    def open(self, req, timeout=None):
+        self.requisicoes.append(req)
+        if isinstance(self._resultado, Exception):
+            raise self._resultado
+        return self._resultado
+
+
+_URL_ASSET = "https://api.github.com/repos/x/y/releases/assets/9"
+
+
+def _release(assets) -> bytes:
+    return _json.dumps({"tag_name": "v2.0.0", "assets": assets}).encode()
+
+
+def _http_error(codigo: int) -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("u", codigo, "erro", {}, None)
+
+
+def _usar_opener(monkeypatch, resultado) -> _OpenerFalso:
+    falso = _OpenerFalso(resultado)
+    monkeypatch.setattr(atualizacao, "_opener", falso)
+    return falso
+
+
+def test_fetch_devolve_tag_url_e_tamanho(monkeypatch):
+    _usar_opener(monkeypatch, _Resposta(_release(
+        [{"name": "outro.zip", "url": "u1", "size": 1},
+         {"name": "Peticoes.exe", "url": "https://api/asset/9", "size": 4242}]
+    )))
+    assert atualizacao.fetch_latest_release() == {
+        "tag": "v2.0.0", "asset_url": "https://api/asset/9", "size": 4242,
+    }
+
+
+def test_fetch_release_sem_o_exe_avisa_quem_publicou(monkeypatch):
+    """Release publicada sem o asset: a máquina não pode ficar tentando à toa."""
+    _usar_opener(monkeypatch, _Resposta(_release([{"name": "leiame.txt", "url": "u"}])))
+    with pytest.raises(atualizacao.AssetMissingError):
+        atualizacao.fetch_latest_release()
+
+
+@pytest.mark.parametrize(
+    "codigo, esperado",
+    [
+        (401, atualizacao.TokenError),      # token expirado -> avisar o responsável
+        (403, atualizacao.TokenError),
+        (404, atualizacao.NoReleaseError),  # nada publicado ainda
+        (500, atualizacao.NetworkError),
+    ],
+)
+def test_erro_http_vira_mensagem_certa(monkeypatch, codigo, esperado):
+    _usar_opener(monkeypatch, _http_error(codigo))
+    with pytest.raises(esperado):
+        atualizacao.fetch_latest_release()
+
+
+def test_sem_internet_nao_vira_traceback(monkeypatch):
+    _usar_opener(monkeypatch, urllib.error.URLError("sem rede"))
+    with pytest.raises(atualizacao.NetworkError):
+        atualizacao.fetch_latest_release()
+
+
+def test_request_leva_token_e_versao_da_api():
+    req = atualizacao._request("https://api/x", "application/json")
+    assert req.get_header("Authorization") == f"Bearer {atualizacao.GITHUB_TOKEN}"
+    assert req.get_header("X-github-api-version") == "2022-11-28"
+
+
+def test_redirect_para_outro_host_derruba_o_authorization():
+    """O GitHub redireciona o asset para uma URL ASSINADA em outro host, que
+    rejeita quem manda Authorization junto — sem isto o download não baixa."""
+    manipulador = atualizacao._AuthStrippingRedirect()
+    req = atualizacao._request("https://api.github.com/asset/1", "application/octet-stream")
+    novo = manipulador.redirect_request(
+        req, None, 302, "Found", {}, "https://objects.githubusercontent.com/x?sig=1",
+    )
+    assert novo.get_header("Authorization") is None
+
+
+def test_redirect_no_mesmo_host_mantem_o_authorization():
+    manipulador = atualizacao._AuthStrippingRedirect()
+    req = atualizacao._request("https://api.github.com/a", "application/octet-stream")
+    novo = manipulador.redirect_request(
+        req, None, 302, "Found", {}, "https://api.github.com/b",
+    )
+    assert novo.get_header("Authorization") is not None
+
+
+def test_download_grava_o_arquivo_e_reporta_progresso(monkeypatch, tmp_path):
+    conteudo = b"x" * (3 * atualizacao.CHUNK)
+    _usar_opener(monkeypatch, _Resposta(conteudo, {"Content-Length": str(len(conteudo))}))
+    destino = tmp_path / "Peticoes.exe.download"
+    progresso: list = []
+
+    atualizacao.download_asset(
+        _URL_ASSET, destino, len(conteudo), lambda d, t: progresso.append((d, t)),
+        threading.Event(),
+    )
+
+    assert destino.read_bytes() == conteudo
+    assert progresso[-1] == (len(conteudo), len(conteudo))
+
+
+def test_download_truncado_nao_vira_o_exe_do_usuario(monkeypatch, tmp_path):
+    """O pior desfecho possível: instalar meio executável. O tamanho declarado
+    pela API é conferido, e o arquivo parcial é apagado."""
+    _usar_opener(monkeypatch, _Resposta(b"meio arquivo"))
+    destino = tmp_path / "Peticoes.exe.download"
+
+    with pytest.raises(atualizacao.DownloadCorruptError):
+        atualizacao.download_asset(_URL_ASSET, destino, 999999, lambda *_: None, threading.Event())
+    assert not destino.exists()
+
+
+def test_download_cancelado_nao_deixa_sobra(monkeypatch, tmp_path):
+    _usar_opener(monkeypatch, _Resposta(b"y" * (2 * atualizacao.CHUNK)))
+    destino = tmp_path / "Peticoes.exe.download"
+    cancelar = threading.Event()
+    cancelar.set()
+
+    with pytest.raises(atualizacao.CancelledError):
+        atualizacao.download_asset(_URL_ASSET, destino, 0, lambda *_: None, cancelar)
+    assert not destino.exists()
+
+
+def test_queda_no_meio_do_download_apaga_o_parcial(monkeypatch, tmp_path):
+    _usar_opener(monkeypatch, urllib.error.URLError("caiu"))
+    destino = tmp_path / "Peticoes.exe.download"
+    with pytest.raises(atualizacao.NetworkError):
+        atualizacao.download_asset(_URL_ASSET, destino, 10, lambda *_: None, threading.Event())
+    assert not destino.exists()
+
+
+def test_erro_http_no_download_tambem_apaga_o_parcial(monkeypatch, tmp_path):
+    _usar_opener(monkeypatch, _http_error(403))
+    destino = tmp_path / "Peticoes.exe.download"
+    with pytest.raises(atualizacao.TokenError):
+        atualizacao.download_asset(_URL_ASSET, destino, 10, lambda *_: None, threading.Event())
+    assert not destino.exists()
+
+
+def test_limpar_sobras_tolera_arquivo_travado(monkeypatch, tmp_path):
+    """Roda em toda abertura: um .old ainda preso pelo processo anterior não
+    pode impedir o app de abrir."""
+    exe = tmp_path / "Peticoes.exe"
+    exe.write_bytes(b"app")
+    monkeypatch.setattr(atualizacao, "_exe_atual", lambda: exe)
+
+    def _unlink_falha(*_a, **_k):
+        raise OSError("simulado: em uso")
+
+    monkeypatch.setattr(atualizacao.Path, "unlink", _unlink_falha)
+    atualizacao.limpar_sobras()  # não levanta
+
+
+def test_tamanho_em_mb_no_formato_brasileiro():
+    assert atualizacao._fmt_mb(55 * 1024 * 1024) == "55,0"
