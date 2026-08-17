@@ -1703,6 +1703,30 @@ class App(ttk.Window):
             font=("Segoe UI", 9, "italic"), foreground="#888",
         ).pack(anchor="w", pady=(2, 0))
 
+        # ── Seção: Manutenção ───────────────────────────────────────────
+        # Existe porque atualizar o programa NÃO limpa o que a máquina guardou
+        # (ver _resetar_dados_locais): sem este botão, consertar uma instalação
+        # com cache errado exige apagar arquivos no %USERPROFILE% na mão.
+        section_manut = ttk.Labelframe(
+            parent, text="  Manutenção  ", bootstyle="default", padding=(12, 8),
+        )
+        section_manut.pack(fill="x", pady=(8, 0))
+        self._btn_reset_dados = ttk.Button(
+            section_manut, text="🧹  Restaurar dados do programa",
+            command=self._restaurar_dados_locais,
+            bootstyle="outline-danger", width=32,
+        )
+        self._btn_reset_dados.pack(anchor="w")
+        ttk.Label(
+            section_manut,
+            text="Apaga o que ESTE computador guardou (processos trazidos por "
+                 "busca online, índice da lista e cache dos modelos) e volta a "
+                 "mostrar só os processos que vêm dentro do programa. Use quando "
+                 "a lista aparecer com dados errados mesmo depois de atualizar. "
+                 "Não mexe nas suas senhas nem nos processos da pasta base.",
+            font=("Segoe UI", 9), foreground="#666", wraplength=900, justify="left",
+        ).pack(anchor="w", pady=(4, 0))
+
         # ── Seção: Sobre / Atualização ──────────────────────────────────
         section_sobre = ttk.Labelframe(
             parent, text="  Sobre  ", bootstyle="default", padding=(12, 8),
@@ -4036,6 +4060,80 @@ class App(ttk.Window):
                 "O detalhe foi gravado em updater.log.",
             )
 
+    # -- restaurar dados do programa ---------------------------------------
+    def _restaurar_dados_locais(self) -> None:
+        """Clique em "Restaurar dados do programa" (aba Configurações).
+
+        Confirma DIZENDO quantos processos somem e o que NÃO é tocado, apaga
+        numa thread (são milhares de pastinhas — numa máquina fraca isso trava
+        a janela por segundos) e recarrega a lista da Pesquisa no fim, para o
+        resultado aparecer sem precisar reabrir o app."""
+        n = _contar_processos_locais()
+        perdidos = (
+            f"{n} processo(s) trazidos por busca online NESTE computador serão "
+            "apagados (dá para buscá-los de novo).\n\n" if n else ""
+        )
+        itens = "\n".join(f"  • {rotulo}" for _c, rotulo in _itens_reset())
+        if not messagebox.askyesno(
+            "Restaurar dados do programa",
+            f"{perdidos}"
+            f"Será apagado desta máquina:\n{itens}\n\n"
+            "NÃO serão tocados: suas senhas e configurações, os processos da "
+            "pasta base e os processos que já vêm dentro do programa — estes "
+            "voltam a aparecer na lista.\n\n"
+            "Continuar?",
+            icon="warning", default="no",
+        ):
+            return
+
+        self._btn_reset_dados.configure(state="disabled")
+        self.var_status.set("Restaurando dados do programa...")
+
+        def run() -> None:
+            apagados, falhas = _resetar_dados_locais()
+            orfaos = _limpar_temp_orfaos()
+            # Tkinter só é seguro na main thread (mesmo padrão de
+            # _reter_debug_scraper).
+            self.after(0, lambda: self._fim_restaurar_dados(apagados, falhas, orfaos))
+
+        threading.Thread(target=run, daemon=True).start()
+
+    def _fim_restaurar_dados(
+        self, apagados: list[str], falhas: list[str], orfaos: int,
+    ) -> None:
+        """Fecha o ciclo do reset, na main thread."""
+        with contextlib.suppress(Exception):
+            self._btn_reset_dados.configure(state="normal")
+        atualizacao.registrar(
+            f"reset de dados locais: apagados={apagados} falhas={falhas} "
+            f"_MEI_removidos={orfaos}"
+        )
+        # Recarrega a lista: sem isto a tela continua mostrando em memória
+        # exatamente os processos que acabaram de ser apagados do disco. O
+        # próprio recarregamento limpa o cache de Processos completos.
+        self._iniciar_carregamento_pesquisa(silencioso=False)
+        if falhas:
+            self._notificar(
+                "Restauração incompleta",
+                "Não consegui apagar:\n"
+                + "\n".join(f"  • {r}" for r in falhas)
+                + "\n\nFeche TODAS as janelas do Organizador de Processos e "
+                  "tente de novo.",
+                nivel="warning",
+            )
+        elif apagados:
+            self._notificar(
+                "Dados restaurados",
+                "Pronto. A lista voltou a mostrar só os processos que vêm "
+                "dentro do programa.",
+            )
+        else:
+            self._notificar(
+                "Nada a restaurar",
+                "Esta máquina não tinha dados guardados — a lista já é a que "
+                "vem dentro do programa.",
+            )
+
 
 # Extensões cuja IMAGEM o Windows trava enquanto um processo as tem carregadas.
 _EXT_BINARIAS = (".dll", ".pyd", ".exe")
@@ -4158,6 +4256,82 @@ def _limpar_temp_orfaos() -> int:
     except OSError:
         pass
     return removidas
+
+
+# --------------------------------------------------------------------------
+# Restaurar os dados do programa (botão da aba Configurações)
+# --------------------------------------------------------------------------
+# POR QUE ATUALIZAR NÃO BASTA
+# ---------------------------
+# Os processos pré-carregados vêm DENTRO do .exe (data/processos_base.sqlite),
+# mas a lista da aba Pesquisa mescla três fontes por prioridade — pasta base >
+# processos_online > embutido (ver indice_processos.carregar_resumos_pesquisa).
+# Ou seja: o que está em APP_DATA_DIR ESCONDE o que vem no programa. E a
+# atualização não toca em APP_DATA_DIR de propósito (semear_config nunca
+# sobrescreve, senão o update apagaria a senha que o usuário acabou de corrigir).
+#
+# O efeito numa máquina que recebeu o app com o cache já povoado de dados
+# errados: atualizar não mudava nada, e a única saída era apagar arquivos no
+# %USERPROFILE% na mão — o que ninguém vai pedir para um usuário fazer por
+# telefone. Daí o botão.
+
+def _itens_reset() -> tuple[tuple[Path, str], ...]:
+    """(caminho, rótulo) de tudo que "Restaurar dados do programa" apaga.
+
+    Só dados DERIVADOS: cada um destes se reconstrói sozinho na abertura
+    seguinte, a partir do que vem no .exe. Ficam de fora DE PROPÓSITO:
+    ``config/`` (senhas editadas pelo usuário — apagar seria perder o que ele
+    digitou), ``autojur_profile/`` (apagar força o 2FA de novo),
+    ``ui_state.json`` (pastas escolhidas) e ``comarcas_por_origem.json``, que
+    guarda correções MANUAIS de comarca — a parte auto-aprendida dele é
+    sobrescrita sozinha quando a lista recarrega."""
+    return (
+        (PROCESSOS_ONLINE_DIR, "processos guardados de buscas online"),
+        (PROCESSOS_INDICE_JSON, "índice da lista de processos"),
+        (TEMPLATES_CACHE_PATH, "cache dos modelos de petição"),
+    )
+
+
+def _contar_processos_locais() -> int:
+    """Quantos processos o cache desta máquina guarda.
+
+    Usado só para dizer no aviso QUANTOS somem: quem clica no botão está com o
+    app estranho, não querendo descobrir depois que perdeu trabalho."""
+    try:
+        return sum(1 for _ in PROCESSOS_ONLINE_DIR.glob("*/metadados.json"))
+    except OSError:
+        return 0
+
+
+def _resetar_dados_locais() -> tuple[list[str], list[str]]:
+    """Apaga os itens de `_itens_reset`. Devolve ``(apagados, falhas)``.
+
+    Item a item, e o que já não existe não conta nem como apagado nem como
+    falha. Best-effort dentro de cada item (``ignore_errors``) porque a máquina
+    que precisa deste botão é justamente a que está num estado esquisito: um
+    metadados.json travado não pode impedir a limpeza dos outros 3.000. Se
+    sobrou pasta, aí sim é falha — e o rótulo dela entra no relatório em vez de
+    o app afirmar que limpou o que não limpou."""
+    import shutil
+
+    apagados: list[str] = []
+    falhas: list[str] = []
+    for caminho, rotulo in _itens_reset():
+        try:
+            if caminho.is_dir():
+                shutil.rmtree(caminho, ignore_errors=True)
+            elif caminho.exists():
+                caminho.unlink()
+            else:
+                continue
+            if caminho.exists():
+                falhas.append(rotulo)
+                continue
+        except OSError:
+            falhas.append(rotulo)
+            continue
+        apagados.append(rotulo)
+    return apagados, falhas
 
 
 def _dados_do_bundle_faltando() -> list[str]:
