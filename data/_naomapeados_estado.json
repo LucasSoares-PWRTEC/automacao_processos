@@ -9009,34 +9009,37 @@
     "cliente": "DIRECIONAL"
   },
   "0003737-89.2017.8.07.0019": {
-    "status": "ainda_sem_reu",
+    "status": "enriquecido",
     "uf": "DF",
     "sistema": "TJDFT — PJe",
-    "tem_reu": false,
+    "tem_reu": true,
     "autor": "OURO BRANCO EMPREENDIMENTOS IMOBILIARIOS LTDA",
-    "reu": "",
-    "quando": "2026-06-30T08:25:06",
-    "cliente": "DIRECIONAL"
+    "reu": "ARLISON TULIO DE SOUZA DA SILVA",
+    "quando": "2026-08-18T11:58:52",
+    "cliente": "DIRECIONAL",
+    "classe": "EXECUÇÃO DE TÍTULO EXTRAJUDICIAL"
   },
   "0003734-37.2017.8.07.0019": {
-    "status": "ainda_sem_reu",
+    "status": "enriquecido",
     "uf": "DF",
     "sistema": "TJDFT — PJe",
-    "tem_reu": false,
+    "tem_reu": true,
     "autor": "OURO BRANCO EMPREENDIMENTOS IMOBILIARIOS LTDA",
-    "reu": "",
-    "quando": "2026-06-30T08:25:19",
-    "cliente": "DIRECIONAL"
+    "reu": "DJAKES LIMA DE OLIVEIRA",
+    "quando": "2026-08-18T11:59:05",
+    "cliente": "DIRECIONAL",
+    "classe": "EXECUÇÃO DE TÍTULO EXTRAJUDICIAL"
   },
   "0003738-74.2017.8.07.0019": {
-    "status": "ainda_sem_reu",
+    "status": "enriquecido",
     "uf": "DF",
     "sistema": "TJDFT — PJe",
-    "tem_reu": false,
+    "tem_reu": true,
     "autor": "OURO BRANCO EMPREENDIMENTOS IMOBILIARIOS LTDA",
-    "reu": "",
-    "quando": "2026-06-30T08:25:32",
-    "cliente": "DIRECIONAL"
+    "reu": "FLAVIO LIMA DE MOURA",
+    "quando": "2026-08-18T11:59:18",
+    "cliente": "DIRECIONAL",
+    "classe": "EXECUÇÃO DE TÍTULO EXTRAJUDICIAL"
   },
   "0005427-04.2017.8.07.0004": {
     "status": "enriquecido",
@@ -9049,14 +9052,15 @@
     "cliente": "DIRECIONAL"
   },
   "0005426-19.2017.8.07.0004": {
-    "status": "ainda_sem_reu",
+    "status": "enriquecido",
     "uf": "DF",
     "sistema": "TJDFT — PJe",
-    "tem_reu": false,
+    "tem_reu": true,
     "autor": "OURO BRANCO EMPREENDIMENTOS IMOBILIARIOS LTDA",
-    "reu": "",
-    "quando": "2026-06-30T08:25:58",
-    "cliente": "DIRECIONAL"
+    "reu": "MARCELO ALVES DA ROCHA",
+    "quando": "2026-08-18T11:59:31",
+    "cliente": "DIRECIONAL",
+    "classe": "EXECUÇÃO DE TÍTULO EXTRAJUDICIAL"
   },
   "0002948-14.2017.8.07.0012": {
     "status": "enriquecido",
@@ -9629,24 +9633,26 @@
     "cliente": "DIRECIONAL"
   },
   "0702074-52.2021.8.07.0010": {
-    "status": "ainda_sem_reu",
+    "status": "enriquecido",
     "uf": "DF",
     "sistema": "TJDFT — PJe",
-    "tem_reu": false,
+    "tem_reu": true,
     "autor": "DIRECIONAL TAGUATINGA ENGENHARIA LTDA",
-    "reu": "",
-    "quando": "2026-06-30T08:38:44",
-    "cliente": "DIRECIONAL"
+    "reu": "RODRIGO CAVALCANTI DE OLIVEIRA",
+    "quando": "2026-08-18T11:59:44",
+    "cliente": "DIRECIONAL",
+    "classe": "MONITÓRIA"
   },
   "0704614-73.2021.8.07.0010": {
-    "status": "ainda_sem_reu",
+    "status": "enriquecido",
     "uf": "DF",
     "sistema": "TJDFT — PJe",
-    "tem_reu": false,
+    "tem_reu": true,
     "autor": "DIRECIONAL TAGUATINGA ENGENHARIA LTDA",
-    "reu": "",
-    "quando": "2026-06-30T08:38:57",
-    "cliente": "DIRECIONAL"
+    "reu": "FREDERICO MAGALHAES DE OLIVEIRA",
+    "quando": "2026-08-18T11:59:57",
+    "cliente": "DIRECIONAL",
+    "classe": "CUMPRIMENTO DE SENTENÇA"
   },
   "0704621-65.2021.8.07.0010": {
     "status": "enriquecido",
@@ -9659,14 +9665,15 @@
     "cliente": "DIRECIONAL"
   },
   "0705175-97.2021.8.07.0010": {
-    "status": "ainda_sem_reu",
+    "status": "enriquecido",
     "uf": "DF",
     "sistema": "TJDFT — PJe",
-    "tem_reu": false,
+    "tem_reu": true,
     "autor": "DIRECIONAL TAGUATINGA ENGENHARIA LTDA",
-    "reu": "",
-    "quando": "2026-06-30T08:39:22",
-    "cliente": "DIRECIONAL"
+    "reu": "DOUGLAS NOLETO BARROS",
+    "quando": "2026-08-18T12:00:09",
+    "cliente": "DIRECIONAL",
+    "classe": "PROCEDIMENTO COMUM CÍVEL"
   },
   "0716115-05.2022.8.07.0005": {
     "status": "enriquecido",
@@ -10129,14 +10136,15 @@
     "cliente": "DIRECIONAL"
   },
   "0001461-25.2018.8.14.0094": {
-    "status": "ainda_sem_reu",
+    "status": "reu_faltando",
     "uf": "PA",
     "sistema": "TJPA — PJe",
     "tem_reu": false,
     "autor": "",
     "reu": "",
     "quando": "2026-06-30T11:33:05",
-    "cliente": "DIRECIONAL"
+    "cliente": "DIRECIONAL",
+    "classe": "MONITÓRIA"
   },
   "0824366-49.2018.8.14.0301": {
     "status": "enriquecido",
@@ -10407,14 +10415,15 @@
     "cliente": "DIRECIONAL"
   },
   "0800469-45.2017.8.14.0133": {
-    "status": "ainda_sem_reu",
+    "status": "reu_faltando",
     "uf": "PA",
     "sistema": "TJPA — PJe",
     "tem_reu": false,
     "autor": "",
     "reu": "",
     "quando": "2026-06-30T11:43:02",
-    "cliente": "DIRECIONAL"
+    "cliente": "DIRECIONAL",
+    "classe": "CUMPRIMENTO DE SENTENÇA"
   },
   "0800472-97.2017.8.14.0133": {
     "status": "enriquecido",

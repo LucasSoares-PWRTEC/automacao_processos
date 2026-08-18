@@ -206,3 +206,58 @@ def test_contador_reinicia_apos_gravar(tmp_path, monkeypatch):
     monkeypatch.setattr(M, "GRAVAR_ESTADO_SEGUNDOS", 9999.0)
     g = _GravadorThrottled(path)
     assert [g.talvez({}) for _ in range(4)] == [False, True, False, True]
+
+
+# --------------------------------------------------------------------------
+# Classificação do resultado: réu perdido × processo de um polo só
+# --------------------------------------------------------------------------
+class _ProcFalso:
+    def __init__(self, classe: str):
+        self.classe = classe
+
+
+def test_sem_reu_em_classe_adversarial_nao_conta_como_terminado():
+    """O caso que deixava 7 processos do TJDFT sem réu para sempre.
+
+    Antes, réu ausente virava `ainda_sem_reu` — status terminado — e nem a
+    passada normal nem o retry voltavam nele. Numa execução não existe processo
+    sem executado: isso é raspagem incompleta e precisa de status próprio.
+    """
+    exec_sem_reu = M._status_do_resultado(_ProcFalso("EXECUÇÃO DE TÍTULO EXTRAJUDICIAL"), False)
+    assert exec_sem_reu == "reu_faltando"
+    assert exec_sem_reu not in M.STATUS_DONE
+    assert exec_sem_reu in M.STATUS_RETRY
+
+
+def test_sem_reu_em_rito_nao_adversarial_segue_terminado():
+    # Recuperação judicial legitimamente não tem polo passivo: não acusar nada.
+    st = M._status_do_resultado(_ProcFalso("Recuperação Judicial"), False)
+    assert st == "ainda_sem_reu"
+    assert st in M.STATUS_DONE
+
+
+def test_com_reu_e_sempre_enriquecido():
+    assert M._status_do_resultado(_ProcFalso("EXECUÇÃO"), True) == "enriquecido"
+    assert M._status_do_resultado(_ProcFalso(""), True) == "enriquecido"
+
+
+def test_reu_faltando_volta_a_fila_apesar_de_estar_no_cache(monkeypatch):
+    """`reu_faltando` está NO cache (foi salvo com o autor), então a checagem de
+    cache o declarava mapeado antes do gate de retry — e ele nunca voltava."""
+    numero = "0003737-89.2017.8.07.0019"
+    monkeypatch.setattr(M, "_numeros_no_cache", lambda: [numero])
+    estado = {numero: {"status": "reu_faltando", "uf": "DF"}}
+
+    assert numero not in M.processos_ja_mapeados(estado)
+    # ...mas só com retry_falhas, para não remartelar o tribunal toda semana.
+    assert M.selecionar_pendentes({numero: "DIRECIONAL"}, estado, retry_falhas=False) == {}
+    assert numero in M.selecionar_pendentes({numero: "DIRECIONAL"}, estado, retry_falhas=True)
+
+
+def test_enriquecido_no_cache_continua_fora_da_fila(monkeypatch):
+    numero = "0003862-57.2017.8.07.0019"
+    monkeypatch.setattr(M, "_numeros_no_cache", lambda: [numero])
+    estado = {numero: {"status": "enriquecido", "uf": "DF"}}
+
+    assert numero in M.processos_ja_mapeados(estado)
+    assert M.selecionar_pendentes({numero: "DIRECIONAL"}, estado, retry_falhas=True) == {}

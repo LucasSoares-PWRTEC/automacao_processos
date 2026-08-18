@@ -319,3 +319,61 @@ def test_detalhe_pje_tjmg_classe_civel_e_papel_com_parenteses():
     assert any("LUIZ ALBERTO MARAZZI" == nome for _, nome in papeis)
     # Advogados/procuradoria NÃO viram partes.
     assert not any("ADVOGADO" in pap for pap, _ in papeis)
+
+
+# --------------------------------------------------------------------------
+# Papéis de polo que o tribunal inventa (TJDFT: REVEL, EXECUTADO ESPÓLIO DE)
+# --------------------------------------------------------------------------
+_DETALHE_TJDFT_REVEL = """
+<div id="maisDetalhes">
+  <dl><dt>Classe judicial:</dt><dd>EXECUÇÃO DE TÍTULO EXTRAJUDICIAL (12154)</dd></dl>
+</div>
+<div id="poloAtivo"><table><tbody><tr><td>
+  <span>OURO BRANCO EMPREENDIMENTOS IMOBILIARIOS LTDA - CNPJ: 13.466.398/0001-06 (EXEQUENTE)</span>
+</td></tr></tbody></table></div>
+<div id="poloPassivo"><table><tbody><tr><td>
+  <span>ARLISON TULIO DE SOUZA DA SILVA - CPF: 057.208.821-38 (REVEL)</span>
+  <ul class="tree"><li><small>DP - CURADORIA ESPECIAL</small></li></ul>
+</td></tr></tbody></table></div>
+"""
+
+
+def test_revel_e_polo_passivo_e_nao_some():
+    """O caso real dos 7 processos do TJDFT que ficavam só com o autor.
+
+    O painel mostrava "(REVEL)" — papel que não existia em _RX_PARTE, então a
+    linha montada não casava e a parte era descartada em silêncio.
+    """
+    from organizador.integracoes.tjsp_scraper.parser_pje import (
+        _formatar_detalhe_pje,
+        extrair_processo_pje,
+    )
+    from organizador.organizacao import _dict_para_processo, _reus_joined
+
+    proc = extrair_processo_pje(
+        _formatar_detalhe_pje(_DETALHE_TJDFT_REVEL), "0003737-89.2017.8.07.0019"
+    )
+    papeis = {p["papel"]: p["nome"] for p in proc["partes"]}
+    assert papeis.get("REVEL") == "ARLISON TULIO DE SOUZA DA SILVA"
+    assert papeis.get("EXEQUENTE") == "OURO BRANCO EMPREENDIMENTOS IMOBILIARIOS LTDA"
+    # e o revel tem de contar como RÉU no agregado que alimenta a carteira
+    assert _reus_joined(_dict_para_processo(proc)) == "ARLISON TULIO DE SOUZA DA SILVA"
+
+
+def test_papel_desconhecido_cai_no_polo_do_container():
+    """Parte visível no painel nunca deve desaparecer por causa do rótulo.
+
+    O container (#poloAtivo/#poloPassivo) já prova o polo, então papel novo de
+    tribunal degrada para o canônico do polo em vez de custar a parte.
+    """
+    from organizador.integracoes.tjsp_scraper.parser_pje import _papel_utilizavel
+
+    # conhecido → preservado como está
+    assert _papel_utilizavel("REVEL", "poloPassivo") == "REVEL"
+    assert _papel_utilizavel("EXEQUENTE", "poloAtivo") == "EXEQUENTE"
+    # qualificado → mantém a 1ª palavra, que já fixa o polo e preserva o nome
+    assert _papel_utilizavel("EXECUTADO ESPÓLIO DE", "poloPassivo") == "EXECUTADO"
+    # totalmente novo → papel canônico do polo
+    assert _papel_utilizavel("PAPEL QUE NAO EXISTE", "poloPassivo") == "REQUERIDO"
+    assert _papel_utilizavel("PAPEL QUE NAO EXISTE", "poloAtivo") == "REQUERENTE"
+    assert _papel_utilizavel("", "poloPassivo") == "REQUERIDO"

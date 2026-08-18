@@ -46,10 +46,14 @@ TAGS_CONHECIDAS = ["Idoso", "Processo Migrado", "Prioridade", "Sigilo", "Segredo
 # _reus_joined → processo aparecia "sem réu" mesmo tendo o polo passivo preenchido.
 PAPEIS_ATIVO = ["AUTOR", "AUTORA", "EXEQUENTE", "REQUERENTE", "EMBARGANTE",
                 "AGRAVANTE", "IMPETRANTE", "RECLAMANTE", "SUSCITANTE"]
+# "REVEL" é polo passivo: o TJDFT rotula assim o executado/réu declarado revel
+# (em geral com "DP - CURADORIA ESPECIAL" como representante). Sem ele o réu não
+# era reconhecido em _reus_joined e o processo ficava só com o autor.
 PAPEIS_PASSIVO = ["RÉU", "REU", "RÉ", "RE", "EXECUTADO", "EXECUTADA",
                   "REQUERIDO", "REQUERIDA", "EMBARGADO", "EMBARGADA",
                   "AGRAVADO", "AGRAVADA", "IMPETRADO", "IMPETRADA",
-                  "RECLAMADO", "RECLAMADA", "SUSCITADO", "SUSCITADA"]
+                  "RECLAMADO", "RECLAMADA", "SUSCITADO", "SUSCITADA",
+                  "REVEL"]
 
 # Versões em maiúsculas, como conjunto, para teste de pertinência por parte.
 # As listas acima já estão em maiúsculas, mas o código as normalizava de novo em
@@ -57,6 +61,31 @@ PAPEIS_PASSIVO = ["RÉU", "REU", "RÉ", "RE", "EXECUTADO", "EXECUTADA",
 # uma lista de 18 strings PARA CADA PARTE de CADA processo. Use estes conjuntos.
 PAPEIS_ATIVO_UP = frozenset(p.upper() for p in PAPEIS_ATIVO)
 PAPEIS_PASSIVO_UP = frozenset(p.upper() for p in PAPEIS_PASSIVO)
+
+# Classes em que o polo passivo é CONSTITUTIVO: não existe execução sem
+# executado, nem monitória sem requerido. Serve para separar "o tribunal não
+# tem réu" de "a raspagem perdeu o réu" — ver `classe_exige_polo_passivo`.
+#
+# Lista de INCLUSÃO, de propósito: só afirma o que é certo. Classes de rito não
+# adversarial (recuperação judicial, falência, habilitação de crédito, carta
+# precatória, petição cível) ficam de fora e nunca são acusadas de dado faltante.
+# Casada por SUBSTRING sobre a classe sem acento e em maiúsculas, porque os
+# tribunais sufixam à vontade ("EXECUÇÃO DE TÍTULO EXTRAJUDICIAL - CPC",
+# "CUMPRIMENTO DE SENTENÇA - CENTRASE CÍVEL BH").
+CLASSES_COM_POLO_PASSIVO = (
+    "EXECUCAO",           # execução, execução de título extrajudicial (+ CPC)
+    "PROCEDIMENTO COMUM",
+    "PROCEDIMENTO SUMARIO",
+    "CUMPRIMENTO DE SENTENCA",
+    "CUMPRIMENTO PROVISORIO",
+    "MONITORIA",
+    "COBRANCA",
+    "DESPEJO",
+    "REINTEGRACAO",       # reintegração / manutenção de posse
+    "MANUTENCAO DE POSSE",
+    "EMBARGOS",           # à execução, de terceiro, parciais — todos têm embargado
+    "BUSCA E APREENSAO",
+)
 
 # Rótulos/ruído que o PDF cola ao nome da parte (sem separador) e que precisam
 # ser removidos do início do nome capturado. Ex.: o eproc emite

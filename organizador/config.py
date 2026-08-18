@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
@@ -149,6 +150,75 @@ def semear_config() -> list[str]:
         except OSError:
             pass
     return copiados
+
+
+# --- atualizar senhas dos tribunais a partir do bundle ---------------------
+# `semear_config` de propósito NUNCA sobrescreve, para o update não apagar a
+# senha que o usuário corrigiu na máquina. O efeito colateral é que uma senha
+# trocada no escritório NÃO chega em quem já usa o app: o arquivo local vence
+# para sempre. As duas funções abaixo dão a saída explícita — o usuário pede,
+# vê o que muda e confirma. Nada aqui roda sozinho.
+def diff_credenciais_do_bundle() -> dict[str, list[str]]:
+    """Compara credenciais local × bundle. Só RÓTULOS, nunca senhas.
+
+    Devolve ``{"alteradas": [...], "novas": [...], "somem": [...]}``. Dicionário
+    vazio em todas as chaves = nada a fazer. Rodando do fonte (bundle == local)
+    devolve tudo vazio, porque não existe semente separada para comparar.
+    """
+    vazio: dict[str, list[str]] = {"alteradas": [], "novas": [], "somem": []}
+    if CONFIG_DIR == CONFIG_SEMENTE_DIR:
+        return vazio
+
+    def _mapa(caminho: Path) -> dict[str, str]:
+        try:
+            payload = json.loads(caminho.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        itens = payload.get("credenciais", payload) if isinstance(payload, dict) else payload
+        if not isinstance(itens, list):
+            return {}
+        # rótulo -> "login\x00senha"; comparar o par evita alarme falso quando só
+        # o login foi normalizado (ex.: CPF com/sem zero à esquerda).
+        return {
+            str(i.get("tj") or ""): f"{i.get('login') or ''}\x00{i.get('senha') or ''}"
+            for i in itens
+            if isinstance(i, dict) and i.get("tj")
+        }
+
+    local = _mapa(CREDENCIAIS_PATH)
+    bundle = _mapa(CONFIG_SEMENTE_DIR / "credenciais.json")
+    if not bundle:
+        return vazio
+    return {
+        "alteradas": sorted(r for r, v in bundle.items() if r in local and local[r] != v),
+        "novas": sorted(r for r in bundle if r not in local),
+        "somem": sorted(r for r in local if r not in bundle),
+    }
+
+
+def atualizar_credenciais_do_bundle() -> Path | None:
+    """Sobrescreve o credenciais.json local pelo que veio no .exe.
+
+    Guarda o anterior como ``credenciais.json.bak`` e devolve o caminho do
+    backup — o usuário está descartando edição local, então tem de haver volta.
+    Devolve ``None`` quando não há o que fazer (rodando do fonte, ou sem
+    credenciais.json no bundle). Levanta ``OSError`` se a cópia falhar: aqui,
+    diferente de `semear_config`, falhar em silêncio faria o app afirmar que
+    atualizou a senha sem ter atualizado.
+    """
+    if CONFIG_DIR == CONFIG_SEMENTE_DIR:
+        return None
+    origem = CONFIG_SEMENTE_DIR / "credenciais.json"
+    if not origem.is_file():
+        return None
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    backup = CREDENCIAIS_PATH.with_suffix(".json.bak")
+    if CREDENCIAIS_PATH.exists():
+        shutil.copy2(CREDENCIAIS_PATH, backup)
+    shutil.copy2(origem, CREDENCIAIS_PATH)
+    return backup if backup.exists() else None
+
+
 LEGACY_SCRAPER_DIR = _RAIZ.parent / "TJSP-Scraper"
 LEGACY_ENV_PATH = LEGACY_SCRAPER_DIR / ".env"
 LEGACY_SENHAS_XLSX_PATH = LEGACY_SCRAPER_DIR / "data" / "senhas.xlsx"
@@ -180,7 +250,14 @@ TJ_SISTEMAS = {
     # /pje1grau/, /1g/...). O TOTP é o mesmo (TOTP_PDPJ) em todos.
     "TJCE — PJe":    ("pje",   "CEARA",              "https://pje.tjce.jus.br/pje1grau/", None),
     # ── GO ──────────────────────────────────────────────────────────────────
-    # Acesso via perfil OAB-GO na plataforma eproc do TJSP (mesmo login/2FA).
+    # ROTA REAL do TJGO: os processos de GO estão no Projudi, não no eproc.
+    # Login próprio (credencial "TJGO - Projudi") + OTP de 6 caracteres por
+    # e-mail; depois escolhe-se a serventia da OAB-GO. Ver scrapers/projudi.py.
+    "TJGO — Projudi": ("projudi", "GOIAS",            "https://projudi.tjgo.jus.br/", "GO"),
+    # A plataforma eproc do TJSP aceita o perfil OAB-GO no login, mas NÃO
+    # hospeda processos do TJGO — toda consulta volta "não encontrado"
+    # (confirmado ao vivo). Mantida só para não quebrar seleções salvas; o
+    # fallback por UF a coloca depois do Projudi (ver _PRIORIDADE_SITE).
     "TJGO — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "GO"),
     # ── MA ──────────────────────────────────────────────────────────────────
     "TJMA — PJe":    ("pje",   "MARANHAO",            "https://pje.tjma.jus.br/pje/", None),
@@ -210,6 +287,7 @@ TJ_SISTEMAS = {
 }
 _ESTADO_TJ_UF = {
     "SAO PAULO": ("TJSP", "SP"),
+    "GOIAS": ("TJGO", "GO"),
     "MINAS GERAIS": ("TJMG", "MG"),
     "RIO DE JANEIRO": ("TJRJ", "RJ"),
     "DISTRITO FEDERAL": ("TJDFT", "DF"),
@@ -231,10 +309,23 @@ def uf_efetiva_tj(tj_label: str) -> str:
     return (perfil or _ESTADO_TJ_UF[estado][1]).upper()
 
 
+# Rotas que LOGAM mas NUNCA acham processo: a plataforma eproc do TJSP aceita o
+# perfil OAB de GO/PR/RN, mas não hospeda processos desses tribunais (confirmado
+# ao vivo — toda consulta volta "não encontrado"). Continuam em TJ_SISTEMAS para
+# não invalidar uma seleção salva em ui_state.json nem uma escolha manual, mas
+# nenhuma sugestão ou fallback automático deve cair nelas.
+ROTAS_INOPERANTES = frozenset({"TJGO — eproc", "TJPR — eproc", "TJRN — eproc"})
+
+
+def rotulos_tj_selecionaveis() -> list[str]:
+    """Rótulos que valem a pena oferecer na tela (sem as rotas comprovadamente
+    inoperantes, que só gastariam login + 2FA para falhar)."""
+    return [lbl for lbl in TJ_SISTEMAS if lbl not in ROTAS_INOPERANTES]
+
+
 def sugerir_tj_para_uf(uf: str) -> str | None:
     """Rótulo de TJ_SISTEMAS cuja UF efetiva == uf. Prefere eproc; senão o 1º."""
-    uf = (uf or "").upper()
-    candidatos = [lbl for lbl in TJ_SISTEMAS if uf_efetiva_tj(lbl) == uf]
+    candidatos = candidatos_tj_para_uf(uf)
     if not candidatos:
         return None
     eproc = [lbl for lbl in candidatos if TJ_SISTEMAS[lbl][0] == "eproc"]
@@ -242,9 +333,11 @@ def sugerir_tj_para_uf(uf: str) -> str | None:
 
 
 # Ordem de preferência por sistema no fallback entre tribunais da MESMA UF.
-# eproc e PJe expõem partes COM documento (necessário p/ pegar o réu); o e-SAJ
-# público não traz CPF/CNPJ → fica por último.
-_PRIORIDADE_SITE = {"eproc": 0, "pje": 1, "esaj": 2}
+# Projudi, eproc e PJe expõem partes COM documento (necessário p/ pegar o réu);
+# o e-SAJ público não traz CPF/CNPJ → fica por último. Hoje o Projudi só existe
+# em GO, que não tem outra rota viva — a posição dele só passa a pesar quando
+# outro estado de Projudi (PR, AM, BA...) ganhar scraper.
+_PRIORIDADE_SITE = {"projudi": 0, "eproc": 1, "pje": 2, "esaj": 3}
 # Override por UF: em MG os processos-alvo estão quase todos no PJe (o eproc tem
 # pouquíssimos), então tentar PJe primeiro evita uma consulta eproc inútil.
 _PRIORIDADE_SITE_POR_UF = {
@@ -257,10 +350,15 @@ def candidatos_tj_para_uf(uf: str) -> list[str]:
     para enriquecer (sistemas que trazem partes com documento primeiro).
 
     Base do fallback pedido pelo usuário: se o processo não está num sistema,
-    tenta o próximo (eproc × e-SAJ × PJe). Lista vazia = UF sem rota suportada."""
+    tenta o próximo (Projudi × eproc × e-SAJ × PJe). As rotas de
+    `ROTAS_INOPERANTES` ficam de fora: tentá-las é login + 2FA jogados fora.
+    Lista vazia = UF sem rota suportada."""
     uf = (uf or "").upper()
     prioridade = _PRIORIDADE_SITE_POR_UF.get(uf, _PRIORIDADE_SITE)
-    candidatos = [lbl for lbl in TJ_SISTEMAS if uf_efetiva_tj(lbl) == uf]
+    candidatos = [
+        lbl for lbl in TJ_SISTEMAS
+        if uf_efetiva_tj(lbl) == uf and lbl not in ROTAS_INOPERANTES
+    ]
     return sorted(candidatos, key=lambda lbl: prioridade.get(TJ_SISTEMAS[lbl][0], 99))
 
 # OAB do advogado do escritório (Felipe Machado) por UF — usado para

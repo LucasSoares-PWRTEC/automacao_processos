@@ -1224,13 +1224,14 @@
     "quando": "2026-06-29T00:16:41"
   },
   "5026879-10.2022.8.13.0079": {
-    "status": "ainda_sem_reu",
+    "status": "reu_faltando",
     "uf": "MG",
     "sistema": "TJMG — PJe",
     "tem_reu": false,
     "autor": "VILLA BELLA NACIONAL EMPREENDIMENTOS IMOBILIARIOS LTDA",
     "reu": "",
-    "quando": "2026-06-29T00:30:52"
+    "quando": "2026-06-29T00:30:52",
+    "classe": "EXECUÇÃO DE TÍTULO EXTRAJUDICIAL"
   },
   "5027030-73.2022.8.13.0079": {
     "status": "enriquecido",

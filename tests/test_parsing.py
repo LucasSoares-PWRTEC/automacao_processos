@@ -202,3 +202,35 @@ def test_evento_parte_papel_identifica_pelo_texto_e_por_decorrido_prazo():
 
     ev2 = op.Evento(descricao="Decorrido prazo de FULANO DE TAL em 20/05")
     assert op._evento_parte_papel(ev2, partes) == ("FULANO DE TAL", "RÉU")
+
+
+# --------------------------------------------------------------------------
+# Classe adversarial (separa "não tem réu" de "perdemos o réu")
+# --------------------------------------------------------------------------
+
+def test_classe_exige_polo_passivo_nas_classes_adversariais():
+    from organizador.parsing import classe_exige_polo_passivo as exige
+
+    # Casa por substring, sem acento e em qualquer caixa — os tribunais sufixam
+    # à vontade e alternam maiúsculas/minúsculas na mesma base.
+    assert exige("EXECUÇÃO DE TÍTULO EXTRAJUDICIAL")
+    assert exige("Execução de Título Extrajudicial - CPC")
+    assert exige("PROCEDIMENTO COMUM CÍVEL")
+    assert exige("CUMPRIMENTO DE SENTENÇA - CENTRASE CÍVEL BH")
+    assert exige("Monitória")
+    assert exige("Embargos à Execução")
+    assert exige("Reintegração / Manutenção de Posse")
+
+
+def test_classe_exige_polo_passivo_poupa_ritos_nao_adversariais():
+    from organizador.parsing import classe_exige_polo_passivo as exige
+
+    # Lista de inclusão: sem polo passivo constitutivo, nunca acusa dado faltante.
+    assert not exige("Recuperação Judicial")
+    assert not exige("Habilitação de crédito")
+    assert not exige("Falência de Empresários, Sociedades Empresáriais")
+    assert not exige("CARTA PRECATÓRIA CÍVEL")
+    assert not exige("Petição Cível - Conflitos Fundiários")
+    # Classe desconhecida ou ausente é indecidível — não afirma nada.
+    assert not exige("")
+    assert not exige(None)

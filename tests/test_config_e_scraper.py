@@ -375,3 +375,24 @@ def test_gui_inicializa_com_caminhos_padrao_validos():
         assert app.var_pesquisa_base.get()
     finally:
         app.destroy()
+
+
+def test_toda_rota_pje_tem_rotulo_de_credencial_proprio():
+    """Sem entrada em _CRED_POR_ESTADO a rota cai no rótulo do TJMG em SILÊNCIO.
+
+    Foi o que escondeu a senha vencida do TJDFT: o app mandava a credencial do
+    TJMG para o pje.tjdft.jus.br e, quando a senha do DF foi trocada sozinha, o
+    sintoma virou "a senha nova não funciona". Fallback silencioso não avisa —
+    este teste avisa.
+    """
+    from organizador.config import TJ_SISTEMAS
+    from organizador.integracoes.tjsp_scraper.scrapers.pje import _CRED_POR_ESTADO
+
+    estados_pje = {
+        estado for (site, estado, _url, _perfil) in TJ_SISTEMAS.values() if site == "pje"
+    }
+    sem_rotulo = sorted(estados_pje - set(_CRED_POR_ESTADO))
+    assert not sem_rotulo, (
+        f"rotas PJe sem rótulo próprio em _CRED_POR_ESTADO: {sem_rotulo} "
+        "— cairiam no fallback do TJMG sem avisar"
+    )

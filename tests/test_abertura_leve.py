@@ -126,3 +126,44 @@ def test_atributo_inexistente_ainda_levanta_attribute_error():
             print("nao levantou")
         """
     ) == "ok"
+
+
+# --------------------------------------------------------------------------
+# Abas de construção TARDIA
+# --------------------------------------------------------------------------
+def test_aba_config_monta_sem_estourar():
+    """A aba Configurações é construída SOB DEMANDA — ponto cego de teste.
+
+    `App.__init__` registra `_build_aba_config` em `_abas_tardias` e só a
+    executa quando o usuário troca de aba. Resultado: nem a suíte nem abrir o
+    app exercitavam esse código, e um erro de layout ali (widget novo com
+    opção inválida, por exemplo) só apareceria no clique do usuário — depois de
+    a release estar publicada.
+    """
+    tk = pytest.importorskip("tkinter")
+    from organizador import gui as G
+
+    try:
+        app = G.App()
+    except tk.TclError as exc:  # sem display (execução headless)
+        pytest.skip(f"sem ambiente gráfico: {exc}")
+
+    try:
+        app.withdraw()
+        alvo = [
+            (frame, builder)
+            for frame, builder in app._abas_tardias.values()
+            if getattr(builder, "__name__", "") == "_build_aba_config"
+        ]
+        assert alvo, "aba Configurações saiu de _abas_tardias — ajuste este teste"
+        frame, builder = alvo[0]
+        builder(frame)          # monta de verdade
+        app.update_idletasks()
+        # os dois botões de Manutenção têm de existir e estar ligados
+        assert app._btn_reset_dados.cget("command")
+        assert app._btn_atualizar_senhas.cget("command")
+    finally:
+        try:
+            app.destroy()
+        except Exception:
+            pass

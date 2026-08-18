@@ -31,7 +31,7 @@ from .config import (
     OAB_ESCRITORIO_POR_UF, PASTA_PADRAO,
     PASTA_PETICOES, PROCESSOS_BASE_JSON, PROCESSOS_INDICE_JSON,
     PROCESSOS_ONLINE_DIR, TEMPLATES_CACHE_PATH, TJ_SISTEMAS, UI_STATE_PATH,
-    semear_config, sugerir_tj_para_uf, uf_efetiva_tj,
+    rotulos_tj_selecionaveis, semear_config, sugerir_tj_para_uf, uf_efetiva_tj,
 )
 
 
@@ -734,8 +734,12 @@ class App(ttk.Window):
         ttk.Label(f_busca, text="TJ/Sistema:", font=_FONT_BASE).grid(
             row=0, column=2, sticky="e", padx=(8, 6), pady=2,
         )
+        # `rotulos_tj_selecionaveis()` e não `list(TJ_SISTEMAS)`: as rotas de
+        # config.ROTAS_INOPERANTES logam mas nunca acham processo, e oferecê-las
+        # aqui custava login + 2FA para terminar em "não encontrado".
         ttk.Combobox(
-            f_busca, textvariable=self.var_busca_tj, values=list(TJ_SISTEMAS),
+            f_busca, textvariable=self.var_busca_tj,
+            values=rotulos_tj_selecionaveis(),
             state="readonly", width=18, height=20, font=_FONT_BASE,
         ).grid(row=0, column=3, sticky="w", pady=2)
         # ── Linha 1: "Forçar busca online" (sempre visível) + botão Buscar ──
@@ -1724,6 +1728,25 @@ class App(ttk.Window):
                  "mostrar só os processos que vêm dentro do programa. Use quando "
                  "a lista aparecer com dados errados mesmo depois de atualizar. "
                  "Não mexe nas suas senhas nem nos processos da pasta base.",
+            font=("Segoe UI", 9), foreground="#666", wraplength=900, justify="left",
+        ).pack(anchor="w", pady=(4, 0))
+
+        # O update NÃO troca senha (semear_config nunca sobrescreve, de propósito).
+        # Sem este botão, senha trocada no escritório não chega em quem já usa o
+        # app: o credenciais.json local vence para sempre.
+        self._btn_atualizar_senhas = ttk.Button(
+            section_manut, text="🔑  Atualizar senhas dos tribunais",
+            command=self._atualizar_senhas_do_bundle,
+            bootstyle="outline-primary", width=32,
+        )
+        self._btn_atualizar_senhas.pack(anchor="w", pady=(10, 0))
+        ttk.Label(
+            section_manut,
+            text="Substitui os logins dos tribunais desta máquina pelos que vêm "
+                 "dentro do programa — use quando o escritório trocar uma senha e "
+                 "o app começar a falhar no login. Mostra quais tribunais mudam "
+                 "antes de aplicar e guarda o arquivo anterior como "
+                 "credenciais.json.bak. Não mexe no 2FA (.env) nem nos processos.",
             font=("Segoe UI", 9), foreground="#666", wraplength=900, justify="left",
         ).pack(anchor="w", pady=(4, 0))
 
@@ -4059,6 +4082,80 @@ class App(ttk.Window):
                 f"Não consegui abrir a verificação de atualização:\n\n{exc}\n\n"
                 "O detalhe foi gravado em updater.log.",
             )
+
+    # -- atualizar senhas dos tribunais ------------------------------------
+    def _atualizar_senhas_do_bundle(self) -> None:
+        """Clique em "Atualizar senhas dos tribunais" (aba Configurações).
+
+        Rápido (copiar um arquivo pequeno), então roda na main thread mesmo.
+        Diz QUAIS tribunais mudam antes de aplicar — nunca senha, só rótulo — e
+        limpa o cache de credenciais, senão a sessão em curso continuaria
+        tentando logar com a senha velha que já está em memória."""
+        from .config import atualizar_credenciais_do_bundle, diff_credenciais_do_bundle
+        from .integracoes.tjsp_scraper.credenciais import _carregar_credenciais
+
+        try:
+            diff = diff_credenciais_do_bundle()
+        except Exception as exc:
+            messagebox.showerror("Atualizar senhas", f"Não consegui comparar:\n\n{exc}")
+            return
+
+        if not any(diff.values()):
+            messagebox.showinfo(
+                "Atualizar senhas",
+                "As senhas desta máquina já são iguais às que vêm no programa.\n\n"
+                "Nada foi alterado."
+                + ("\n\nRodando pelo código-fonte não há o que comparar: o app lê "
+                   "direto a pasta config/ do projeto."
+                   if not getattr(sys, "frozen", False) else ""),
+            )
+            return
+
+        def _bloco(titulo: str, rotulos: list[str]) -> str:
+            if not rotulos:
+                return ""
+            mostra = rotulos[:12]
+            resto = len(rotulos) - len(mostra)
+            corpo = "\n".join(f"  • {r}" for r in mostra)
+            if resto:
+                corpo += f"\n  • (+{resto} outro(s))"
+            return f"{titulo}\n{corpo}\n\n"
+
+        detalhe = (
+            _bloco("Senha/login MUDA em:", diff["alteradas"])
+            + _bloco("Passa a existir:", diff["novas"])
+            + _bloco("Deixa de existir nesta máquina:", diff["somem"])
+        )
+        if not messagebox.askyesno(
+            "Atualizar senhas dos tribunais",
+            f"{detalhe}"
+            "Se você editou alguma senha NESTE computador, ela será substituída "
+            "pela do programa. O arquivo atual fica guardado como "
+            "credenciais.json.bak, ao lado dele.\n\nContinuar?",
+            icon="warning", default="no",
+        ):
+            return
+
+        try:
+            backup = atualizar_credenciais_do_bundle()
+        except OSError as exc:
+            messagebox.showerror(
+                "Atualizar senhas",
+                f"Não consegui gravar as senhas novas:\n\n{exc}\n\n"
+                "Nada foi alterado — feche outros programas que possam estar com "
+                "o arquivo aberto e tente de novo.",
+            )
+            return
+
+        _carregar_credenciais.cache_clear()
+        self.var_status.set("Senhas dos tribunais atualizadas.")
+        messagebox.showinfo(
+            "Atualizar senhas",
+            "Senhas atualizadas nesta máquina.\n\n"
+            + (f"Cópia do anterior: {backup}\n\n" if backup else "")
+            + "Se alguma busca online já estava aberta, feche e refaça para ela "
+              "usar a senha nova.",
+        )
 
     # -- restaurar dados do programa ---------------------------------------
     def _restaurar_dados_locais(self) -> None:

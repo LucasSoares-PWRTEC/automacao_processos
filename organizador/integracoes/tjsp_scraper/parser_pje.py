@@ -63,7 +63,7 @@ _RX_PARTE = re.compile(
     r"EMBARGANTE|EMBARGADO\(A\)|EMBARGADO|AGRAVANTE|AGRAVADO\(A\)|AGRAVADO|"
     r"APELANTE|APELADO\(A\)|APELADO|IMPETRANTE|IMPETRADO\(A\)|IMPETRADO|"
     r"RECORRENTE|RECORRIDO\(A\)|RECORRIDO|TERCEIRO INTERESSADO|INTERESSADO\(A\)|"
-    r"INTERESSADO|V[ÍI]TIMA)\s*:\s*"
+    r"INTERESSADO|REVEL|V[ÍI]TIMA)\s*:\s*"
     r"(?P<nome>.+?)"
     r"(?:"
     r"\s*(?:CPF|CNPJ)\s*:\s*(?P<doc>[\d./-]+)"  # com doc: para no documento (como antes)
@@ -85,6 +85,8 @@ _PAPEL_PJE = {
     "RECORRENTE": "RECORRENTE", "RECORRIDO": "RECORRIDO",
     "TERCEIRO INTERESSADO": "TERCEIRO INTERESSADO", "INTERESSADO": "INTERESSADO",
     "VÍTIMA": "VÍTIMA", "VITIMA": "VÍTIMA",
+    # TJDFT: executado/réu declarado revel (representado pela Curadoria Especial).
+    "REVEL": "REVEL",
 }
 
 # Tipo de ato por palavra-chave no nome do documento da timeline.
@@ -132,7 +134,7 @@ def _canonizar_papel(bruto: str) -> str:
 _PAPEIS_ATIVO_PJE = {"REQUERENTE", "AUTOR", "EXEQUENTE", "EMBARGANTE",
                      "AGRAVANTE", "APELANTE", "IMPETRANTE", "RECORRENTE"}
 _PAPEIS_PASSIVO_PJE = {"REQUERIDO", "RÉU", "REU", "EXECUTADO", "EMBARGADO",
-                       "AGRAVADO", "APELADO", "IMPETRADO", "RECORRIDO"}
+                       "AGRAVADO", "APELADO", "IMPETRADO", "RECORRIDO", "REVEL"}
 
 
 def _polo_de(papel: str) -> str:
@@ -194,6 +196,35 @@ _RX_PARTE_DETALHE = re.compile(
     r"^(?P<nome>.+?)\s*(?:-\s*(?P<tipo>CPF|CNPJ)\s*:\s*(?P<doc>[\d./-]+)\s*)?\((?P<papel>.+)\)\s*$",
     re.I,
 )
+
+
+# Papel canônico de cada polo, quando o rótulo do tribunal não serve.
+_PAPEL_POLO = {"poloAtivo": "REQUERENTE", "poloPassivo": "REQUERIDO"}
+
+
+def _papel_utilizavel(papel: str, div_id: str) -> str:
+    """Papel que `_RX_PARTE` reconhece — nunca devolve algo que faça a parte sumir.
+
+    O painel emite o papel entre parênteses e cada tribunal inventa o seu. Se o
+    rótulo não estiver em `_PAPEL_PJE`, a linha montada aqui não casa `_RX_PARTE`
+    e a parte é DESCARTADA em silêncio: foi assim que 7 processos do TJDFT ficaram
+    só com o autor por rotularem o polo passivo como "REVEL" e
+    "EXECUTADO ESPÓLIO DE".
+
+    Ordem de tentativa, da mais fiel à mais grosseira:
+      1. o próprio papel, se conhecido ("REVEL", "EXECUTADO"…);
+      2. a 1ª palavra ("EXECUTADO ESPÓLIO DE" → "EXECUTADO") — perde o
+         qualificador, preserva o polo e o nome, que é o que alimenta o réu;
+      3. o papel canônico do polo — o container (#poloAtivo/#poloPassivo) diz o
+         polo com certeza, então parte visível no painel sempre sobrevive.
+    """
+    bruto = (papel or "").strip()
+    if bruto and _canonizar_papel(bruto) in _PAPEL_PJE.values():
+        return bruto
+    primeira = bruto.split()[0] if bruto.split() else ""
+    if primeira and _canonizar_papel(primeira) in _PAPEL_PJE.values():
+        return primeira
+    return _PAPEL_POLO[div_id]
 
 
 def _campo_detalhe(campos: dict[str, str], *rotulos: str) -> str:
@@ -260,9 +291,8 @@ def _formatar_detalhe_pje(html: str) -> str:
 
     # Partes dos polos (ignora os advogados, que ficam na sub-árvore <ul.tree>).
     # O réu costuma vir SEM CPF/CNPJ (sigilo) — emitir mesmo assim, senão o polo
-    # passivo some e o processo fica só com o autor. Quando o td nem traz
-    # "(PAPEL)", usa o próprio polo (ativo→REQUERENTE, passivo→REQUERIDO).
-    _PAPEL_POLO = {"poloAtivo": "REQUERENTE", "poloPassivo": "REQUERIDO"}
+    # passivo some e o processo fica só com o autor. Papel ausente ou desconhecido
+    # cai no polo do container (ver `_papel_utilizavel`).
     for div_id in ("poloAtivo", "poloPassivo"):
         bloco = soup.find(id=div_id)
         if bloco is None:
@@ -280,7 +310,7 @@ def _formatar_detalhe_pje(html: str) -> str:
                 # TJMG rotula o polo com barra de gênero ("RÉU/RÉ", "AUTOR/AUTORA",
                 # "EXEQUENTE/EXEQUENTE"); fica só com o 1º termo, que _RX_PARTE
                 # reconhece (senão a parte é descartada ao reparsear a linha).
-                papel = mp.group("papel").split("/")[0].strip()
+                papel = _papel_utilizavel(mp.group("papel").split("/")[0].strip(), div_id)
                 cab = f"{papel}: {mp.group('nome').strip()}"
                 linhas.append(f"{cab} {tipo}: {doc}" if doc else cab)
             elif "(" not in texto:

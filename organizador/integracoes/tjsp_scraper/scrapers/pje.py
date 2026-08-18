@@ -91,13 +91,19 @@ def _cabecalho_suficiente(blob: str) -> bool:
 TOTP_ENV = "TOTP_PDPJ"
 
 # estado (forma usada em TJ_SISTEMAS) -> chave de credencial em credenciais.json.
-# Sem entrada aqui, cai no TJMG (compatibilidade).
+# Sem entrada aqui, cai no TJMG (compatibilidade) — e esse fallback é SILENCIOSO:
+# o DF ficou de fora até 18/08/2026 e logava no TJDFT com a senha do rótulo do
+# TJMG. Passou despercebido enquanto as duas senhas coincidiam; quando a do DF
+# foi trocada isoladamente, o scraper seguiu mandando a antiga e o sintoma
+# parecia ser "senha nova não funciona". Toda rota PJe de TJ_SISTEMAS precisa de
+# entrada aqui.
 _CRED_POR_ESTADO = {
-    "MINAS GERAIS": "TJMG - PJE",
-    "CEARA":        "TJCE - PJE - 1º Grau",
-    "MARANHAO":     "TJMA – PJE – 1º Grau",
-    "PARA":         "TJPA - PJE – 1º Grau",
-    "PERNAMBUCO":   "TJPE - PJE – 1º Grau",
+    "MINAS GERAIS":     "TJMG - PJE",
+    "CEARA":            "TJCE - PJE - 1º Grau",
+    "MARANHAO":         "TJMA – PJE – 1º Grau",
+    "PARA":             "TJPA - PJE – 1º Grau",
+    "PERNAMBUCO":       "TJPE - PJE – 1º Grau",
+    "DISTRITO FEDERAL": "TJDF - 1º Grau",
 }
 
 # Defaults TJMG (fallback quando a url não é informada).

@@ -161,6 +161,9 @@ _MARCADORES_NAO_ENCONTRADO = {
         "não foram encontrados resultados",
     ),
     "pje": ("não foram encontrados", "nao foram encontrados", "nenhum registro encontrado"),
+    # Projudi: número inexistente abre um diálogo com esta frase e a página do
+    # processo (body#corpo_dados_processo) nunca é montada.
+    "projudi": ("nenhum processo foi localizado",),
 }
 
 
@@ -291,6 +294,11 @@ def _consultar_e_extrair(
         from .integracoes.tjsp_scraper.parser_esaj import extrair_processo_esaj
         proc = _dict_para_processo(extrair_processo_esaj(html, numero_cnj=numero))
         log("Dados extraídos do e-SAJ "
+            f"({len(proc.partes)} parte(s), {proc.total_eventos} movimentação(ões)).\n")
+    elif site == "projudi":
+        from .integracoes.tjsp_scraper.parser_projudi import extrair_processo_projudi
+        proc = _dict_para_processo(extrair_processo_projudi(html, numero_cnj=numero))
+        log("Dados extraídos do Projudi "
             f"({len(proc.partes)} parte(s), {proc.total_eventos} movimentação(ões)).\n")
     elif site == "tjrj":
         import json as _json

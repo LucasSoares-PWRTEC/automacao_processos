@@ -73,7 +73,11 @@ from organizador.organizacao import (  # noqa: E402
     _reus_joined,
     salvar_processo_metadados,
 )
-from organizador.parsing import _derivar_agregados, _uf_de_numero_cnj  # noqa: E402
+from organizador.parsing import (  # noqa: E402
+    _derivar_agregados,
+    _uf_de_numero_cnj,
+    classe_exige_polo_passivo,
+)
 from organizador.padroes import (  # noqa: E402
     PAPEIS_ATIVO,
     PAPEIS_PASSIVO,
@@ -97,21 +101,38 @@ RELATORIO_NM_CSV = SAIDA_DIR / "_relatorio_nao_mapeados.csv"
 
 PAUSA_ENTRE_CONSULTAS = 2.5  # s — folga anti-bloqueio (comprovado no lote anterior)
 
-# Status "terminados" (pulados numa nova execução). nao_encontrado/falha são
-# reprocessados com --retry-falhas.
+# Status "terminados" (pulados numa nova execução). Os de STATUS_RETRY voltam à
+# fila com --retry-falhas.
 STATUS_DONE = {"enriquecido", "ainda_sem_reu", "popup_atribuicao", "sem_rota"}
+# "reu_faltando" mora AQUI, não em STATUS_DONE: é raspagem incompleta (ver
+# `_status_do_resultado`), e antes se disfarçava de "ainda_sem_reu" — terminado,
+# nunca reprocessado. Fica atrás do --retry-falhas para não remartelar o tribunal
+# a cada passada semanal.
+STATUS_RETRY = {"nao_encontrado", "falha", "reu_faltando"}
 
-# Rotas configuradas que NÃO atendem os processos da UF: a plataforma eproc do
-# TJSP, acessada por perfil OAB de GO/PR/RN, loga mas NÃO hospeda processos
-# desses tribunais (confirmado ao vivo: sempre "não encontrado"). GO e PR usam
-# Projudi (sem scraper); RN usa PJe (volume ínfimo). O RJ JÁ foi migrado para a
-# rota real "TJRJ — PJe" em config.py. Pular as inoperantes evita consultas vãs.
-_ROTAS_INOPERANTES = {"TJGO — eproc", "TJPR — eproc", "TJRN — eproc"}
+def _status_do_resultado(merged, tem_reu: bool) -> str:
+    """Classifica o resultado de uma raspagem bem-sucedida.
+
+    Sem réu numa classe adversarial não é "processo de um polo só": é dado
+    perdido. No PJe o #poloPassivo é populado por AJAX depois da timeline e,
+    quando a espera estoura, o processo é gravado só com o autor. Separar os dois
+    casos é o que permite reprocessar um sem tocar no outro.
+    """
+    if tem_reu:
+        return "enriquecido"
+    if classe_exige_polo_passivo(getattr(merged, "classe", "")):
+        return "reu_faltando"
+    return "ainda_sem_reu"
 
 
 def _candidatos(uf: str) -> list[str]:
-    """Sistemas que atendem a UF, sem as rotas comprovadamente inoperantes."""
-    return [c for c in candidatos_tj_para_uf(uf) if c not in _ROTAS_INOPERANTES]
+    """Sistemas que atendem a UF, sem as rotas comprovadamente inoperantes.
+
+    A lista dessas rotas mora em `config.ROTAS_INOPERANTES` (era duplicada aqui)
+    e já sai filtrada de `candidatos_tj_para_uf` — a GUI usa o mesmo filtro.
+    PR segue sem rota (usa Projudi, ainda sem scraper) e RN usa PJe; GO foi
+    migrado para "TJGO — Projudi" e RJ para a consulta pública do TJRJ."""
+    return candidatos_tj_para_uf(uf)
 
 
 # --- estado (JSON incremental) -------------------------------------------
@@ -238,6 +259,7 @@ def _selecionar_nao_mapeados(carteira_filtro: str | None = None,
 # --- relatórios .md / .csv ------------------------------------------------
 _ORDEM_STATUS = [
     ("enriquecido", "✅ Enriquecidos (réu obtido)"),
+    ("reu_faltando", "❌ Réu PERDIDO na raspagem (classe exige polo passivo) — refazer"),
     ("ainda_sem_reu", "⚠️ Achados mas AINDA sem réu (revisar manualmente)"),
     ("popup_atribuicao", "🚫 Parados no pop-up de atribuição ao advogado"),
     ("nao_encontrado", "🔎 Não encontrados em nenhum sistema"),
@@ -263,6 +285,7 @@ def _gerar_relatorios(estado: dict, md_path: Path = RELATORIO_MD,
         "",
         f"- **Total de alvos:** {total}",
         f"- ✅ Enriquecidos (réu obtido): **{len(grupos.get('enriquecido', []))}**",
+        f"- ❌ Réu perdido na raspagem (refazer): **{len(grupos.get('reu_faltando', []))}**",
         f"- ⚠️ Achados sem réu: **{len(grupos.get('ainda_sem_reu', []))}**",
         f"- 🚫 Pop-up de atribuição: **{len(grupos.get('popup_atribuicao', []))}**",
         f"- 🔎 Não encontrados: **{len(grupos.get('nao_encontrado', []))}**",
@@ -347,7 +370,7 @@ def executar(args) -> None:
         st = estado.get(numero, {}).get("status", "pendente")
         if st in STATUS_DONE:
             return False
-        if st in ("nao_encontrado", "falha"):
+        if st in STATUS_RETRY:
             return args.retry_falhas
         return True  # pendente
 
@@ -432,14 +455,17 @@ def executar(args) -> None:
                 merged = _merge_e_salvar(numero, proc, info["existing"], tags_extra)
                 autor, reu = _autor(merged), _reus_joined(merged)
                 tem_reu = bool(reu.strip())
+                status = _status_do_resultado(merged, tem_reu)
                 estado[numero] = {
-                    "status": "enriquecido" if tem_reu else "ainda_sem_reu",
+                    "status": status,
                     "uf": uf, "sistema": tj_label, "tem_reu": tem_reu,
                     "autor": autor, "reu": reu, "quando": _quando(),
                 }
+                if status == "reu_faltando":
+                    estado[numero]["classe"] = getattr(merged, "classe", "")
                 if cliente:
                     estado[numero]["cliente"] = cliente
-                marca = "✅" if tem_reu else "⚠️"
+                marca = {"enriquecido": "✅", "reu_faltando": "❌"}.get(status, "⚠️")
                 print(f"   {marca} {tj_label}: autor='{autor or '—'}' réu='{reu or '—'}'\n")
                 resolvido = True
                 time.sleep(PAUSA_ENTRE_CONSULTAS)

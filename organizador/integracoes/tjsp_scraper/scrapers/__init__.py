@@ -11,6 +11,7 @@ from .base import TribunalScraper
 from .esaj import ESAJScraper
 from .pje import PJEScraper
 from .eproc import EprocScraper
+from .projudi import ProjudiScraper
 from .tjrj import TJRJScraper
 
 
@@ -20,8 +21,9 @@ def criar_scraper(
     """
     Fábrica: devolve a instância de scraper para o 'site'.
 
-    `perfil` (só eproc): sigla da OAB a selecionar na tela "Seleção de perfil"
-    (ex.: "SP", "MG", "RJ"). Ignorado por e-SAJ/PJe.
+    `perfil` (eproc e projudi): sigla da OAB a selecionar depois do login —
+    no eproc na tela "Seleção de perfil", no Projudi na tela "Serventias
+    Disponíveis" (ex.: "SP", "MG", "GO"). Ignorado por e-SAJ/PJe/TJRJ.
 
     Levanta NotImplementedError para sites ainda não implementados,
     para o fluxo principal poder pular o site sem derrubar a execução.
@@ -34,6 +36,8 @@ def criar_scraper(
         return PJEScraper(estado=estado, url=url, headless=headless)
     if site == "eproc":
         return EprocScraper(estado=estado, url=url, headless=headless, perfil=perfil)
+    if site == "projudi":
+        return ProjudiScraper(estado=estado, url=url, headless=headless, perfil=perfil)
     if site == "tjrj":
         return TJRJScraper(estado=estado, url=url, headless=headless)
 
@@ -43,4 +47,4 @@ def criar_scraper(
 
 
 __all__ = ["TribunalScraper", "ESAJScraper", "PJEScraper", "EprocScraper",
-           "TJRJScraper", "criar_scraper"]
+           "ProjudiScraper", "TJRJScraper", "criar_scraper"]

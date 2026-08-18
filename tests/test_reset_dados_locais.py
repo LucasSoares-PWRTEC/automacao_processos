@@ -122,3 +122,80 @@ def test_contagem_de_processos_locais(monkeypatch, tmp_path):
 def test_contagem_sem_cache_e_zero(monkeypatch, tmp_path):
     _apontar(monkeypatch, tmp_path / "nao_existe", tmp_path / "a", tmp_path / "b")
     assert gui._contar_processos_locais() == 0
+
+
+# --------------------------------------------------------------------------
+# Atualizar senhas dos tribunais a partir do bundle
+# --------------------------------------------------------------------------
+def _escrever_creds(caminho, itens):
+    import json as _json
+
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.write_text(_json.dumps({"credenciais": itens}, ensure_ascii=False), encoding="utf-8")
+
+
+def _montar(monkeypatch, tmp_path, locais, do_bundle):
+    """Aponta CONFIG_DIR (máquina) e CONFIG_SEMENTE_DIR (bundle) para tmp."""
+    from organizador import config as C
+
+    local_dir, bundle_dir = tmp_path / "appdata", tmp_path / "bundle"
+    _escrever_creds(local_dir / "credenciais.json", locais)
+    _escrever_creds(bundle_dir / "credenciais.json", do_bundle)
+    monkeypatch.setattr(C, "CONFIG_DIR", local_dir)
+    monkeypatch.setattr(C, "CONFIG_SEMENTE_DIR", bundle_dir)
+    monkeypatch.setattr(C, "CREDENCIAIS_PATH", local_dir / "credenciais.json")
+    return C, local_dir
+
+
+def test_diff_credenciais_aponta_rotulo_e_nunca_senha(monkeypatch, tmp_path):
+    C, _ = _montar(
+        monkeypatch, tmp_path,
+        locais=[
+            {"tj": "TJDF - 1º Grau", "login": "1", "senha": "velha"},
+            {"tj": "TJMG - PJE", "login": "1", "senha": "igual"},
+            {"tj": "TJXX - some", "login": "1", "senha": "x"},
+        ],
+        do_bundle=[
+            {"tj": "TJDF - 1º Grau", "login": "1", "senha": "NOVA"},
+            {"tj": "TJMG - PJE", "login": "1", "senha": "igual"},
+            {"tj": "TJZZ - nova", "login": "1", "senha": "y"},
+        ],
+    )
+    diff = C.diff_credenciais_do_bundle()
+    assert diff["alteradas"] == ["TJDF - 1º Grau"]   # MG igual → fora
+    assert diff["novas"] == ["TJZZ - nova"]
+    assert diff["somem"] == ["TJXX - some"]
+    # nenhuma senha pode escapar no relatório mostrado ao usuário
+    assert "NOVA" not in str(diff) and "velha" not in str(diff)
+
+
+def test_atualizar_credenciais_sobrescreve_e_guarda_backup(monkeypatch, tmp_path):
+    import json as _json
+
+    C, local_dir = _montar(
+        monkeypatch, tmp_path,
+        locais=[{"tj": "TJDF - 1º Grau", "login": "1", "senha": "velha"}],
+        do_bundle=[{"tj": "TJDF - 1º Grau", "login": "1", "senha": "NOVA"}],
+    )
+    backup = C.atualizar_credenciais_do_bundle()
+
+    agora = _json.loads((local_dir / "credenciais.json").read_text(encoding="utf-8"))
+    assert agora["credenciais"][0]["senha"] == "NOVA"
+    # a edição local descartada tem de ter volta
+    assert backup is not None and backup.exists()
+    assert "velha" in backup.read_text(encoding="utf-8")
+
+
+def test_rodando_do_fonte_nao_compara_nem_sobrescreve(monkeypatch, tmp_path):
+    """Bundle == local: não existe semente separada, então é no-op."""
+    from organizador import config as C
+
+    mesma = tmp_path / "config"
+    _escrever_creds(mesma / "credenciais.json", [{"tj": "T", "login": "1", "senha": "s"}])
+    monkeypatch.setattr(C, "CONFIG_DIR", mesma)
+    monkeypatch.setattr(C, "CONFIG_SEMENTE_DIR", mesma)
+    monkeypatch.setattr(C, "CREDENCIAIS_PATH", mesma / "credenciais.json")
+
+    assert C.diff_credenciais_do_bundle() == {"alteradas": [], "novas": [], "somem": []}
+    assert C.atualizar_credenciais_do_bundle() is None
+    assert not (mesma / "credenciais.json.bak").exists()

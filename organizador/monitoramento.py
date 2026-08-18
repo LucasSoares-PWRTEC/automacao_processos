@@ -51,7 +51,7 @@ from .organizacao import (
     salvar_processo_metadados,
 )
 from .padroes import RE_NUMERO_CNJ
-from .parsing import _derivar_agregados, _uf_de_numero_cnj
+from .parsing import _derivar_agregados, _uf_de_numero_cnj, classe_exige_polo_passivo
 from .scraper import _consultar_e_extrair, _preparar_env_local
 
 # --- caminhos -------------------------------------------------------------
@@ -64,19 +64,36 @@ RELATORIO_MONITOR_CSV = APP_DATA_DIR / "_monitor_relatorio.csv"
 
 PAUSA_ENTRE_CONSULTAS = 2.5  # s — folga anti-bloqueio (comprovado no lote anterior)
 
-# Status "terminados" = já mapeados; pulados numa nova passada. nao_encontrado/
-# falha voltam à fila só com retry_falhas (evita martelar os tribunais toda semana).
+# Status "terminados" = já mapeados; pulados numa nova passada. Os de STATUS_RETRY
+# voltam à fila só com retry_falhas (evita martelar os tribunais toda semana).
 STATUS_DONE = {"enriquecido", "ainda_sem_reu", "popup_atribuicao", "sem_rota"}
+# "reu_faltando" mora AQUI, não em STATUS_DONE: é raspagem incompleta (ver
+# `_status_do_resultado`), e antes se disfarçava de "ainda_sem_reu" — terminado,
+# nunca reprocessado.
+STATUS_RETRY = {"nao_encontrado", "falha", "reu_faltando"}
 
-# Rotas configuradas que NÃO atendem os processos da UF (confirmado ao vivo):
-# a plataforma eproc do TJSP, via perfil OAB de GO/PR/RN, loga mas não hospeda
-# esses processos. Pular as inoperantes evita consultas vãs.
-_ROTAS_INOPERANTES = {"TJGO — eproc", "TJPR — eproc", "TJRN — eproc"}
+
+def _status_do_resultado(merged, tem_reu: bool) -> str:
+    """Classifica o resultado de uma raspagem bem-sucedida.
+
+    Sem réu numa classe adversarial não é "processo de um polo só": é dado
+    perdido. No PJe o #poloPassivo é populado por AJAX depois da timeline e,
+    quando a espera estoura, o processo é gravado só com o autor. Separar os dois
+    casos é o que permite reprocessar um sem tocar no outro.
+    """
+    if tem_reu:
+        return "enriquecido"
+    if classe_exige_polo_passivo(getattr(merged, "classe", "")):
+        return "reu_faltando"
+    return "ainda_sem_reu"
 
 
 def _candidatos(uf: str) -> list[str]:
-    """Sistemas que atendem a UF, sem as rotas comprovadamente inoperantes."""
-    return [c for c in candidatos_tj_para_uf(uf) if c not in _ROTAS_INOPERANTES]
+    """Sistemas que atendem a UF, sem as rotas comprovadamente inoperantes.
+
+    A lista mora em `config.ROTAS_INOPERANTES` (era duplicada aqui e no
+    scripts/reenriquecer.py) e já sai filtrada de `candidatos_tj_para_uf`."""
+    return candidatos_tj_para_uf(uf)
 
 
 def _teto_navegadores() -> int:
@@ -286,6 +303,7 @@ def _merge_e_salvar(numero: str, online_proc, existing: dict | None,
 # --- relatórios .md / .csv (conveniência; o estado.json é a fonte da verdade) --
 _ORDEM_STATUS = [
     ("enriquecido", "✅ Mapeados e enriquecidos (autor+réu)"),
+    ("reu_faltando", "❌ Réu PERDIDO na raspagem (classe exige polo passivo) — refazer"),
     ("ainda_sem_reu", "⚠️ Mapeados mas ainda sem réu"),
     ("popup_atribuicao", "🚫 Parados no pop-up de atribuição ao advogado"),
     ("nao_encontrado", "🔎 Não encontrados em nenhum sistema"),
@@ -311,6 +329,7 @@ def _gerar_relatorios(estado: dict, md_path: Path = RELATORIO_MONITOR_MD,
         "",
         f"- **Total no estado:** {len(estado)}",
         f"- ✅ Mapeados+enriquecidos: **{len(grupos.get('enriquecido', []))}**",
+        f"- ❌ Réu perdido na raspagem (refazer): **{len(grupos.get('reu_faltando', []))}**",
         f"- ⚠️ Mapeados sem réu: **{len(grupos.get('ainda_sem_reu', []))}**",
         f"- 🔎 Não encontrados: **{len(grupos.get('nao_encontrado', []))}**",
         f"- 🗺️ Sem rota: **{len(grupos.get('sem_rota', []))}**",
@@ -355,12 +374,23 @@ def _gerar_relatorios(estado: dict, md_path: Path = RELATORIO_MONITOR_MD,
 # --- seleção: o que já está mapeado × o que falta -------------------------
 def processos_ja_mapeados(estado: dict) -> set[str]:
     """CNJs que NÃO precisam ser raspados: presentes no cache OU com status
-    terminado (``STATUS_DONE``) no estado do monitor."""
+    terminado (``STATUS_DONE``) no estado do monitor.
+
+    Exceto os marcados ``reu_faltando``: esses ESTÃO no cache (foram salvos com o
+    autor) e por isso a checagem de cache os declarava mapeados antes mesmo do
+    gate de retry. Como o que temos deles é dado incompleto, voltam a ser
+    elegíveis — ainda atrás do ``retry_falhas`` em `selecionar_pendentes`.
+    """
     mapeados = set(_numeros_no_cache())
+    incompletos = {
+        _cnj_normalizado(numero)
+        for numero, r in estado.items()
+        if r.get("status") == "reu_faltando"
+    }
     for numero, r in estado.items():
         if r.get("status") in STATUS_DONE:
             mapeados.add(_cnj_normalizado(numero))
-    return mapeados
+    return mapeados - incompletos
 
 
 def selecionar_pendentes(alvos_planilhas: dict[str, str], estado: dict,
@@ -373,7 +403,7 @@ def selecionar_pendentes(alvos_planilhas: dict[str, str], estado: dict,
         if _cnj_normalizado(numero) in mapeados:
             continue
         st = estado.get(numero, {}).get("status")
-        if st in ("nao_encontrado", "falha") and not retry_falhas:
+        if st in STATUS_RETRY and not retry_falhas:
             continue
         uf = (_uf_de_numero_cnj(numero) or "").upper()
         pendentes[numero] = {
@@ -536,13 +566,16 @@ def rodar_passada(
                 merged = _merge_e_salvar(numero, proc, None, tags_extra)
                 autor, reu = _autor(merged), _reus_joined(merged)
                 tem_reu = bool(reu.strip())
+                status = _status_do_resultado(merged, tem_reu)
                 estado[numero] = {
-                    "status": "enriquecido" if tem_reu else "ainda_sem_reu",
+                    "status": status,
                     "uf": uf, "sistema": tj_label, "campanha": campanha,
                     "tem_reu": tem_reu, "autor": autor, "reu": reu, "quando": _quando(),
                 }
-                log(f"   {'✅' if tem_reu else '⚠️'} {tj_label}: "
-                    f"autor='{autor or '—'}' réu='{reu or '—'}'")
+                if status == "reu_faltando":
+                    estado[numero]["classe"] = getattr(merged, "classe", "")
+                log(f"   {({'enriquecido': '✅', 'reu_faltando': '❌'}).get(status, '⚠️')} "
+                    f"{tj_label}: autor='{autor or '—'}' réu='{reu or '—'}'")
                 resumo["mapeados_agora"] += 1
                 resolvido = True
                 time.sleep(PAUSA_ENTRE_CONSULTAS)

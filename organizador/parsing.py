@@ -8,10 +8,13 @@ import re
 from datetime import date, datetime
 from pathlib import Path
 
+from unidecode import unidecode
+
 from .config import COMARCAS_CACHE_PATH
 from .models import Advogado, AtoDocumento, Evento, Parte, Prazo, Processo
 from .padroes import (
-    CAMPOS_CABECALHO, MAPA_TRIBUNAL_CNJ, MAPA_UF_CNJ, PAPEIS_ATIVO, PAPEIS_PASSIVO,
+    CAMPOS_CABECALHO, CLASSES_COM_POLO_PASSIVO,
+    MAPA_TRIBUNAL_CNJ, MAPA_UF_CNJ, PAPEIS_ATIVO, PAPEIS_PASSIVO,
     RE_ADVOGADO, RE_ASSUNTO_ATO, RE_BLOCO_PARTES, RE_CABECALHO_ATO, RE_CABECALHO_PARTES,
     RE_CABECALHO_TABELA_EVENTOS, RE_CNJ_TR, RE_CODIGO_CRC, RE_CODIGO_VERIFICADOR,
     RE_DATA_ASSINATURA, RE_ENDERECO_VARA, RE_EXTRATO_CHAVE, RE_EXTRATO_MAGISTRADO,
@@ -47,6 +50,23 @@ def _uf_de_numero_cnj(numero: str) -> str:
     comarca/UF não veio do processo — vazio se não for justiça estadual."""
     _, uf = _inferir_tribunal(numero)
     return uf
+
+
+def classe_exige_polo_passivo(classe: str) -> bool:
+    """A classe é adversarial? (não existe execução sem executado.)
+
+    Usada pelos runners de enriquecimento para distinguir um processo que
+    LEGITIMAMENTE não tem réu de uma raspagem que PERDEU o réu — no PJe o
+    #poloPassivo é populado por AJAX depois da timeline e, se a espera estoura,
+    o processo é salvo só com o autor. Sem esta distinção os dois casos viravam
+    `ainda_sem_reu`, que conta como terminado e nunca era reprocessado.
+
+    Conservadora: classe desconhecida ou vazia → False (não acusa nada).
+    """
+    if not classe:
+        return False
+    alvo = unidecode(str(classe)).upper()
+    return any(chave in alvo for chave in CLASSES_COM_POLO_PASSIVO)
 
 
 def _municipio_de_comarca(comarca: str) -> str:
