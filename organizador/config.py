@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import sys
+import unicodedata
 from pathlib import Path
 
 
@@ -152,70 +154,230 @@ def semear_config() -> list[str]:
     return copiados
 
 
-# --- atualizar senhas dos tribunais a partir do bundle ---------------------
+# --- atualizar senhas dos tribunais a partir da planilha do escritório -----
 # `semear_config` de propósito NUNCA sobrescreve, para o update não apagar a
 # senha que o usuário corrigiu na máquina. O efeito colateral é que uma senha
-# trocada no escritório NÃO chega em quem já usa o app: o arquivo local vence
-# para sempre. As duas funções abaixo dão a saída explícita — o usuário pede,
-# vê o que muda e confirma. Nada aqui roda sozinho.
-def diff_credenciais_do_bundle() -> dict[str, list[str]]:
-    """Compara credenciais local × bundle. Só RÓTULOS, nunca senhas.
+# trocada no escritório NÃO chegava em quem já usa o app: o arquivo local vence
+# para sempre. A saída é a PLANILHA de senhas do escritório (ver
+# `organizador.sheets`): o usuário pede, vê quais tribunais mudam e confirma.
+# Nada aqui roda sozinho, e nada aqui apaga credencial.
 
-    Devolve ``{"alteradas": [...], "novas": [...], "somem": [...]}``. Dicionário
-    vazio em todas as chaves = nada a fazer. Rodando do fonte (bundle == local)
-    devolve tudo vazio, porque não existe semente separada para comparar.
+
+def _valor_credencial(v) -> str:
+    """Célula/campo → string utilizável, sem o `.0` que o Excel põe em campo
+    numérico.
+
+    Os DOIS lados do diff (local e planilha) têm de passar por aqui: se um lado
+    normalizasse e o outro não, `123.0` × `123` viraria "alterada" para sempre.
+    É a mesma função que `credenciais._to_str` usa — de propósito, uma só.
     """
-    vazio: dict[str, list[str]] = {"alteradas": [], "novas": [], "somem": []}
-    if CONFIG_DIR == CONFIG_SEMENTE_DIR:
-        return vazio
-
-    def _mapa(caminho: Path) -> dict[str, str]:
-        try:
-            payload = json.loads(caminho.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-        itens = payload.get("credenciais", payload) if isinstance(payload, dict) else payload
-        if not isinstance(itens, list):
-            return {}
-        # rótulo -> "login\x00senha"; comparar o par evita alarme falso quando só
-        # o login foi normalizado (ex.: CPF com/sem zero à esquerda).
-        return {
-            str(i.get("tj") or ""): f"{i.get('login') or ''}\x00{i.get('senha') or ''}"
-            for i in itens
-            if isinstance(i, dict) and i.get("tj")
-        }
-
-    local = _mapa(CREDENCIAIS_PATH)
-    bundle = _mapa(CONFIG_SEMENTE_DIR / "credenciais.json")
-    if not bundle:
-        return vazio
-    return {
-        "alteradas": sorted(r for r, v in bundle.items() if r in local and local[r] != v),
-        "novas": sorted(r for r in bundle if r not in local),
-        "somem": sorted(r for r in local if r not in bundle),
-    }
+    if v is None:
+        return ""
+    s = str(v).strip()
+    if s.endswith(".0") and s[:-2].isdigit():
+        s = s[:-2]
+    return s
 
 
-def atualizar_credenciais_do_bundle() -> Path | None:
-    """Sobrescreve o credenciais.json local pelo que veio no .exe.
+def _login_credencial(v) -> str:
+    """`_valor_credencial` + recuperação do zero à esquerda do CPF.
 
-    Guarda o anterior como ``credenciais.json.bak`` e devolve o caminho do
-    backup — o usuário está descartando edição local, então tem de haver volta.
-    Devolve ``None`` quando não há o que fazer (rodando do fonte, ou sem
-    credenciais.json no bundle). Levanta ``OSError`` se a cópia falhar: aqui,
-    diferente de `semear_config`, falhar em silêncio faria o app afirmar que
+    Login só-dígitos de 10 ou 11 caracteres é CPF, e célula NUMÉRICA de planilha
+    come o zero da frente ("03015257650" vira "3015257650"). Sem isto, todo
+    tribunal com CPF começado em zero apareceria como "alterada" para sempre e o
+    login gravado falharia o e-SAJ. Com 9 dígitos ou menos não mexe: pode ser
+    número de OAB, que o zfill corromperia.
+
+    Aplicado só no lado da PLANILHA, nunca no arquivo local: é lá que a célula
+    numérica come o zero. Rodar no local também poderia inflar para 11 dígitos um
+    login de 10 que o escritório escreveu assim de propósito.
+    """
+    s = _valor_credencial(v)
+    if s.isdigit() and 10 <= len(s) <= 11:
+        return s.zfill(11)
+    return s
+
+
+def _chave_credencial(rotulo: str) -> str:
+    """Chave de casamento de rótulo entre a planilha e o arquivo local.
+
+    Equivale a `credenciais._norm` sem depender do unidecode (este módulo é
+    importado na abertura e fica só na stdlib). É o que faz
+    "TJMA – PJE – 1º Grau" (travessão) casar com "TJMA - PJE - 1o Grau" em vez
+    de virar "nova" + "só local" — os rótulos reais misturam - e –.
+    """
+    s = unicodedata.normalize("NFKD", str(rotulo or ""))
+    s = s.encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[\s\-]+", " ", s).strip()
+
+
+def _itens_credenciais(caminho: Path) -> list[dict[str, str]]:
+    """Lê um credenciais.json e devolve a lista normalizada, na ordem do arquivo.
+
+    Tolerante de propósito (arquivo ausente/ilegível vira lista vazia): quem
+    decide o que fazer com "não tem nada local" é o chamador.
+    """
+    try:
+        payload = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    itens = payload.get("credenciais", payload) if isinstance(payload, dict) else payload
+    if not isinstance(itens, list):
+        return []
+    saida: list[dict[str, str]] = []
+    for i in itens:
+        if not isinstance(i, dict):
+            continue
+        tj = _valor_credencial(i.get("tj"))
+        if not tj:
+            continue
+        saida.append({
+            "tj": tj,
+            "login": _valor_credencial(i.get("login")),
+            "senha": _valor_credencial(i.get("senha")),
+        })
+    return saida
+
+
+def _mesclar_credenciais(
+    locais: list[dict[str, str]], remotas: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """Aplica a planilha sobre o que existe na máquina. NUNCA apaga.
+
+    Duas defesas contra planilha meio preenchida (filtro ligado, coluna
+    renomeada, download truncado) apagar senha que funcionava:
+
+    * célula remota VAZIA não sobrescreve valor local preenchido;
+    * rótulo que só existe aqui é mantido — a planilha acrescenta e corrige.
+
+    Itera a LISTA local em vez de um dict por rótulo porque o credenciais.json
+    real tem rótulo repetido ("TRF6 1º Grau" aparece duas vezes, com logins
+    diferentes): um merge com dict colapsaria as duas linhas em uma e destruiria
+    uma credencial de verdade. O texto do rótulo mantido é o local, para não
+    churnar a grafia de travessão da máquina a cada sincronização.
+    """
+    remoto = {_chave_credencial(r["tj"]): r for r in remotas}
+    saida: list[dict[str, str]] = []
+    for local in locais:
+        item = dict(local)
+        r = remoto.get(_chave_credencial(local["tj"]))
+        if r:
+            if r["login"]:
+                item["login"] = r["login"]
+            if r["senha"]:
+                item["senha"] = r["senha"]
+        saida.append(item)
+    vistos = {_chave_credencial(l["tj"]) for l in locais}
+    saida.extend(r for r in remotas if _chave_credencial(r["tj"]) not in vistos)
+    return saida
+
+
+def planejar_credenciais(
+    remotas: list[dict[str, str]],
+) -> tuple[dict[str, list[str]], list[dict[str, str]]]:
+    """Devolve ``(diff_de_rótulos, lista_final_a_gravar)``.
+
+    O diff é derivado da lista final JÁ CALCULADA, não da comparação bruta com a
+    planilha: assim o que o diálogo de confirmação mostra é provadamente o que o
+    disco vai receber, sem deriva possível entre o aviso e a gravação.
+
+    O diff traz SÓ RÓTULOS — nunca login, nunca senha — porque ele vai parar numa
+    janela e num log. Chaves: ``alteradas`` (senha e/ou login muda), ``novas``
+    (passa a existir aqui), ``so_local`` (só existe nesta máquina; fica).
+
+    Sem guarda de ``CONFIG_DIR == CONFIG_SEMENTE_DIR``: aquela regra era do
+    bundle (rodando do fonte não havia semente separada para comparar). Uma
+    planilha remota existe e difere do local mesmo rodando do código-fonte.
+    """
+    locais = _itens_credenciais(CREDENCIAIS_PATH)
+    final = _mesclar_credenciais(locais, remotas)
+    antes = {_chave_credencial(l["tj"]): (l["login"], l["senha"]) for l in locais}
+    remoto = {_chave_credencial(r["tj"]) for r in remotas}
+
+    alteradas, novas, so_local = [], [], []
+    for item in final:
+        chave = _chave_credencial(item["tj"])
+        anterior = antes.get(chave)
+        if anterior is None:
+            novas.append(item["tj"])
+        elif chave not in remoto:
+            so_local.append(item["tj"])
+        elif anterior != (item["login"], item["senha"]):
+            alteradas.append(item["tj"])
+    return (
+        {
+            "alteradas": sorted(set(alteradas)),
+            "novas": sorted(set(novas)),
+            "so_local": sorted(set(so_local)),
+        },
+        final,
+    )
+
+
+def planejar_credenciais_da_planilha(
+    log=print,
+) -> tuple[dict[str, list[str]], list[dict[str, str]]]:
+    """Lê a planilha de senhas do escritório e planeja o que mudaria aqui.
+
+    Não grava nada. Propaga o ``RuntimeError`` de `sheets` (sem acesso, sem
+    internet, planilha sem as colunas, nenhuma senha preenchida) — quem chama
+    traduz com `sheets.explicar_falha_de_acesso`. Falha NÃO pode virar "está em
+    dia" nem gravação de campo vazio.
+    """
+    from . import sheets  # tardio: sheets importa .config (ciclo no topo)
+
+    return planejar_credenciais(sheets.coletar_credenciais_da_planilha(log=log))
+
+
+def aplicar_credenciais(itens: list[dict[str, str]]) -> Path | None:
+    """Grava a lista final em credenciais.json, guardando o anterior no .bak.
+
+    Devolve o caminho do backup (``None`` se não havia arquivo). Levanta
+    ``OSError`` se a gravação falhar: falhar em silêncio faria o app afirmar que
     atualizou a senha sem ter atualizado.
+
+    Grava pelo `CREDENCIAIS_PATH` DESTE módulo, sem delegar para
+    `credenciais.salvar_credenciais` — aquele módulo faz o bind do caminho no
+    import, então o monkeypatch dos testes não o alcançaria e eles escreveriam na
+    config real do usuário. O cache é invalidado aqui dentro (e não só na GUI)
+    para nenhum chamador esquecer: sem isso a busca em curso continuaria tentando
+    logar com a senha velha que já está em memória.
     """
-    if CONFIG_DIR == CONFIG_SEMENTE_DIR:
-        return None
-    origem = CONFIG_SEMENTE_DIR / "credenciais.json"
-    if not origem.is_file():
-        return None
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    backup = _backup_credenciais()
+    payload = {
+        "credenciais": [
+            {
+                "tj": _valor_credencial(i.get("tj")),
+                "login": _valor_credencial(i.get("login")),
+                "senha": _valor_credencial(i.get("senha")),
+            }
+            for i in itens
+            if _valor_credencial(i.get("tj"))
+        ]
+    }
+    CREDENCIAIS_PATH.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    try:
+        from .integracoes.tjsp_scraper.credenciais import _carregar_credenciais
+
+        _carregar_credenciais.cache_clear()
+    except Exception:
+        pass
+    return backup
+
+
+def _backup_credenciais() -> Path | None:
+    """Copia o credenciais.json atual para ``credenciais.json.bak``.
+
+    Backup rolante: sobrescreve o da vez anterior. O usuário pode estar
+    descartando uma edição local, então tem de haver volta de UM passo.
+    """
+    if not CREDENCIAIS_PATH.exists():
+        return None
     backup = CREDENCIAIS_PATH.with_suffix(".json.bak")
-    if CREDENCIAIS_PATH.exists():
-        shutil.copy2(CREDENCIAIS_PATH, backup)
-    shutil.copy2(origem, CREDENCIAIS_PATH)
+    shutil.copy2(CREDENCIAIS_PATH, backup)
     return backup if backup.exists() else None
 
 

@@ -228,7 +228,10 @@ def test_html_indica_nao_encontrado_por_site():
 def _fake_dotenv(monkeypatch):
     monkeypatch.setitem(
         sys.modules, "dotenv",
-        types.SimpleNamespace(load_dotenv=lambda path: None),
+        # `path=None`: o organizador chama load_dotenv(CONFIG_ENV_PATH), mas o
+        # webdriver_manager chama load_dotenv() sem argumento ao ser importado —
+        # com a lambda de 1 parâmetro obrigatório o import estourava TypeError.
+        types.SimpleNamespace(load_dotenv=lambda path=None: None),
     )
 
 

@@ -65,6 +65,27 @@ SEL_PAINEL_GED = "ged-panel-component-tarefa:conteudo"
 # em ":<linha>:btnProtocoloGed"). O estado é o ícone: fa-square (não marcado) ->
 # fa-check-square (marcado). O title some ao marcar, por isso miramos pelo id.
 SEL_BTN_PROTOCOLO_GED = 'a[id*="btnProtocoloGed"]'
+# Rodapé do diálogo da tarefa (dentro do iframe), lido do HTML real em 2026-08-20:
+#
+#   <a id="form-adicionar-tarefa:btn-salvar" href="#"
+#      class="ui-commandlink ui-widget btn btn-md btn-primary"
+#      onclick="verificarConexaoEExecutar('form-adicionar-tarefa',
+#               'btn-salvar-real'); return false;...">
+#     <i class="far fa-save"></i> Salvar</a>
+#
+# É um <a> (commandLink do PrimeFaces), NÃO um <button> — era isso que o código
+# procurava, e por isso o `salvar=True` sempre estourava "botão não encontrado".
+# O clique no visível chama `verificarConexaoEExecutar`, que checa a conexão e
+# só então dispara o link OCULTO ":btn-salvar-real" (é o caminho do usuário;
+# clicar direto no oculto pularia a checagem).
+SEL_BTN_SALVAR = "form-adicionar-tarefa:btn-salvar"
+# Mesmo texto "Salvar" aparece em irmãos que NÃO servem: o do painel do GED
+# (<span> com ui-state-disabled) e os de modais fechados do próprio diálogo. Daí
+# o filtro por visível + habilitado no fallback por texto.
+XP_BTN_SALVAR = (
+    "//*[self::a or self::button or self::span or self::input]"
+    "[normalize-space()='Salvar' or normalize-space(@value)='Salvar']"
+)
 
 # Valores fixos do fluxo de protocolo.
 TIPO_EVENTO_PADRAO = "Controladoria Jurídica - CVA"
@@ -677,6 +698,131 @@ class AutojurScraper(TribunalScraper):
         )
         self.driver.switch_to.frame(frame)
 
+    def _achar_botao_salvar(self):
+        """O controle "Salvar" do rodapé do diálogo de tarefa, ou None.
+
+        Exige estar DENTRO do iframe da tarefa. Tenta o id estável do
+        commandLink e, se ele mudar de nome, cai no texto exato "Salvar" —
+        sempre exigindo VISÍVEL e HABILITADO, porque o mesmo rótulo existe no
+        rodapé do GED (desabilitado) e em modais fechados do diálogo. Aceita
+        <a>/<button>/<span>/<input> de propósito: no PrimeFaces o mesmo botão
+        muda de tag conforme o componente usado na tela."""
+        candidatos = []
+        try:
+            candidatos.append(self.driver.find_element(By.ID, SEL_BTN_SALVAR))
+        except Exception:
+            pass
+        try:
+            candidatos.extend(self.driver.find_elements(By.XPATH, XP_BTN_SALVAR))
+        except Exception:
+            pass
+        for el in candidatos:
+            try:
+                if not el.is_displayed():
+                    continue
+                classes = el.get_attribute("class") or ""
+                if "ui-state-disabled" in classes or el.get_attribute("disabled"):
+                    continue
+                return el
+            except StaleElementReferenceException:
+                continue
+        return None
+
+    def _clicaveis_visiveis(self) -> list:
+        """Rótulos dos botões/links visíveis no contexto atual (diagnóstico)."""
+        try:
+            return self.driver.execute_script(
+                "return [...document.querySelectorAll("
+                "'a,button,input[type=submit],input[type=button]')]"
+                ".filter(e => e.offsetWidth || e.offsetHeight"
+                " || e.getClientRects().length)"
+                ".map(e => (e.id || e.tagName) + '=' + "
+                "((e.innerText || e.value || '').replace(/\\s+/g,' ')"
+                ".trim().slice(0, 30)));"
+            ) or []
+        except Exception:
+            return []
+
+    def _dialogo_tarefa_fechou(self, timeout: float = 60.0) -> bool:
+        """Espera o diálogo da tarefa sair da tela — evidência de que o Salvar
+        foi aceito pelo servidor (o PrimeFaces fecha o diálogo no sucesso).
+
+        Sai do iframe antes de esperar: o diálogo é da página PAI, e de dentro
+        dele não há como ver o próprio desaparecimento."""
+        self.driver.switch_to.default_content()
+        js = (
+            "const f = document.querySelector('iframe');"
+            "return !f || !(f.offsetWidth || f.offsetHeight"
+            " || f.getClientRects().length);"
+        )
+        try:
+            return bool(WebDriverWait(self.driver, timeout).until(
+                lambda d: d.execute_script(js)
+            ))
+        except Exception:
+            return False
+
+    def _clicar_salvar(self, log=print) -> None:
+        """Clica em "Salvar" no rodapé do diálogo e CONFIRMA que a tarefa foi
+        criada. Exige estar dentro do iframe da tarefa.
+
+        A confirmação não é decorativa: o clique é AJAX, e uma validação de
+        campo obrigatório recusa o salvamento mantendo o diálogo aberto — sem
+        checar, o app diria "tarefa salva" sem tarefa nenhuma."""
+        self._esperar_sem_overlay()
+        botao = self._achar_botao_salvar()
+        if botao is None:
+            # O rodapé pode estar sendo remontado por um AJAX (o upload do PDF
+            # e o "Requer Protocolo" re-renderizam o formulário).
+            fim = time.time() + 10
+            while botao is None and time.time() < fim:
+                time.sleep(0.5)
+                botao = self._achar_botao_salvar()
+        if botao is None:
+            self._screenshot("botao_salvar_nao_encontrado")
+            visiveis = self._clicaveis_visiveis()
+            raise RuntimeError(
+                "Autojur: botão 'Salvar' não encontrado no rodapé do diálogo. "
+                f"Botões visíveis na tela: {visiveis or '(nenhum)'}"
+            )
+
+        self.driver.execute_script(
+            "arguments[0].scrollIntoView({block:'center'});", botao)
+        for _ in range(3):
+            try:
+                botao.click()
+                break
+            except (ElementClickInterceptedException,
+                    StaleElementReferenceException):
+                self._esperar_sem_overlay()
+                time.sleep(0.3)
+                botao = self._achar_botao_salvar() or botao
+        else:
+            # Último recurso: o clique por JS também dispara o onclick do
+            # commandLink (o mesmo verificarConexaoEExecutar do clique humano).
+            self.driver.execute_script("arguments[0].click();", botao)
+        log("   • 'Salvar' clicado; aguardando confirmação do servidor...")
+
+        if self._dialogo_tarefa_fechou():
+            log("✅ Autojur: tarefa salva.")
+            return
+
+        # Não fechou: a causa comum é validação do formulário, cuja mensagem
+        # está DENTRO do iframe.
+        erro = ""
+        try:
+            self._iframe_tarefa()
+            erro = self._mensagens_erro()
+        except Exception:
+            pass
+        self._screenshot("salvar_sem_confirmacao")
+        raise RuntimeError(
+            "Autojur: cliquei em 'Salvar' mas o diálogo da tarefa não fechou — "
+            "a tarefa pode NÃO ter sido criada. Confira no Autojur antes de "
+            "tentar de novo."
+            + (f" Mensagens na tela: {erro}" if erro else "")
+        )
+
     def _bootstrap_select(self, data_id_css: str, texto: str, log=print) -> None:
         """Abre um bootstrap-select (pelo seu botão data-id) e clica no item cujo
         span.text casa `texto`. Usa o contexto atual (doc ou iframe)."""
@@ -1119,20 +1265,7 @@ class AutojurScraper(TribunalScraper):
                 log("   ⚠️ requer_protocolo ignorado (nenhum PDF anexado).")
 
             if salvar:
-                botao = None
-                for by, sel in (
-                    (By.XPATH, "//button[normalize-space()='Salvar']"),
-                    (By.XPATH, "//button[contains(normalize-space(),'Salvar') and not(contains(.,'Criar')) and not(contains(.,'Visualizar'))]"),
-                ):
-                    els = [e for e in self.driver.find_elements(by, sel) if e.is_displayed()]
-                    if els:
-                        botao = els[0]
-                        break
-                if botao is None:
-                    raise RuntimeError("Autojur: botão 'Salvar' não encontrado.")
-                botao.click()
-                time.sleep(3)
-                log("✅ Autojur: tarefa salva.")
+                self._clicar_salvar(log=log)
             else:
                 log("✅ Autojur: tarefa PREENCHIDA (não salva — salvar=False).")
         finally:

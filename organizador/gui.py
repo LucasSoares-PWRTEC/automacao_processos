@@ -7,6 +7,7 @@ import contextlib
 import json
 import os
 import queue
+import re
 import sys
 import threading
 import time
@@ -190,6 +191,50 @@ def _converter_lote_docx_para_pdf(docx_paths: list, log=None) -> tuple[list, lis
     from . import pdf
 
     return pdf.converter_lote_para_pdf(docx_paths, log=log)
+
+
+# -- nome dos anexos enviados ao Autojur ------------------------------------
+# Convenção do escritório: o anexo chega ao Autojur JÁ NOMEADO e numerado na
+# ordem em que será protocolado — "1. Petição - juntada de custas",
+# "2. Comprovante de pagamento", ... O número é o que dá a ordem de leitura no
+# protocolo; sem ele o campo vinha com o nome cru do arquivo gerado
+# ("Comprovante de pagamento - 1234567-89.2020.8.26.0100.pdf") e a ordem no
+# Autojur ficava por sorte.
+_RE_CNJ_SUFIXO = re.compile(
+    r"\s*[-–]\s*\d{7}-?\d{2}\.?\d{4}\.?\d\.?\d{2}\.?\d{4}\s*$"
+)
+# Numeração já presente no nome ("1. ", "01 - ", "2)"): removida antes de
+# renumerar, senão reordenar/desmarcar ia empilhando prefixos ("2. 1. Petição").
+_RE_NUM_PREFIXO = re.compile(r"^\s*\d{1,3}\s*[.)\-–]\s*")
+
+
+def _nome_base_anexo_autojur(caminho, peticao: bool = False) -> str:
+    """Nome legível do anexo: sem extensão, sem o nº do processo que a geração
+    acrescenta e sem numeração. `peticao=True` (arquivo saído da geração de
+    petições) prefixa "Petição - ", que é como a peça é identificada no
+    protocolo — salvo quando o nome já começa por "Petição"."""
+    bruto = Path(caminho).stem
+    base = _RE_NUM_PREFIXO.sub("", _RE_CNJ_SUFIXO.sub("", bruto)).strip()
+    if not base:
+        return bruto.strip() or Path(caminho).name
+    if peticao and not base.lower().startswith(("petição", "peticao")):
+        base = f"Petição - {base}"
+    return base
+
+
+def _prenomear_anexo_autojur(indice: int, caminho, peticao: bool = False) -> str:
+    """Nome pré-preenchido do anexo: "<n>. <nome>" (`indice` é 1-based)."""
+    return f"{indice}. {_nome_base_anexo_autojur(caminho, peticao)}"
+
+
+def _renumerar_anexos_autojur(nomes: list) -> list:
+    """Reaplica a numeração 1..N na ordem dada, preservando o que a pessoa
+    editou depois do prefixo. Necessário porque desmarcar um arquivo da lista
+    deixaria a sequência furada ("2., 3." sem o 1)."""
+    return [
+        f"{i}. {_RE_NUM_PREFIXO.sub('', (nome or '').strip()).strip()}"
+        for i, nome in enumerate(nomes, 1)
+    ]
 
 
 # Fontes e constantes visuais
@@ -390,6 +435,9 @@ class App(ttk.Window):
         self._monitor_worker: threading.Thread | None = None
         self._monitor_result_queue: queue.Queue = queue.Queue()
         self._monitor_cancel: threading.Event = threading.Event()
+        # Conferir a planilha de senhas do escritório (aba Configurações).
+        self._senhas_worker: threading.Thread | None = None
+        self._senhas_result_queue: queue.Queue = queue.Queue()
         # Notificações de conclusão (popup + som + status). Fila thread-safe:
         # workers chamam _notificar(); o popup é mostrado na main thread.
         # _notify_busy evita empilhar diálogos durante o loop modal aninhado.
@@ -459,11 +507,11 @@ class App(ttk.Window):
         # houver versão nova (caso contrário não exibe nada). O próprio
         # Peticoes.exe se auto-atualiza — ver organizador/atualizacao.py.
         self.after(1500, self._verificar_atualizacao_silenciosa)
-        # Monitoramento semanal: na abertura, se já se passaram ≥ 7 dias desde a
-        # última passada bem-sucedida, dispara uma sincronização das planilhas em
-        # silêncio (cadência semanal). Pode ser acionado a qualquer momento pelo
-        # botão "Sincronizar planilhas & mapear" na aba Pesquisa.
-        self.after(2500, self._verificar_monitoramento_semanal)
+        # NÃO existe disparo automático de monitoramento. Havia um: 2,5 s depois
+        # de abrir, se tivessem passado 7 dias, o app começava sozinho uma passada
+        # que baixa 11 planilhas, sobe navegadores e consulta os tribunais por
+        # horas — com a máquina ocupada e sem o usuário ter pedido. Hoje a passada
+        # sai só pelo botão "Sincronizar planilhas & mapear" na aba Pesquisa.
         # Sem isso, fechar a janela (X) só destrói os widgets: navegadores do
         # Autojur/debug retidos e a passada de monitoramento em curso ficam
         # órfãos rodando em segundo plano (chrome.exe de 300-500MB cada).
@@ -793,7 +841,8 @@ class App(ttk.Window):
         ttk.Label(
             f_mon,
             text="Lê as planilhas de credores, pula os processos já mapeados e "
-                 "busca os novos nos tribunais.",
+                 "busca os novos nos tribunais. Cada processo é tentado uma vez "
+                 "por dia — clicar de novo hoje não repete as consultas.",
             font=_FONT_BASE, wraplength=360, justify="left",
         ).pack(side="left", fill="x", expand=True)
         self._btn_monitor_parar = ttk.Button(
@@ -1731,22 +1780,24 @@ class App(ttk.Window):
             font=("Segoe UI", 9), foreground="#666", wraplength=900, justify="left",
         ).pack(anchor="w", pady=(4, 0))
 
-        # O update NÃO troca senha (semear_config nunca sobrescreve, de propósito).
-        # Sem este botão, senha trocada no escritório não chega em quem já usa o
-        # app: o credenciais.json local vence para sempre.
+        # O update NÃO troca senha (semear_config nunca sobrescreve, de propósito),
+        # e esperar um release novo para cada senha trocada era o gargalo. Este
+        # botão vai na PLANILHA de senhas do escritório: trocou lá, chega aqui.
         self._btn_atualizar_senhas = ttk.Button(
             section_manut, text="🔑  Atualizar senhas dos tribunais",
-            command=self._atualizar_senhas_do_bundle,
+            command=self._atualizar_senhas_dos_tribunais,
             bootstyle="outline-primary", width=32,
         )
         self._btn_atualizar_senhas.pack(anchor="w", pady=(10, 0))
         ttk.Label(
             section_manut,
-            text="Substitui os logins dos tribunais desta máquina pelos que vêm "
-                 "dentro do programa — use quando o escritório trocar uma senha e "
-                 "o app começar a falhar no login. Mostra quais tribunais mudam "
-                 "antes de aplicar e guarda o arquivo anterior como "
-                 "credenciais.json.bak. Não mexe no 2FA (.env) nem nos processos.",
+            text="Confere a planilha de senhas do escritório (no Google) e traz "
+                 "para esta máquina os logins que mudaram — use quando o app "
+                 "começar a falhar no login de um tribunal. Mostra quais tribunais "
+                 "mudam antes de aplicar e guarda o arquivo anterior como "
+                 "credenciais.json.bak. Nunca apaga um acesso que só existe aqui, "
+                 "e campo em branco na planilha não apaga a senha desta máquina. "
+                 "Precisa de internet. Não mexe no 2FA (.env) nem nos processos.",
             font=("Segoe UI", 9), foreground="#666", wraplength=900, justify="left",
         ).pack(anchor="w", pady=(4, 0))
 
@@ -1981,6 +2032,7 @@ class App(ttk.Window):
             (self._pesquisa_load_queue, self._drain_pesquisa_load_result),
             (self._busca_result_queue, self._drain_busca_result),
             (self._monitor_result_queue, self._drain_monitor_result),
+            (self._senhas_result_queue, self._drain_senhas_result),
             (self._notify_queue, self._drain_notify_queue),
             (self._gen_result_queue, self._drain_gen_result_queue),
             (self._autojur_log_queue, self._drain_autojur_log_queue),
@@ -2464,15 +2516,15 @@ class App(ttk.Window):
             pass
 
     # -- monitoramento: planilhas → mapeamento de sistema ------------------
-    def _iniciar_monitoramento(self, auto: bool = False) -> None:
+    def _iniciar_monitoramento(self) -> None:
         """Dispara uma passada de monitoramento (planilhas → mapeamento) numa
         thread. Lê as planilhas, pula os já mapeados e raspa os pendentes.
 
-        ``auto=True`` = disparo silencioso semanal: não abre pop-up de erro nem
-        avisa quando as planilhas já estão em dia."""
+        Só o botão chama isto — não há disparo automático (ver ``__init__``).
+        Cada processo tem uma tentativa por dia; clicar de novo no mesmo dia não
+        reconsulta os tribunais (organizador.monitoramento.DIARIO_TENTATIVAS)."""
         if self._monitor_worker and self._monitor_worker.is_alive():
-            if not auto:
-                self.var_status.set("Monitoramento já está rodando.")
+            self.var_status.set("Monitoramento já está rodando.")
             return
         self._monitor_cancel.clear()
         self._btn_monitor.configure(state="disabled")
@@ -2502,9 +2554,9 @@ class App(ttk.Window):
                     resumo = monitoramento.rodar_passada(
                         headless=headless, log=_log, cancel=self._monitor_cancel,
                     )
-                self._monitor_result_queue.put(("ok", resumo, auto))
+                self._monitor_result_queue.put(("ok", resumo))
             except Exception as exc:
-                self._monitor_result_queue.put(("erro", str(exc), auto))
+                self._monitor_result_queue.put(("erro", str(exc)))
 
         self._monitor_worker = threading.Thread(target=run, daemon=True)
         self._monitor_worker.start()
@@ -2524,7 +2576,7 @@ class App(ttk.Window):
         thread-safe): reabilita os botões, avisa e recarrega a lista."""
         try:
             while True:
-                tipo, payload, auto = self._monitor_result_queue.get_nowait()
+                tipo, payload = self._monitor_result_queue.get_nowait()
                 self._btn_monitor.configure(state="normal")
                 self._btn_monitor_parar.configure(state="disabled")
                 if tipo == "ok":
@@ -2533,16 +2585,20 @@ class App(ttk.Window):
                            f"{r.get('nao_encontrados', 0)} não encontrados • "
                            f"{r.get('ja_mapeados', 0)} já estavam mapeados "
                            f"(de {r.get('total', 0)} nas planilhas).")
+                    # Sem isto os números não fecham: os adiados pelo cooldown não
+                    # são "já mapeados" nem foram tentados agora.
+                    if r.get("adiados"):
+                        msg += (f" {r['adiados']} já tiveram a tentativa de hoje "
+                                f"— voltam amanhã.")
                     self.var_status.set("Monitoramento concluído: " + msg)
                     self._pesquisa_log_queue.put("✔️ " + msg + "\n")
                     # Novos processos no cache → recarrega a lista p/ aparecerem.
                     if r.get("mapeados_agora"):
                         with contextlib.suppress(Exception):
                             self._recarregar_pesquisa()
-                    # Só notifica se foi manual OU se houve trabalho (evita pop-up
-                    # no disparo semanal silencioso quando já está tudo em dia).
-                    if not auto or r.get("mapeados_agora"):
-                        self._notificar("Monitoramento", msg, nivel="info")
+                    self._notificar("Monitoramento", msg, nivel="info")
+                    # Registro da última passada (nada dispara por tempo; fica
+                    # como referência para diagnóstico).
                     from datetime import datetime as _dt
                     _salvar_ui_state(
                         ultimo_monitoramento=_dt.now().isoformat(timespec="seconds")
@@ -2550,45 +2606,8 @@ class App(ttk.Window):
                 else:
                     self._pesquisa_log_queue.put(f"! Erro no monitoramento: {payload}\n")
                     self.var_status.set("Monitoramento: erro (ver detalhes).")
-                    if not auto:
-                        self._notificar("Monitoramento", str(payload), nivel="error")
+                    self._notificar("Monitoramento", str(payload), nivel="error")
         except queue.Empty:
-            pass
-
-    def _verificar_monitoramento_semanal(self) -> None:
-        """Na abertura do app, dispara o monitoramento em silêncio se já se
-        passaram ≥ 7 dias desde a última passada bem-sucedida (cadência semanal).
-        Best-effort: qualquer falha é ignorada (nunca trava a abertura)."""
-        try:
-            from datetime import datetime, timedelta
-
-            # Em modo leve nunca dispara sozinho: uma passada baixa 11 planilhas e
-            # sobe navegadores: numa máquina de 4 GB isso tem de ser uma decisão
-            # do usuário (botão "Sincronizar planilhas & mapear").
-            if self._modo_leve:
-                return
-
-            ultimo = _carregar_ui_state().get("ultimo_monitoramento")
-            if not ultimo:
-                # 1ª execução nesta máquina. Antes o app entendia "nunca rodou"
-                # como "está atrasado" e disparava a passada completa 2,5 s depois
-                # de abrir — justamente quando a máquina está mais ocupada, e sem
-                # o usuário ter pedido nada. Marca o relógio e espera a semana.
-                _salvar_ui_state(
-                    ultimo_monitoramento=datetime.now().isoformat(timespec="seconds")
-                )
-                return
-            try:
-                quando = datetime.fromisoformat(ultimo)
-            except ValueError:
-                quando = None
-            if quando is not None and (datetime.now() - quando) < timedelta(days=7):
-                return  # ainda dentro da janela semanal
-            self._pesquisa_log_queue.put(
-                "🗓️ monitoramento semanal: iniciando passada automática...\n"
-            )
-            self._iniciar_monitoramento(auto=True)
-        except Exception:
             pass
 
     def _preencher_tree(self, processos: list, garantir: str = "") -> None:
@@ -3739,12 +3758,17 @@ class App(ttk.Window):
         frm_pdfs.grid(row=5, column=0, columnspan=2, sticky="ew")
 
         # Fonte da verdade da lista (mutável): [ (BooleanVar marcado?, caminho
-        # original, StringVar com o nome — editável, pré-preenchido com o nome
-        # do arquivo). O nome editado só afeta a CÓPIA enviada ao Autojur; o
-        # arquivo original em disco nunca é tocado.
+        # original, StringVar com o nome — editável, PRÉ-NOMEADO na convenção do
+        # protocolo: "1. Petição - <modelo>", "2. <arquivo>", ...). O nome
+        # editado só afeta a CÓPIA enviada ao Autojur; o arquivo original em
+        # disco nunca é tocado.
         vars_pdf: list = [
-            (tk.BooleanVar(value=True), pdf, tk.StringVar(value=Path(pdf).name))
-            for pdf in pdfs
+            (
+                tk.BooleanVar(value=True),
+                pdf,
+                tk.StringVar(value=_prenomear_anexo_autojur(i, pdf, peticao=True)),
+            )
+            for i, pdf in enumerate(pdfs, 1)
         ]
 
         def _render_pdfs() -> None:
@@ -3760,7 +3784,7 @@ class App(ttk.Window):
                 ).grid(row=i, column=1, sticky="ew", padx=(4, 0), pady=1)
             lbl_lista.configure(
                 text=f"Arquivos a anexar ({len(vars_pdf)} — todos em UMA tarefa). "
-                     "Nome editável — só afeta a cópia enviada:"
+                     "Nome editável — a numeração é reaplicada na ordem de envio:"
             )
 
         def _adicionar_arquivo() -> None:
@@ -3772,9 +3796,15 @@ class App(ttk.Window):
             novos = 0
             for c in caminhos:
                 if c and str(c) not in existentes:
-                    vars_pdf.append(
-                        (tk.BooleanVar(value=True), c, tk.StringVar(value=Path(c).name))
-                    )
+                    # Continua a sequência (não é petição gerada: fica só
+                    # "<n>. <nome do arquivo>", sem o prefixo "Petição - ").
+                    vars_pdf.append((
+                        tk.BooleanVar(value=True),
+                        c,
+                        tk.StringVar(
+                            value=_prenomear_anexo_autojur(len(vars_pdf) + 1, c)
+                        ),
+                    ))
                     existentes.add(str(c))
                     novos += 1
             if novos:
@@ -3809,14 +3839,18 @@ class App(ttk.Window):
                 messagebox.showwarning("Autojur", "Marque ao menos um PDF.", parent=top)
                 return
             for _, nome in marcados:
-                if not nome:
+                if not _RE_NUM_PREFIXO.sub("", nome).strip():
                     messagebox.showwarning(
                         "Autojur", "O nome do arquivo não pode ficar vazio.", parent=top,
                     )
                     return
+            # Renumera 1..N só sobre os MARCADOS: desmarcar o primeiro deixaria
+            # a sequência começando em "2." no Autojur.
+            nomes = _renumerar_anexos_autojur([nome for _, nome in marcados])
             try:
                 selecionados = [
-                    self._renomear_pdf_para_envio(pdf, nome) for pdf, nome in marcados
+                    self._renomear_pdf_para_envio(pdf, nome)
+                    for (pdf, _), nome in zip(marcados, nomes)
                 ]
             except OSError as exc:
                 messagebox.showerror("Autojur", f"Falha ao preparar arquivo renomeado: {exc}", parent=top)
@@ -4084,30 +4118,76 @@ class App(ttk.Window):
             )
 
     # -- atualizar senhas dos tribunais ------------------------------------
-    def _atualizar_senhas_do_bundle(self) -> None:
+    def _atualizar_senhas_dos_tribunais(self) -> None:
         """Clique em "Atualizar senhas dos tribunais" (aba Configurações).
 
-        Rápido (copiar um arquivo pequeno), então roda na main thread mesmo.
-        Diz QUAIS tribunais mudam antes de aplicar — nunca senha, só rótulo — e
-        limpa o cache de credenciais, senão a sessão em curso continuaria
-        tentando logar com a senha velha que já está em memória."""
-        from .config import atualizar_credenciais_do_bundle, diff_credenciais_do_bundle
-        from .integracoes.tjsp_scraper.credenciais import _carregar_credenciais
+        Vai à PLANILHA de senhas do escritório (ver `organizador.sheets`), então
+        roda numa thread: uma planilha leva segundos, e o import a frio do
+        google-auth num .exe onefile leva mais ainda — na main thread isso
+        congelaria a janela inteira. O worker só LÊ e PLANEJA; quem grava é o
+        dreno, depois do usuário confirmar vendo quais tribunais mudam.
+        """
+        if self._senhas_worker and self._senhas_worker.is_alive():
+            return  # clique repetido não abre uma segunda ida à rede
+        with contextlib.suppress(Exception):
+            self._btn_atualizar_senhas.configure(state="disabled")
+        self.var_status.set("Conferindo a planilha de senhas do escritório...")
 
+        def run() -> None:
+            # Sem pythoncom.CoInitialize() de propósito: aqui não há COM nem
+            # selenium, só HTTP (diferente do worker da busca online).
+            linhas: list[str] = []
+            try:
+                from .config import planejar_credenciais_da_planilha
+
+                diff, final = planejar_credenciais_da_planilha(log=linhas.append)
+                self._senhas_result_queue.put(("ok", diff, final))
+            except Exception as exc:
+                from . import sheets
+
+                self._senhas_result_queue.put(
+                    ("erro", sheets.explicar_falha_de_acesso(str(exc)), str(exc)[:300])
+                )
+
+        self._senhas_worker = threading.Thread(target=run, daemon=True)
+        self._senhas_worker.start()
+
+    def _drain_senhas_result(self) -> None:
+        """Resultado da conferência da planilha (main thread).
+
+        Tira o item da fila ANTES de abrir qualquer diálogo: `messagebox` roda um
+        laço de eventos aninhado e o `_pump` continua batendo — com o item ainda
+        na fila, o dreno reentrante abriria uma segunda janela igual.
+        """
         try:
-            diff = diff_credenciais_do_bundle()
-        except Exception as exc:
-            messagebox.showerror("Atualizar senhas", f"Não consegui comparar:\n\n{exc}")
+            item = self._senhas_result_queue.get_nowait()
+        except queue.Empty:
+            return
+        try:
+            self._mostrar_resultado_senhas(item)
+        finally:
+            with contextlib.suppress(Exception):
+                self._btn_atualizar_senhas.configure(state="normal")
+
+    def _mostrar_resultado_senhas(self, item: tuple) -> None:
+        estado = item[0]
+        if estado == "erro":
+            _e, amigavel, detalhe = item
+            self.var_status.set("Não consegui conferir a planilha de senhas.")
+            messagebox.showerror(
+                "Atualizar senhas",
+                f"{amigavel}\n\nNada foi alterado nesta máquina.\n\n"
+                f"Detalhe técnico: {detalhe}",
+            )
             return
 
+        _e, diff, final = item
         if not any(diff.values()):
+            self.var_status.set("Senhas dos tribunais já em dia.")
             messagebox.showinfo(
                 "Atualizar senhas",
-                "As senhas desta máquina já são iguais às que vêm no programa.\n\n"
-                "Nada foi alterado."
-                + ("\n\nRodando pelo código-fonte não há o que comparar: o app lê "
-                   "direto a pasta config/ do projeto."
-                   if not getattr(sys, "frozen", False) else ""),
+                "As senhas desta máquina já são iguais às da planilha do "
+                "escritório.\n\nNada foi alterado.",
             )
             return
 
@@ -4124,20 +4204,34 @@ class App(ttk.Window):
         detalhe = (
             _bloco("Senha/login MUDA em:", diff["alteradas"])
             + _bloco("Passa a existir:", diff["novas"])
-            + _bloco("Deixa de existir nesta máquina:", diff["somem"])
+            + _bloco("Fica só nesta máquina (não será apagado):", diff["so_local"])
         )
+        if not (diff["alteradas"] or diff["novas"]):
+            # Só "so_local": não há o que gravar, mas o usuário merece saber que
+            # aqueles acessos não estão na planilha do escritório.
+            self.var_status.set("Senhas dos tribunais já em dia.")
+            messagebox.showinfo(
+                "Atualizar senhas",
+                f"{detalhe}Nenhuma senha da planilha é diferente das desta "
+                "máquina. Nada foi alterado.",
+            )
+            return
+
         if not messagebox.askyesno(
             "Atualizar senhas dos tribunais",
             f"{detalhe}"
             "Se você editou alguma senha NESTE computador, ela será substituída "
-            "pela do programa. O arquivo atual fica guardado como "
+            "pela da planilha. O arquivo atual fica guardado como "
             "credenciais.json.bak, ao lado dele.\n\nContinuar?",
             icon="warning", default="no",
         ):
+            self.var_status.set("Atualização de senhas cancelada.")
             return
 
         try:
-            backup = atualizar_credenciais_do_bundle()
+            from .config import aplicar_credenciais
+
+            backup = aplicar_credenciais(final)
         except OSError as exc:
             messagebox.showerror(
                 "Atualizar senhas",
@@ -4147,7 +4241,6 @@ class App(ttk.Window):
             )
             return
 
-        _carregar_credenciais.cache_clear()
         self.var_status.set("Senhas dos tribunais atualizadas.")
         messagebox.showinfo(
             "Atualizar senhas",

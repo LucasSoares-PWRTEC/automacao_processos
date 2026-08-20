@@ -52,7 +52,6 @@ def _uma_medicao(eager: bool) -> tuple[float, dict[str, float]]:
     G.App._carregar_pesquisa_inicial = lambda self: None
     G.App._carregar_templates = lambda self: None
     G.App._verificar_atualizacao_silenciosa = lambda self: None
-    G.App._verificar_monitoramento_semanal = lambda self: None
 
     t0 = time.perf_counter()
     app = G.App()

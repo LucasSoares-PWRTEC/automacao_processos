@@ -125,7 +125,7 @@ class EprocScraper(TribunalScraper):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _first(self, locators, timeout=10, exigir_visivel=True):
+    def _first(self, locators, timeout=10, exigir_visivel=True, aceitar=None):
         """Tenta uma lista de (By, valor); devolve o 1º elemento presente.
 
         O `timeout` é o orçamento do 1º localizador (o esperado). Os alternativos
@@ -136,6 +136,11 @@ class EprocScraper(TribunalScraper):
         Antes cada localizador recebia o timeout INTEIRO, e o custo de um
         resultado negativo era `len(locators) × timeout`: no campo de TOTP do PJe
         (5 localizadores × 15 s) eram 75 s para concluir que a tela não é aquela.
+
+        `aceitar` é um predicado opcional sobre o elemento: se devolver False, o
+        candidato é descartado e a busca segue para o localizador seguinte. Serve
+        para recusar "iscas" — elemento com o id esperado mas que não é o que
+        queremos (ver `_campo_editavel`).
         """
         for i, (by, val) in enumerate(locators):
             alvo = timeout if i == 0 else _TIMEOUT_FALLBACK
@@ -143,11 +148,32 @@ class EprocScraper(TribunalScraper):
                 el = WebDriverWait(self.driver, alvo).until(
                     EC.presence_of_element_located((by, val))
                 )
-                if not exigir_visivel or el.is_displayed():
-                    return el
+                if exigir_visivel and not el.is_displayed():
+                    continue
+                if aceitar is not None and not aceitar(el):
+                    continue
+                return el
             except Exception:
                 continue
         return None
+
+    def _campo_editavel(self, el) -> bool:
+        """True só para <input>/<textarea> habilitado e sem readonly.
+
+        Numa única ida ao navegador (tag_name + is_enabled + get_attribute
+        seriam 3 round-trips por candidato).
+        """
+        try:
+            return bool(
+                self.driver.execute_script(
+                    "const e = arguments[0];"
+                    "return /^(input|textarea)$/i.test(e.tagName)"
+                    " && !e.disabled && !e.readOnly;",
+                    el,
+                )
+            )
+        except Exception:
+            return False
 
     def _screenshot(self, nome: str):
         """No-op sem SCRAPER_DEBUG=1 (ver ../diagnostico.py)."""
@@ -328,16 +354,31 @@ class EprocScraper(TribunalScraper):
     # CONSULTA
     # ------------------------------------------------------------------
     def _campo_busca_processo(self, timeout: int = 10):
+        """O campo de "pesquisa rápida" da barra de topo (#txtNumProcessoPesquisaRapida).
+
+        Ele existe TAMBÉM na página de detalhes do processo, então dá para
+        consultar o processo seguinte sem voltar ao painel — uma requisição por
+        processo, não duas.
+
+        Cuidado com a isca: na página de detalhes o número do processo é um
+        `<span id="txtNumProcesso">` (o "copiar número"), que tem o mesmo id do
+        input de busca de telas antigas. Ele casava primeiro, o `clear()`
+        estourava InvalidElementStateException em TODA consulta e o tratamento
+        recarregava o painel — o tribunal levava o dobro de requisições. Daí os
+        localizadores só olharem `<input>` e passarem por `_campo_editavel`.
+        """
         return self._first(
             [
-                (By.ID, "txtNumProcesso"),
-                (By.ID, "txtNumProc"),
-                (By.NAME, "txtNumProcesso"),
+                (By.ID, "txtNumProcessoPesquisaRapida"),
+                (By.NAME, "txtNumProcessoPesquisaRapida"),
                 (By.XPATH, '//input[@placeholder="Nº de processo"]'),
+                (By.XPATH, '//input[@id="txtNumProcesso" or @id="txtNumProc"]'),
+                (By.XPATH, '//input[@name="txtNumProcesso" or @name="txtNumProc"]'),
                 (By.XPATH, '//input[contains(@placeholder,"processo")]'),
                 (By.XPATH, '//input[contains(@aria-label,"processo")]'),
             ],
             timeout=timeout,
+            aceitar=self._campo_editavel,
         )
 
     def consultar_processo(
@@ -355,9 +396,13 @@ class EprocScraper(TribunalScraper):
 
         # Tenta digitar o número no campo de busca. Estados ruins comuns:
         # - campo de busca ausente → sessão caiu, reloga e tenta de novo
-        # - InvalidElementStateException / StaleElementReference → a página
-        #   anterior deixou o input bloqueado/destacado do DOM; recarrega
-        #   o painel e pega um campo fresco antes de tentar de novo.
+        # - InvalidElementStateException / StaleElementReference → o input saiu
+        #   do DOM ou ficou bloqueado; recarrega o painel e pega um campo fresco.
+        #
+        # Este recarregamento é REDE DE SEGURANÇA, não caminho normal: cada
+        # passagem por ele é uma requisição extra ao tribunal. Se ele aparecer em
+        # todo processo, o localizador está pegando o elemento errado — foi o que
+        # acontecia com o `<span id="txtNumProcesso">` (ver _campo_busca_processo).
         sucesso = False
         for tentativa in range(2):
             campo = self._campo_busca_processo(timeout=2)

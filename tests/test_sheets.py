@@ -313,3 +313,246 @@ def test_truncamento_por_max_linhas_e_avisado(monkeypatch):
     )
     assert valores == [CNJ_A, CNJ_B]  # 3 linhas lidas: cabeçalho + 2
     assert any("truncada" in a for a in avisos)
+
+
+# ---------------------------------------------------------------------
+# Planilha de senhas dos tribunais
+# ---------------------------------------------------------------------
+def _ler_senhas(abas: dict[str, list[list]]):
+    return sheets.ler_senhas_da_planilha(_SessaoFalsa(_xlsx(abas)), "fid", log=lambda s: None)
+
+
+def _tabela(linhas: list[list], cab=("tj", "Login", "Senha")) -> dict[str, list[list]]:
+    return {"Senhas": [list(cab)] + linhas}
+
+
+LINHAS = [
+    ["TJSP - Esaj", "111", "s1"],
+    ["TJMG - PJE", "222", "s2"],
+    ["TJGO - Projudi", "333", "s3"],
+]
+
+
+def test_achar_col_ignora_cabecalho_vazio():
+    """Cabeçalho em branco casava QUALQUER alvo por "contém" e elegia uma coluna
+    vazia. Só não explodia porque a busca de processo regatava com conta_cnj."""
+    assert sheets._achar_col(["", "Tribunal"], "tj") is None
+    assert sheets._achar_col(["", "tj"], "tj") == 1
+
+
+def test_achar_col_respeita_a_exclusao():
+    assert sheets._achar_col(["Senha", "Senha nova"], "senha") == 0
+    assert sheets._achar_col(["Senha", "Senha nova"], "senha", {0}) == 1
+    assert sheets._achar_col(["Senha"], "senha", {0}) is None
+
+
+def test_senhas_layout_legado_tj_login_senha():
+    itens, como = _ler_senhas(_tabela(LINHAS))
+    assert itens == [
+        {"tj": "TJSP - Esaj", "login": "111", "senha": "s1"},
+        {"tj": "TJMG - PJE", "login": "222", "senha": "s2"},
+        {"tj": "TJGO - Projudi", "login": "333", "senha": "s3"},
+    ]
+    assert "aba 'Senhas'" in como and "linha 1" in como
+
+
+def test_senhas_aceita_sinonimos_do_cabecalho():
+    itens, _ = _ler_senhas(_tabela(LINHAS, cab=("Tribunal", "Usuário", "Password")))
+    assert [i["tj"] for i in itens] == ["TJSP - Esaj", "TJMG - PJE", "TJGO - Projudi"]
+    assert [i["senha"] for i in itens] == ["s1", "s2", "s3"]
+
+
+def test_senhas_prefere_a_coluna_de_senha_atual():
+    """"Senha" casaria "Senha antiga" por 'contém'; o sinônimo mais específico
+    vem primeiro justamente para isso."""
+    abas = {"Senhas": [["tj", "Login", "Senha antiga", "Senha nova"]] + [
+        ["TJSP - Esaj", "111", "VELHA", "nova1"],
+        ["TJMG - PJE", "222", "VELHA", "nova2"],
+        ["TJGO - Projudi", "333", "VELHA", "nova3"],
+    ]}
+    itens, _ = _ler_senhas(abas)
+    assert [i["senha"] for i in itens] == ["nova1", "nova2", "nova3"]
+
+
+def test_senhas_com_cabecalho_deslocado_por_capa():
+    abas = {"Senhas": [
+        ["ACESSOS DO ESCRITÓRIO", "", ""],
+        ["atualizado em janeiro", "", ""],
+        ["tj", "Login", "Senha"],
+    ] + LINHAS}
+    itens, como = _ler_senhas(abas)
+    assert len(itens) == 3 and "linha 3" in como
+
+
+def test_senhas_escolhe_a_aba_com_mais_linhas():
+    abas = {
+        "Resumo": [["tj", "Login", "Senha"]] + LINHAS,
+        "Senhas": [["tj", "Login", "Senha"]] + LINHAS + [["TJDF - 1º Grau", "444", "s4"]],
+    }
+    itens, como = _ler_senhas(abas)
+    assert len(itens) == 4 and "aba 'Senhas'" in como
+
+
+def test_senhas_desempata_pela_coluna_de_senha_preenchida():
+    """Aba de resumo com a coluna de senha vazia não pode ganhar da tabela real:
+    aplicá-la seria propor apagar tudo."""
+    abas = {
+        "Resumo": [["tj", "Login", "Senha"]] + [[l[0], l[1], ""] for l in LINHAS],
+        "Senhas": [["tj", "Login", "Senha"]] + LINHAS,
+    }
+    itens, como = _ler_senhas(abas)
+    assert "aba 'Senhas'" in como and all(i["senha"] for i in itens)
+
+
+def test_senhas_rejeita_aba_sem_as_tres_colunas():
+    with pytest.raises(RuntimeError, match="nenhuma aba com colunas"):
+        _ler_senhas({"Aba1": [["tj", "Login"], ["TJSP - Esaj", "111"]]})
+
+
+def test_senhas_rejeita_tabela_curta_demais():
+    """Duas linhas é capa/dashboard, não a tabela de senhas do escritório."""
+    with pytest.raises(RuntimeError, match="nenhuma aba com colunas"):
+        _ler_senhas(_tabela(LINHAS[:2]))
+
+
+def test_senhas_rejeita_coluna_de_senha_inteiramente_vazia():
+    with pytest.raises(RuntimeError, match="nenhuma aba com colunas"):
+        _ler_senhas(_tabela([[l[0], l[1], ""] for l in LINHAS]))
+
+
+def test_senhas_ignora_linha_sem_tribunal_e_aguenta_linha_curta():
+    ws = _xlsx({"Senhas": [["tj", "Login", "Senha"]] + LINHAS + [
+        ["", "999", "orfa"],          # sem tribunal: fora
+        ["TÍTULO DE SEÇÃO"],          # linha curta, só rótulo: fora
+        ["TJDF - 1º Grau", "444"],    # linha curta com login: entra, senha vazia
+    ]})
+    itens, _ = sheets.ler_senhas_da_planilha(_SessaoFalsa(ws), "fid", log=lambda s: None)
+    assert [i["tj"] for i in itens] == [
+        "TJSP - Esaj", "TJMG - PJE", "TJGO - Projudi", "TJDF - 1º Grau",
+    ]
+    assert itens[-1] == {"tj": "TJDF - 1º Grau", "login": "444", "senha": ""}
+
+
+def test_senhas_ignora_aba_ilegivel_e_segue_para_a_boa():
+    """Uma aba que estoura na leitura não pode derrubar a planilha inteira."""
+    xlsx = _xlsx({"Quebrada": [["tj", "Login", "Senha"]] + LINHAS,
+                  "Senhas": [["tj", "Login", "Senha"]] + LINHAS})
+
+    class _SessaoComAbaRuim(_SessaoFalsa):
+        pass
+
+    original = sheets._grade
+    def _grade_falha(ws, log):
+        if ws.title == "Quebrada":
+            raise RuntimeError("aba corrompida")
+        return original(ws, log)
+
+    sheets._grade = _grade_falha
+    try:
+        itens, como = sheets.ler_senhas_da_planilha(
+            _SessaoComAbaRuim(xlsx), "fid", log=lambda s: None
+        )
+    finally:
+        sheets._grade = original
+    assert len(itens) == 3 and "aba 'Senhas'" in como
+
+
+def test_senhas_rejeita_aba_sem_coluna_de_login():
+    """Sem as TRÊS colunas o candidato cai — inclusive quando só falta o login."""
+    with pytest.raises(RuntimeError, match="nenhuma aba com colunas"):
+        _ler_senhas({"Aba1": [["tj", "Senha"]] + [[l[0], l[2]] for l in LINHAS]})
+
+
+def test_senhas_mantem_as_linhas_de_recado_do_escritorio():
+    """O arquivo real carrega "senha robo", "SENHA CERTIFICADO A1: ..." — é
+    informação do escritório, não lixo a filtrar."""
+    itens, _ = _ler_senhas(_tabela(LINHAS + [["senha robo", "", "xyz"]]))
+    assert itens[-1] == {"tj": "senha robo", "login": "", "senha": "xyz"}
+
+
+def test_senhas_login_numerico_perde_o_ponto_zero():
+    itens, _ = _ler_senhas(_tabela([
+        ["TJSP - Esaj", 12345678900.0, "s1"],
+        ["TJMG - PJE", "222", "s2"],
+        ["TJGO - Projudi", "333", "s3"],
+    ]))
+    assert itens[0]["login"] == "12345678900"
+
+
+def test_senhas_cpf_numerico_recupera_o_zero_a_esquerda():
+    """Célula numérica come o zero do CPF; sem recuperá-lo o login gravado
+    quebraria o e-SAJ. 9 dígitos ou menos não é CPF (pode ser OAB) e fica como
+    está."""
+    itens, _ = _ler_senhas(_tabela([
+        ["TJSP - Esaj", 3015257650, "s1"],
+        ["TJMG - PJE", 12345678, "s2"],
+        ["TJGO - Projudi", "333", "s3"],
+    ]))
+    assert itens[0]["login"] == "03015257650"
+    assert itens[1]["login"] == "12345678"
+
+
+def test_senhas_nunca_expoem_senha_no_log_nem_na_descricao():
+    linhas: list[str] = []
+    itens, como = sheets.ler_senhas_da_planilha(
+        _SessaoFalsa(_xlsx(_tabela(LINHAS))), "fid", log=linhas.append
+    )
+    assert itens  # leu mesmo
+    for senha in ("s1", "s2", "s3"):
+        assert senha not in como
+        assert not any(senha in l for l in linhas)
+
+
+def test_coletar_credenciais_estoura_quando_nao_consegue_ler(monkeypatch):
+    """Sem acesso não pode virar "as senhas já estão em dia"."""
+    class _SessaoQueFalha:
+        def get(self, *a, **k):
+            raise RuntimeError("404 File not found")
+
+    monkeypatch.setattr(sheets, "_sessao", lambda: (_SessaoQueFalha(), "robo@exemplo"))
+    with pytest.raises(RuntimeError, match="404"):
+        sheets.coletar_credenciais_da_planilha(log=lambda s: None)
+
+
+def test_coletar_credenciais_anuncia_a_conta_de_servico(monkeypatch):
+    linhas: list[str] = []
+    monkeypatch.setattr(
+        sheets, "_sessao",
+        lambda: (_SessaoFalsa(_xlsx(_tabela(LINHAS))), "robo@exemplo"),
+    )
+    itens = sheets.coletar_credenciais_da_planilha(log=linhas.append)
+    assert len(itens) == 3
+    assert any("robo@exemplo" in l for l in linhas)
+    assert not any("s1" in l for l in linhas)  # nem aqui vaza senha
+
+
+def test_id_da_planilha_aceita_url_completa_ou_id_cru():
+    url = ("https://docs.google.com/spreadsheets/d/"
+           "1BkNU0gkcl9A3O88i10e1Qbih4Abf36nthfpIj478bZg/edit?gid=0#gid=0")
+    assert sheets._id_de_url(url) == "1BkNU0gkcl9A3O88i10e1Qbih4Abf36nthfpIj478bZg"
+    assert sheets._id_de_url("  fid-cru  ") == "fid-cru"
+    assert sheets._id_de_url("") == ""
+
+
+def test_id_padrao_aponta_para_a_planilha_do_escritorio():
+    assert sheets.SHEET_SENHAS == "1BkNU0gkcl9A3O88i10e1Qbih4Abf36nthfpIj478bZg"
+
+
+@pytest.mark.parametrize("erro, esperado", [
+    ("404 File not found: 1BkNU…", "compartilhad"),
+    ("403 Forbidden", "compartilhad"),
+    ("Google Drive API has not been used in project…", "habilitad"),
+    ("HTTPSConnectionPool: getaddrinfo failed", "internet"),
+    ("credencial da conta de serviço não encontrada em …", "token_google_api"),
+    ("nenhuma aba com colunas de tribunal/login/senha (abas: ['Plan1'])", "cabeçalho"),
+])
+def test_explicar_falha_traduz_os_casos_reais(erro, esperado):
+    assert esperado in sheets.explicar_falha_de_acesso(erro)
+
+
+def test_explicar_falha_nomeia_a_conta_e_devolve_o_cru_quando_nao_conhece():
+    msg = sheets.explicar_falha_de_acesso("404 not found", robot="robo@exemplo")
+    assert "robo@exemplo" in msg and "Leitor" in msg
+    assert sheets.explicar_falha_de_acesso("pane desconhecida") == "pane desconhecida"
+    # sem robô explícito, cai na conta de serviço que vai no programa
+    assert sheets.ROBOT_PADRAO in sheets.explicar_falha_de_acesso("403")

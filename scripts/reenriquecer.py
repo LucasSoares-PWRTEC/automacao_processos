@@ -9,6 +9,9 @@ runner re-raspa esses processos e mescla o resultado de volta.
 Princípios (pedidos do usuário):
   • Reuso de sessão: 1 login por sistema (pool de scrapers), dezenas de consultas
     na mesma sessão → evita bloqueio. Pausa entre consultas.
+  • UMA tentativa por processo por dia, compartilhada com o monitoramento da GUI
+    (organizador.monitoramento.DIARIO_TENTATIVAS): rodar duas vezes no mesmo dia
+    não reconsulta. `--numeros` (lista explícita) passa por cima.
   • Fallback entre sistemas: se "não encontrado" num sistema, tenta os outros da
     mesma UF (eproc × e-SAJ × PJe), do mais rico (com documento) ao mais pobre.
   • Pop-up "atribuir/vincular ao advogado": o scraper detecta, fecha SEM confirmar
@@ -86,7 +89,13 @@ from organizador.padroes import (  # noqa: E402
 from organizador.scraper import _consultar_e_extrair  # noqa: E402
 # Núcleo reaproveitável (pool de sessão + merge/persistência) mora agora no
 # pacote, em organizador.monitoramento — o monitoramento periódico usa o mesmo.
-from organizador.monitoramento import PoolScrapers, _merge_e_salvar  # noqa: E402
+from organizador.monitoramento import (  # noqa: E402
+    PoolScrapers,
+    _merge_e_salvar,
+    filtrar_tentados_hoje,
+    marcar_tentativa,
+    tentativas_de_hoje,
+)
 
 # --- caminhos -------------------------------------------------------------
 ESTADO_JSON = _RAIZ / "data" / "_reenriquecimento_estado.json"
@@ -386,6 +395,21 @@ def executar(args) -> None:
         return (_rank.get(TJ_SISTEMAS[cand[0]][0], 8), cand[0])
 
     fila.sort(key=_ordem)
+
+    # Cooldown de 1 tentativa por processo por dia — o MESMO registro que o
+    # monitoramento da GUI usa (organizador.monitoramento.DIARIO_TENTATIVAS): o
+    # tribunal não distingue quem bateu na porta, então rodar este script depois
+    # de uma passada do app não pode reconsultar os mesmos processos hoje.
+    # `--numeros` é pedido explícito de uma lista curta e passa por cima.
+    if numeros_filtro is None:
+        do_dia, adiados = filtrar_tentados_hoje(
+            {n: alvos[n] for n in fila}, estado, tentativas_de_hoje()
+        )
+        if adiados:
+            print(f"⏭️  {len(adiados)} já tiveram a tentativa de hoje — voltam "
+                  f"amanhã (1 tentativa por processo por dia, anti-bloqueio)")
+        fila = [n for n in fila if n in do_dia]
+
     if args.limit:
         fila = fila[: args.limit]
     print(f"A processar agora: {len(fila)} (restantes ficam pendentes p/ retomar)\n")
@@ -413,6 +437,10 @@ def executar(args) -> None:
                 _persistir()
                 print("   🗺️ sem rota — pulando.\n")
                 continue
+
+            # Antes de tocar no tribunal, para uma queda no meio não devolver o
+            # processo à fila hoje (ver o cooldown acima).
+            marcar_tentativa(numero)
 
             ultimo_erro = ""
             resolvido = False

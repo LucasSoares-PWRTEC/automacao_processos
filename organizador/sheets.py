@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
-"""Ingestão dos processos a partir das planilhas Google (somente leitura).
+"""Leitura das planilhas Google do escritório (somente leitura).
+
+Duas coisas moram aqui, e as duas usam o mesmo acesso:
+
+* os PROCESSOS das planilhas de campanha (`coletar_processos_das_planilhas`);
+* as SENHAS dos tribunais (`coletar_credenciais_da_planilha`), fonte do botão
+  "Atualizar senhas dos tribunais" — senha trocada no escritório chega em todo
+  mundo com um clique, sem release novo.
 
 Adaptado do ``sync_sheets.py`` de referência: usa uma CONTA DE SERVIÇO
 (``token_google_api.json`` na raiz, apontado por ``GOOGLE_SA_PATH``) com escopos
@@ -17,12 +24,13 @@ Uso programático:
 from __future__ import annotations
 
 import io
+import os
 import re
 import unicodedata
 import warnings
 from typing import Callable
 
-from .config import GOOGLE_SA_PATH
+from .config import GOOGLE_SA_PATH, _login_credencial, _valor_credencial
 from .padroes import RE_NUMERO_CNJ
 
 SCOPES = [
@@ -51,6 +59,30 @@ SHEETS: dict[str, tuple[str, str]] = {
     "São José Judicial":          ("1n6HDw79nF_m8p0xAI0lWrCkVecRTzZJI-2GXGJr8M_A", "PROCESSO"),
     "Level/Cantupneus":           ("1X8WH_u75OuqrczNlgbFJRdZbAYY99qc5RMBN8LYTIYA", "PROCESSO"),
 }
+
+# --- planilha de senhas dos tribunais --------------------------------------
+MIN_LINHAS_SENHAS = 3  # abaixo disso é capa/dashboard, não a tabela de senhas
+# Sinônimos em ordem MAIS-ESPECÍFICO-PRIMEIRO: o casamento por "contém" faria
+# "senha" ganhar de "senha nova" e levar a coluna errada (ex.: "Senha antiga").
+SIN_TJ = ("tribunal/sistema", "tj/sistema", "tribunal", "sistema", "tj",
+          "orgao", "portal", "site", "descricao")
+SIN_LOGIN = ("login", "usuario", "user", "cpf/cnpj", "cpf", "e-mail", "email")
+SIN_SENHA = ("senha nova", "senha atual", "senha", "password", "pass")
+
+
+def _id_de_url(valor: str) -> str:
+    """Aceita o id cru OU a URL completa da planilha."""
+    m = re.search(r"/spreadsheets/d/([A-Za-z0-9_-]+)", str(valor or ""))
+    return m.group(1) if m else str(valor or "").strip()
+
+
+# Escape hatch por variável de ambiente (aceita URL colada): se a planilha for
+# recriada o id muda, e sem esta saída a correção exigiria um .exe novo — que é
+# exatamente o problema que ler a planilha veio matar.
+SHEET_SENHAS: str = _id_de_url(
+    os.getenv("ORGANIZADOR_SENHAS_SHEET_ID")
+    or "1BkNU0gkcl9A3O88i10e1Qbih4Abf36nthfpIj478bZg"
+)
 
 
 # ---------------------------------------------------------------------
@@ -91,15 +123,42 @@ def _normalizar_cnj(texto) -> str:
     return ""
 
 
-def _achar_col(cabecalho: list[str], alvo: str) -> int | None:
-    """Índice da coluna cujo rótulo casa `alvo` (igual; senão, contém)."""
+def _achar_col(
+    cabecalho: list[str], alvo: str, excluir: frozenset[int] | set[int] = frozenset()
+) -> int | None:
+    """Índice da coluna cujo rótulo casa `alvo` (igual; senão, contém).
+
+    `excluir` tira índices da disputa — é o que impede, na leitura de senhas, que
+    tj/login/senha caiam todos na mesma coluna quando os sinônimos se sobrepõem.
+    """
     alvo_n = _norm(alvo)
     normalizados = [_norm(c) for c in cabecalho]
     for i, c in enumerate(normalizados):
-        if c == alvo_n:
+        if i not in excluir and c == alvo_n:
             return i
     for i, c in enumerate(normalizados):  # fallback: contém
+        # Cabeçalho VAZIO casava qualquer alvo (`"" in alvo_n` é True) e elegia
+        # uma coluna em branco — comum em planilha exportada. Só não explodia
+        # porque `_detectar_col_processo` regatava o acerto com `conta_cnj > 0`;
+        # a leitura de senhas não tem esse contador para se defender.
+        if i in excluir or not c:
+            continue
         if alvo_n and (alvo_n in c or c in alvo_n):
+            return i
+    return None
+
+
+def _achar_col_sinonimos(
+    cabecalho: list[str],
+    sinonimos: tuple[str, ...],
+    excluir: frozenset[int] | set[int] = frozenset(),
+) -> int | None:
+    """Primeiro sinônimo que casa uma coluna. A ORDEM da tupla importa: o mais
+    específico vem antes (`senha nova` antes de `senha`), senão o genérico casa
+    primeiro por 'contém' e leva a coluna errada."""
+    for alvo in sinonimos:
+        i = _achar_col(cabecalho, alvo, excluir)
+        if i is not None:
             return i
     return None
 
@@ -309,3 +368,163 @@ def coletar_processos_das_planilhas(
         )
     log(f"📋 total: {len(registros)} processos únicos nas planilhas.")
     return registros
+
+
+# ---------------------------------------------------------------------
+# Senhas dos tribunais
+# ---------------------------------------------------------------------
+def _linhas_de_senha(
+    linhas: list[list[str]], i_tj: int, i_login: int, i_senha: int
+) -> list[dict[str, str]]:
+    """Linhas da tabela → ``[{"tj", "login", "senha"}]``, na ordem da planilha.
+
+    Linha válida = tribunal preenchido E (login ou senha). Só o tribunal
+    preenchido costuma ser título de seção ("TRIBUNAIS ESTADUAIS"), não acesso.
+
+    NÃO tenta separar "lixo" de credencial: o arquivo real carrega linhas de
+    recado ("senha robo", "SENHA CERTIFICADO A1: ...") que são informação do
+    escritório. Classificá-las faria elas sumirem da máquina de quem sincroniza.
+    """
+    def cel(linha: list[str], i: int) -> str:
+        return linha[i] if i < len(linha) else ""  # linha curta não é IndexError
+
+    itens: list[dict[str, str]] = []
+    for linha in linhas:
+        tj = _valor_credencial(cel(linha, i_tj))
+        if not tj:
+            continue
+        login = _login_credencial(cel(linha, i_login))
+        senha = _valor_credencial(cel(linha, i_senha))
+        if not login and not senha:
+            continue
+        itens.append({"tj": tj, "login": login, "senha": senha})
+    return itens
+
+
+def ler_senhas_da_planilha(
+    s, fid: str, log: Callable[[str], None] = print
+) -> tuple[list[dict[str, str]], str]:
+    """Lê a planilha de senhas. Devolve ``(itens, descrição_da_detecção)``.
+
+    Mesma estratégia de `ler_planilha` — varre TODAS as abas e TODAS as linhas de
+    cabeçalho plausíveis (0..MAX_HDR) —, mas resolvendo um TRIO de colunas
+    (tribunal, login, senha) em vez de uma. Sem a contagem de CNJ para se guiar,
+    a nota do candidato é ``(linhas_válidas, linhas_com_senha)``: a tabela de
+    verdade é a coisa mais larga do arquivo, e o desempate por senha preenchida
+    impede que uma aba de resumo "Tribunal | Login" ganhe da tabela real.
+
+    Ordem de resolução senha → tribunal → login, cada uma excluindo os índices já
+    tomados: os sinônimos se sobrepõem (uma coluna "Descrição" casaria tribunal e
+    login), e sem exclusão os três cairiam na mesma coluna.
+
+    A descrição devolvida traz aba, linha de cabeçalho e RÓTULOS das colunas —
+    é o que o usuário confere antes de aceitar. Nunca contém valor de senha.
+    """
+    from openpyxl import load_workbook
+
+    dados = _baixar_bytes(s, fid)
+    abas: list[str] = []
+    melhor: tuple[list[dict[str, str]], str] | None = None
+    melhor_nota = (0, 0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        wb = load_workbook(dados, read_only=True, data_only=True)
+        try:
+            abas = list(wb.sheetnames)
+            for nome in abas:
+                try:
+                    grade = _grade(wb[nome], log)
+                except Exception:
+                    continue
+                for hdr in range(min(MAX_HDR, len(grade))):
+                    cab = grade[hdr]
+                    i_senha = _achar_col_sinonimos(cab, SIN_SENHA)
+                    if i_senha is None:
+                        continue
+                    i_tj = _achar_col_sinonimos(cab, SIN_TJ, {i_senha})
+                    if i_tj is None:
+                        continue
+                    i_login = _achar_col_sinonimos(cab, SIN_LOGIN, {i_senha, i_tj})
+                    if i_login is None:
+                        continue
+                    itens = _linhas_de_senha(grade[hdr + 1:], i_tj, i_login, i_senha)
+                    n_senha = sum(1 for i in itens if i["senha"])
+                    # Portões: tabela curta é capa/dashboard; coluna de senha
+                    # inteiramente vazia é aba de resumo. Aplicar qualquer uma
+                    # das duas apagaria senha boa por campo vazio.
+                    if len(itens) < MIN_LINHAS_SENHAS or not n_senha:
+                        continue
+                    nota = (len(itens), n_senha)
+                    if nota > melhor_nota:  # `>` estrito: no empate o 1º vence
+                        melhor_nota = nota
+                        melhor = (
+                            itens,
+                            f"aba '{nome}', cabeçalho na linha {hdr + 1}, colunas "
+                            f"'{cab[i_tj]}' / '{cab[i_login]}' / '{cab[i_senha]}'",
+                        )
+        finally:
+            wb.close()
+    if melhor is None:
+        raise RuntimeError(
+            f"nenhuma aba com colunas de tribunal/login/senha (abas: {abas})"
+        )
+    return melhor
+
+
+def coletar_credenciais_da_planilha(
+    log: Callable[[str], None] = print,
+) -> list[dict[str, str]]:
+    """Lê a planilha de senhas do escritório. Somente leitura.
+
+    Estoura ``RuntimeError`` em qualquer falha (sem acesso, sem internet, sem as
+    colunas, tabela curta demais, coluna de senha vazia) — mesmo princípio de
+    `coletar_processos_das_planilhas`: falha de acesso NÃO pode ser confundida
+    com "as senhas já estão em dia". Quem chama traduz com
+    `explicar_falha_de_acesso`.
+    """
+    s, robot = _sessao()
+    log(f"🔑 conta de serviço: {robot} (a planilha de senhas precisa estar "
+        "compartilhada como Leitor com ele)")
+    itens, como = ler_senhas_da_planilha(s, SHEET_SENHAS, log=log)
+    log(f"🔐 planilha de senhas: {len(itens)} linha(s) — {como}")
+    return itens
+
+
+ROBOT_PADRAO = "att-192@projetofelipe-503412.iam.gserviceaccount.com"
+
+
+def explicar_falha_de_acesso(msg: str, robot: str = "") -> str:
+    """Traduz o erro cru do Google/rede em algo que o escritório resolve.
+
+    Mora aqui, e não na GUI, para ficar coberta por teste. Como a planilha é a
+    ÚNICA fonte de senhas, esta mensagem é a única saída do usuário quando algo
+    falha — "404 File not found" não diz a ninguém que falta compartilhar.
+    """
+    m = str(msg or "")
+    baixo = m.lower()
+    conta = robot or ROBOT_PADRAO
+    compartilhar = (
+        "A planilha de senhas não foi encontrada ou não está compartilhada com "
+        f"o robô.\n\nAbra a planilha no Google → Compartilhar → adicione\n{conta}\n"
+        "como Leitor, e tente de novo."
+    )
+    if "conta de serviço não encontrada" in baixo:
+        return ("Este programa foi montado sem a credencial do Google "
+                "(token_google_api.json). Avise quem gerou esta versão.")
+    if "nenhuma aba com colunas" in baixo:
+        return ("Encontrei a planilha, mas não achei as colunas de Tribunal, "
+                "Login e Senha.\n\nA planilha precisa de uma linha de cabeçalho "
+                "com esses três nomes (a antiga usava tj, Login, Senha) e pelo "
+                f"menos {MIN_LINHAS_SENHAS} linhas preenchidas.")
+    if any(t in baixo for t in ("accessnotconfigured", "has not been used")):
+        return ("As APIs Google Drive/Sheets não estão habilitadas no projeto "
+                f"da conta {conta}.")
+    if any(t in baixo for t in ("404", "not found", "notfound")):
+        return compartilhar
+    if any(t in baixo for t in ("403", "forbidden", "permission")):
+        return compartilhar
+    if any(t in baixo for t in ("getaddrinfo", "max retries", "connection",
+                                "timed out", "timeout", "ssl")):
+        return ("Sem acesso à internet (ou a rede bloqueou o Google). "
+                "Conecte-se e tente de novo.")
+    return m[:200]

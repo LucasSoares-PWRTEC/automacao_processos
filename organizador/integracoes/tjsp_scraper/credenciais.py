@@ -22,7 +22,13 @@ from pathlib import Path
 
 from unidecode import unidecode
 
-from ...config import CONFIG_DIR, CREDENCIAIS_EXAMPLE_PATH, CREDENCIAIS_PATH, LEGACY_SENHAS_XLSX_PATH
+from ...config import (
+    CONFIG_DIR,
+    CREDENCIAIS_EXAMPLE_PATH,
+    CREDENCIAIS_PATH,
+    LEGACY_SENHAS_XLSX_PATH,
+    _valor_credencial,
+)
 
 SENHAS_XLSX_PATH = CONFIG_DIR / "senhas.xlsx"
 
@@ -35,13 +41,13 @@ def _norm(s: str) -> str:
 
 
 def _to_str(valor) -> str:
-    """Normaliza o valor de login/senha para string utilizável."""
-    if valor is None:
-        return ""
-    s = str(valor).strip()
-    if s.endswith(".0") and s[:-2].isdigit():
-        s = s[:-2]
-    return s
+    """Normaliza o valor de login/senha para string utilizável.
+
+    Delega para `config._valor_credencial`: a comparação local × planilha (ver
+    `config.planejar_credenciais`) tem de usar exatamente a mesma normalização
+    que a gravação, senão "123.0" × "123" viraria "senha alterada" para sempre.
+    """
+    return _valor_credencial(valor)
 
 
 def _bootstrap_credenciais_locais() -> None:

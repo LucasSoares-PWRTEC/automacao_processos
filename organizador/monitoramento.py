@@ -10,8 +10,11 @@ relatórios. Expõe ``rodar_passada()``, que:
   2. descarta os que JÁ estão mapeados (no cache ou no estado); e
   3. raspa os pendentes p/ descobrir o sistema e enriquecer.
 
-Usado pela GUI (botão "Sincronizar planilhas & mapear" + auto-disparo semanal)
-e pelo CLI ``scripts/monitor.py``. O ``scripts/reenriquecer.py`` reimporta daqui
+Cada processo tem UMA tentativa por dia (ver ``DIARIO_TENTATIVAS``): repetir no
+mesmo dia não muda o resultado e só soma requisições no tribunal.
+
+Usado pela GUI (botão "Sincronizar planilhas & mapear" — não há disparo
+automático) e pelo CLI ``scripts/monitor.py``. O ``scripts/reenriquecer.py`` reimporta daqui
 ``PoolScrapers`` e ``_merge_e_salvar`` (deduplicação — mesma sessão/merge que o
 lote de re-enriquecimento já usava).
 
@@ -26,7 +29,7 @@ import threading
 import time
 from collections import OrderedDict
 from dataclasses import asdict
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Callable
 
@@ -187,6 +190,101 @@ def _cnj_normalizado(texto: str) -> str:
 
 def _quando() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+# --- cooldown: UMA tentativa por processo por dia -------------------------
+# Repetir a consulta no mesmo dia não melhora o resultado: o processo não está
+# naquele sistema, ou o tribunal está fora, ou o dado não existe mesmo. O que a
+# repetição faz é somar requisições — e é volume que faz o tribunal bloquear a
+# conta compartilhada. Então cada processo tem UMA tentativa por dia civil; a
+# próxima é amanhã.
+#
+# O registro é um log append-only, e não um campo no estado, por dois motivos:
+#   - ele é gravado ANTES de tocar no tribunal, então uma queda do app (ou um
+#     "Parar") no meio da passada não devolve o processo à fila em minutos —
+#     esse laço "abre, tenta, cai, reabre, tenta" é justamente o que geraria
+#     flood sem ninguém notar;
+#   - o estado inteiro passa de 500 KB e só é regravado em lote (ver
+#     _GravadorThrottled), enquanto um append de ~30 bytes com fsync custa nada.
+DIARIO_TENTATIVAS = APP_DATA_DIR / "_monitor_tentativas.log"
+
+
+def _hoje() -> str:
+    return date.today().isoformat()
+
+
+def _regravar_diario(numeros: set[str], path: Path) -> None:
+    hoje = _hoje()
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(
+            "".join(f"{hoje}\t{n}\n" for n in sorted(numeros)), encoding="utf-8"
+        )
+        os.replace(tmp, path)
+    except OSError:
+        pass  # poda é cosmética; nunca vale derrubar a passada
+
+
+def tentativas_de_hoje(path: Path | None = None) -> set[str]:
+    """Números que já tiveram a tentativa de hoje.
+
+    Poda de passagem as linhas de dias anteriores — o arquivo só precisa conter
+    o dia corrente, então ele não cresce com o tempo."""
+    path = path or DIARIO_TENTATIVAS
+    try:
+        linhas = [l for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    except (OSError, UnicodeDecodeError):
+        return set()
+    hoje = _hoje()
+    de_hoje = {
+        numero
+        for dia, _, numero in (l.partition("\t") for l in linhas)
+        if dia == hoje and numero
+    }
+    if len(de_hoje) != len(linhas):  # sobrou linha de outro dia (ou repetida)
+        _regravar_diario(de_hoje, path)
+    return de_hoje
+
+
+def marcar_tentativa(numero: str, path: Path | None = None) -> None:
+    """Registra a tentativa do dia. Chamar ANTES da consulta, não depois: é o que
+    faz o cooldown valer mesmo se a passada morrer no meio."""
+    path = path or DIARIO_TENTATIVAS
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(f"{_hoje()}\t{numero}\n")
+            f.flush()
+            os.fsync(f.fileno())  # sobrevive a queda de energia/kill do processo
+    except OSError:
+        pass  # sem registro seguimos; o gate por `quando` no estado ainda pega
+
+
+def _tentado_hoje(numero: str, registro: dict, tentadas_hoje: set[str]) -> bool:
+    """Dois sinais independentes, para o gate não depender de um arquivo só:
+    o log de tentativas (gravado antes da consulta) e o `quando` do estado
+    (gravado no resultado, e que sobrevive a apagar o log)."""
+    if numero in tentadas_hoje:
+        return True
+    return str((registro or {}).get("quando") or "")[:10] == _hoje()
+
+
+def filtrar_tentados_hoje(
+    pendentes: dict[str, dict], estado: dict, tentadas_hoje: set[str]
+) -> tuple[dict[str, dict], list[str]]:
+    """Tira da fila quem já gastou a tentativa do dia.
+
+    Devolve ``(fila, adiados)``. Os adiados não são erro nem pendência nova:
+    voltam sozinhos na próxima passada, amanhã."""
+    fila: dict[str, dict] = {}
+    adiados: list[str] = []
+    for numero, info in pendentes.items():
+        if _tentado_hoje(numero, estado.get(numero, {}), tentadas_hoje):
+            adiados.append(numero)
+        else:
+            fila[numero] = info
+    return fila, adiados
 
 
 # --- leitura do cache -----------------------------------------------------
@@ -396,7 +494,11 @@ def processos_ja_mapeados(estado: dict) -> set[str]:
 def selecionar_pendentes(alvos_planilhas: dict[str, str], estado: dict,
                          retry_falhas: bool = False) -> dict[str, dict]:
     """De ``{numero: campanha}`` das planilhas, devolve só os NÃO mapeados como
-    ``{numero: {uf, candidatos, existing=None, campanha}}`` (pronto p/ a passada)."""
+    ``{numero: {uf, candidatos, existing=None, campanha}}`` (pronto p/ a passada).
+
+    Seleção por STATUS, sem noção de tempo: quem chamar precisa passar o
+    resultado por ``filtrar_tentados_hoje`` para respeitar o cooldown de uma
+    tentativa por processo por dia (``rodar_passada`` faz isso)."""
     mapeados = processos_ja_mapeados(estado)
     pendentes: dict[str, dict] = {}
     for numero, campanha in alvos_planilhas.items():
@@ -456,19 +558,31 @@ def rodar_passada(
 
     estado = _carregar_estado()
     pendentes = selecionar_pendentes(alvos_planilhas, estado, retry_falhas=retry_falhas)
-    ja = len(alvos_planilhas) - len(pendentes)
+    # Cooldown: quem já foi tentado hoje sai da fila (ver DIARIO_TENTATIVAS).
+    pendentes, adiados = filtrar_tentados_hoje(
+        pendentes, estado, tentativas_de_hoje()
+    )
+    ja = len(alvos_planilhas) - len(pendentes) - len(adiados)
     log(f"📊 {len(alvos_planilhas)} nas planilhas | {ja} já mapeados | "
         f"{len(pendentes)} pendentes")
+    if adiados:
+        log(f"⏭️  {len(adiados)} já tiveram a tentativa de hoje — voltam amanhã "
+            f"(1 tentativa por processo por dia, anti-bloqueio)")
 
     resumo = {
         "total": len(alvos_planilhas), "ja_mapeados": ja,
         "mapeados_agora": 0, "nao_encontrados": 0, "pendentes": len(pendentes),
+        "adiados": len(adiados),
     }
     if dry_run:
         log("🔎 DRY-RUN: nada raspado.")
         return resumo
     if not pendentes:
-        log("✅ nada a mapear — planilhas em dia com o cache.")
+        if adiados:
+            log(f"⏸️  nada a fazer hoje: os {len(adiados)} que faltam já foram "
+                f"tentados hoje. Rode de novo amanhã.")
+        else:
+            log("✅ nada a mapear — planilhas em dia com o cache.")
         return resumo
 
     # Semeia o estado (preserva os já processados).
@@ -524,6 +638,12 @@ def rodar_passada(
                 gravador.talvez(estado)
                 log("   🗺️ sem rota — pulando.")
                 continue
+
+            # A tentativa do dia é registrada ANTES de abrir/consultar qualquer
+            # tribunal: se o app cair ou for fechado no meio deste processo, ele
+            # não volta à fila hoje. É o que impede o laço cai-reabre-repete de
+            # virar flood na conta compartilhada.
+            marcar_tentativa(numero)
 
             ultimo_erro = ""
             resolvido = False
