@@ -441,6 +441,20 @@ TJ_SISTEMAS = {
     # O PJe do TJRJ exige certificado digital e o eproc/perfil-RJ do TJSP não
     # hospeda processos do TJRJ; esta consulta pública é a rota viável. 1ª inst.
     "TJRJ — Consulta": ("tjrj", "RIO DE JANEIRO", "https://www3.tjrj.jus.br/consultaprocessual/api/", None),
+    # A consulta pública SÓ tem rota de detalhe para o sistema LEGADO do TJRJ
+    # (`tipoProcesso: 1`, número antigo AAAA.CCC.NNNNNN-D). Os processos de
+    # numeração 08* são do PJe (`13`) ou do eproc (`16`) e nela devolvem só um
+    # cabeçalho stub — `processos/por-numero/publica` responde 412 para eles com
+    # qualquer tipoProcesso. Daí esta segunda rota: o eproc do TJRJ (migração de
+    # 2025), com Keycloak próprio. O PJe do TJRJ (tipo 13) continua sem rota:
+    # exige certificado digital.
+    "TJRJ — eproc":  ("eproc", "RIO DE JANEIRO",     "https://eproc1g.tjrj.jus.br/eproc/", None),
+    # PJe do TJRJ (tipoProcesso 13). O host NÃO segue o padrão dos outros
+    # tribunais: `pje.tjrj.jus.br` nem resolve em DNS — é `tjrj.pje.jus.br/1g/`,
+    # que cai no mesmo PDPJ (sso.cloud.pje.jus.br, client_id pje-tjrj-1g) usado
+    # pelas outras rotas PJe. O certificado digital é UMA das opções da tela,
+    # não requisito.
+    "TJRJ — PJe":    ("pje",   "RIO DE JANEIRO",     "https://tjrj.pje.jus.br/1g/", None),
     # ── RN ──────────────────────────────────────────────────────────────────
     # Acesso via perfil OAB-RN na plataforma eproc do TJSP (mesmo login/2FA).
     "TJRN — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "RN"),
@@ -478,6 +492,18 @@ def uf_efetiva_tj(tj_label: str) -> str:
 # nenhuma sugestão ou fallback automático deve cair nelas.
 ROTAS_INOPERANTES = frozenset({"TJGO — eproc", "TJPR — eproc", "TJRN — eproc"})
 
+# Sugestão da tela por UF, quando o palpite padrão (preferir eproc) não é o
+# melhor. NÃO confundir com `_PRIORIDADE_SITE_POR_UF`, que ordena o FALLBACK do
+# monitor: aqui é o "trocar para X?" que aparece quando o número digitado é de
+# outra UF (ver gui.py `_buscar_online`), uma escolha só, feita por uma pessoa
+# que vai olhar o resultado.
+#
+# RJ → PJe: dos três sistemas do RJ, o PJe é o que mais aparece na carteira, e
+# quem digita um número avulso quase sempre quer esse. A consulta pública segue
+# na frente no fallback automático (é a rota sem login), mas ali o custo de
+# errar é uma requisição, não a atenção de alguém.
+_SUGESTAO_POR_UF = {"RJ": "TJRJ — PJe"}
+
 
 def rotulos_tj_selecionaveis() -> list[str]:
     """Rótulos que valem a pena oferecer na tela (sem as rotas comprovadamente
@@ -486,10 +512,24 @@ def rotulos_tj_selecionaveis() -> list[str]:
 
 
 def sugerir_tj_para_uf(uf: str) -> str | None:
-    """Rótulo de TJ_SISTEMAS cuja UF efetiva == uf. Prefere eproc; senão o 1º."""
+    """Rótulo de TJ_SISTEMAS cuja UF efetiva == uf, para pré-selecionar na tela.
+
+    Ordem: override explícito da UF (`_SUGESTAO_POR_UF`), depois eproc (o sistema
+    com extrator estruturado), depois o 1º candidato.
+
+    NÃO confundir com a ordem do fallback do monitor (`candidatos_tj_para_uf`):
+    lá MG tenta PJe antes do eproc e RJ tenta a consulta pública primeiro, mas
+    aqui MG segue sugerindo eproc e RJ sugere PJe. São perguntas diferentes — o
+    fallback erra de graça e segue para o próximo; a sugestão gasta a atenção de
+    uma pessoa. A divergência de MG é decisão de projeto, coberta por
+    tests/test_projudi_rota.py.
+    """
     candidatos = candidatos_tj_para_uf(uf)
     if not candidatos:
         return None
+    preferida = _SUGESTAO_POR_UF.get((uf or "").upper())
+    if preferida in candidatos:  # ignora override que apontou p/ rota removida
+        return preferida
     eproc = [lbl for lbl in candidatos if TJ_SISTEMAS[lbl][0] == "eproc"]
     return (eproc or candidatos)[0]
 
@@ -504,6 +544,11 @@ _PRIORIDADE_SITE = {"projudi": 0, "eproc": 1, "pje": 2, "esaj": 3}
 # pouquíssimos), então tentar PJe primeiro evita uma consulta eproc inútil.
 _PRIORIDADE_SITE_POR_UF = {
     "MG": {"pje": 0, "eproc": 1, "esaj": 2},
+    # RJ: a consulta pública primeiro porque é uma requisição HTTP sem login,
+    # sem 2FA e sem navegador (~1 s) — ela resolve sozinha todo processo do
+    # sistema legado. Só o que ela recusar (numeração 08*, do eproc) paga o
+    # custo de abrir o Chrome e logar no eproc do TJRJ.
+    "RJ": {"tjrj": 0, "eproc": 1, "pje": 2},
 }
 
 

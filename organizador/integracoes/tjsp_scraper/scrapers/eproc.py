@@ -1,6 +1,6 @@
 # src/scrapers/eproc.py
 """
-Scraper eproc — TJMG e TJSP (1º grau).
+Scraper eproc — TJMG, TJSP, TJSC e TJRJ (1º grau).
 
 Fluxo (mesmo passo-a-passo para MG e SP, confirmado por prints):
 
@@ -79,6 +79,25 @@ _CONFIG_POR_ESTADO = {
         "totp_input_id":  "otp",
         "totp_submit_id": "kc-login",
     },
+    "RIO DE JANEIRO": {
+        # eproc do TJRJ (migração de 2025). Login via Keycloak PRÓPRIO
+        # (eproc-sso.tjrj.jus.br/realms/eproc), brokerado para o PDPJ — mesmos
+        # ids do Keycloak do TJSP.
+        #
+        # CUIDADO: a página de login do TJRJ TAMBÉM contém #txtUsuario/#pwdSenha,
+        # que são os ids do eproc interno (MG/SC). Ali eles são <input
+        # type="hidden"> de um form auxiliar (#frm-login) — configurá-los aqui
+        # faria o `visibility_of_element_located` esperar 60s por um campo que
+        # nunca fica visível. Os campos reais são os do Keycloak.
+        "tj_chave": "TJRJ - Eproc",
+        "totp_env": "TOTP_EPROC_TJRJ",
+        "sigla":    "RJ",
+        "login_user_id":   "username",
+        "login_pass_id":   "password",
+        "login_submit_id": "kc-login",
+        "totp_input_id":  "otp",
+        "totp_submit_id": "kc-login",
+    },
     "SANTA CATARINA": {
         # eproc clássico do TJSC (origem do eproc, login interno como o MG).
         "tj_chave": "TJSC - Eproc 1º Grau",
@@ -93,6 +112,17 @@ _CONFIG_POR_ESTADO = {
 }
 
 EPROC_DOC_TIMEOUT = int(os.getenv("EPROC_DOC_TIMEOUT", "20"))
+
+# Frases (minúsculas) com que cada eproc recusa o código de 2FA. Sem casar
+# alguma delas o login espera 25 s pelo Painel e morre no genérico "não cheguei
+# ao Painel", que não distingue segredo TOTP errado de sessão perdida.
+# "código autenticador inválido" é a do TJRJ (visto ao vivo, v9.21.0-3.0.2).
+_RECUSAS_2FA = (
+    "erro verificando chave",
+    "erro na autenticação",
+    "código autenticador inválido",
+    "codigo autenticador invalido",
+)
 
 
 # Orçamento dos localizadores ALTERNATIVOS de `_first` (o 1º usa o timeout
@@ -268,11 +298,14 @@ class EprocScraper(TribunalScraper):
             # Detecta rejeição explícita do código (não vale a pena esperar 25s pelo painel)
             time.sleep(1.2)
             page = (self.driver.page_source or "").lower()
-            if "erro verificando chave" in page or "erro na autenticação" in page:
+            recusa = next((m for m in _RECUSAS_2FA if m in page), None)
+            if recusa:
                 self._screenshot("2fa_codigo_rejeitado")
                 raise RuntimeError(
-                    "eproc: código 2FA rejeitado ('Erro verificando chave'). "
-                    "Verifique TOTP_EPROC_* no .env e o relógio."
+                    f"eproc/{self._sigla}: código 2FA rejeitado ({recusa!r}). "
+                    f"A senha PASSOU — o que está errado é {self._totp_env} no "
+                    f".env (segredo de outra conta/tribunal) ou o relógio. "
+                    f"NÃO repita: 2FA inválido em sequência bloqueia a conta."
                 )
 
         # --- Tela 3: Seleção de perfil (se aparecer) ---

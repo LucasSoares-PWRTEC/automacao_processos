@@ -104,6 +104,7 @@ _CRED_POR_ESTADO = {
     "PARA":             "TJPA - PJE – 1º Grau",
     "PERNAMBUCO":       "TJPE - PJE – 1º Grau",
     "DISTRITO FEDERAL": "TJDF - 1º Grau",
+    "RIO DE JANEIRO":   "TJRJ - 1ª instância",
 }
 
 # Defaults TJMG (fallback quando a url não é informada).
@@ -656,11 +657,21 @@ class PJEScraper(TribunalScraper):
         # DEPOIS da timeline. Numa corrida em lote, ler cedo demais traz o autor
         # mas perde o réu. Espera curta até o #poloPassivo ter conteúdo além do
         # rótulo; tolera ausência (processos de um polo só) sem travar.
+        # Duas armadilhas aqui, ambas vistas no TJRJ:
+        #   1. o id pode vir prefixado pelo naming container do JSF
+        #      ("navbar:poloPassivo") — `By.ID` não acha, a função devolvia True
+        #      na hora e a espera simplesmente NÃO acontecia;
+        #   2. o div costuma estar oculto (classe `mobile-close`), e `.text` do
+        #      Selenium só devolve texto VISÍVEL — daria "" para sempre, agora
+        #      gastando os 6 s inteiros à toa. Por isso lê `textContent` via JS,
+        #      numa única ida ao navegador.
         def _polo_passivo_populado(d):
-            els = d.find_elements(By.ID, "poloPassivo")
-            if not els:
+            txt = d.execute_script(
+                "const e = document.querySelector(\"[id$='poloPassivo']\");"
+                r"return e ? (e.textContent || '').replace(/\s+/g, ' ').trim() : null;"
+            )
+            if txt is None:
                 return True  # sem o elemento: não há o que esperar
-            txt = (els[0].text or "").strip()
             return len(txt) > len("Polo passivo") + 3
         try:
             WebDriverWait(self.driver, 6).until(_polo_passivo_populado)

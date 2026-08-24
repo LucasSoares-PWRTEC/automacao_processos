@@ -202,6 +202,20 @@ _RX_PARTE_DETALHE = re.compile(
 _PAPEL_POLO = {"poloAtivo": "REQUERENTE", "poloPassivo": "REQUERIDO"}
 
 
+def _casa_id_jsf(nome: str):
+    """Predicado de id que tolera o prefixo de naming container do JSF.
+
+    O mesmo div sai como `id="poloPassivo"` em uns PJe e `id="navbar:poloPassivo"`
+    em outros (TJRJ, visto ao vivo) — o JSF prefixa o id do componente com o do
+    container que o envolve. Com `soup.find(id="poloPassivo")` o segundo caso não
+    casa e o processo é gravado SEM NENHUMA PARTE, embora o nome, o CPF/CNPJ e o
+    papel estejam ali no DOM.
+
+    Casa o id exato ou qualquer sufixo depois de ':' — nunca por `endswith(nome)`
+    solto, que pegaria um `id="outroPoloPassivo"`."""
+    return lambda v: bool(v) and (v == nome or v.endswith(":" + nome))
+
+
 def _papel_utilizavel(papel: str, div_id: str) -> str:
     """Papel que `_RX_PARTE` reconhece — nunca devolve algo que faça a parte sumir.
 
@@ -294,7 +308,7 @@ def _formatar_detalhe_pje(html: str) -> str:
     # passivo some e o processo fica só com o autor. Papel ausente ou desconhecido
     # cai no polo do container (ver `_papel_utilizavel`).
     for div_id in ("poloAtivo", "poloPassivo"):
-        bloco = soup.find(id=div_id)
+        bloco = soup.find(id=_casa_id_jsf(div_id))
         if bloco is None:
             continue
         for td in bloco.select("tbody td"):

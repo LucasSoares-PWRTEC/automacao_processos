@@ -193,6 +193,7 @@ CHAVES_2FA: dict[str, str] = {
     "TOTP PJe (TOTP_PDPJ)": "TOTP_PDPJ",
     "TOTP eproc TJMG (TOTP_EPROC_TJMG)": "TOTP_EPROC_TJMG",
     "TOTP eproc TJSP (TOTP_EPROC_TJSP)": "TOTP_EPROC_TJSP",
+    "TOTP eproc TJRJ (TOTP_EPROC_TJRJ)": "TOTP_EPROC_TJRJ",
 }
 
 # Login individual do Autojur, editável na aba Configurações (cada colaborador

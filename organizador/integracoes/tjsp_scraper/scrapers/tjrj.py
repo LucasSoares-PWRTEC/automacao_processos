@@ -25,6 +25,23 @@ from .base import TribunalScraper
 _API_PADRAO = "https://www3.tjrj.jus.br/consultaprocessual/api/"
 _TIMEOUT = 45
 
+# Valores de `tipoProcesso` vistos ao vivo no endpoint por-numeracao-unica.
+# 1 é o único que a consulta pública detalha (ver consultar_processo).
+_ERRO_FORA_DO_LEGADO = {
+    13: ("processo do PJe do TJRJ: a consulta pública só expõe o cabeçalho "
+         "(sem partes). O PJe do TJRJ exige certificado digital — não há rota "
+         "automatizada hoje."),
+    16: ("processo do eproc do TJRJ: a consulta pública só expõe o cabeçalho "
+         "(sem partes). Use a rota 'TJRJ — eproc', que loga no "
+         "eproc1g.tjrj.jus.br."),
+}
+
+
+def _erro_generico(tipo) -> str:
+    return (f"tipoProcesso={tipo}: a consulta pública do TJRJ só detalha o "
+            f"sistema legado (tipoProcesso=1); este processo está em outro "
+            f"sistema e precisa da rota própria dele.")
+
 
 class TJRJScraper(TribunalScraper):
     def __init__(self, estado: str, url: str = "", headless: bool = False):
@@ -85,6 +102,24 @@ class TJRJScraper(TribunalScraper):
             print(f"ℹ️ TJRJ: processo {numero} não encontrado na consulta pública.")
             return None
         resumo = lista[0]
+
+        # `tipoProcesso` do RESUMO diz em que sistema o processo mora. A consulta
+        # pública só tem rota de detalhe para o LEGADO (1): para 13/16 o
+        # `por-numero/publica` responde 412 "Número do processo inválido." com
+        # QUALQUER tipoProcesso, número (CNJ pontuado, 20 dígitos) ou idProcesso
+        # — e `por-id/publica` nem existe (404). O que volta aqui é só um
+        # cabeçalho stub: sem comarca, sem serventia, sem partes.
+        #
+        # Sem este corte o usuário via o genérico "Scraper não retornou dados
+        # para esse número" e não tinha como saber que era rota errada, não
+        # processo inexistente.
+        try:
+            tipo = int(resumo.get("tipoProcesso"))
+        except (TypeError, ValueError):
+            tipo = 1  # campo ausente/estranho: segue o fluxo antigo, não inventa erro
+        if tipo != 1:
+            raise RuntimeError(_ERRO_FORA_DO_LEGADO.get(tipo, _erro_generico(tipo)))
+
         num_antigo = (resumo.get("numProcesso") or "").strip()
         if not num_antigo:
             return None
