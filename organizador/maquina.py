@@ -35,6 +35,7 @@ AJUSTES_MODO_LEVE = (
     "mostra a lista de processos em páginas de 300 linhas",
     "usa menos temporizadores de interface",
     "mantém no máximo 2 navegadores abertos durante o monitoramento",
+    "encerra o navegador oculto do Autojur após 5 min sem uso (15 min nas demais)",
 )
 
 

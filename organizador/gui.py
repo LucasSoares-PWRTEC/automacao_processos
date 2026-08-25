@@ -26,7 +26,7 @@ from ttkbootstrap.constants import *
 
 from organizador import __version__
 
-from . import atualizacao
+from . import atualizacao, navegadores
 from .config import (
     APP_DATA_DIR, CAMINHO_GUIA_CREDENCIAIS, CAMINHO_ICONE, CONFIG_SEMENTE_DIR,
     OAB_ESCRITORIO_POR_UF, PASTA_PADRAO,
@@ -248,6 +248,26 @@ _PAD_Y = 6
 # barra listrada: puro desperdício de CPU num i3, e imperceptível a olho nu.
 _PROGRESS_MS = 80
 
+# Quanto o fechamento espera pelos `quit()` antes de partir para o `taskkill`.
+# Um `quit()` limpo de Chrome headless levou 2,1 s aqui; 8 s cobre dois
+# navegadores em paralelo numa máquina fraca. Passado o prazo, o que restou é
+# morto à força — deixar um chrome.exe órfão de 300-500 MB é pior que o kill.
+_PRAZO_QUIT_S = 8.0
+
+# Sessão OCULTA do Autojur parada: quanto tempo até o navegador ser encerrado
+# sozinho. Reabrir é barato (o perfil persistente dispensa novo 2FA), enquanto
+# manter uma sessão invisível custa 300-500 MB de RAM até o app fechar.
+_AUTOJUR_OCIOSO_LEVE_S = 300.0    # 5 min na máquina fraca
+_AUTOJUR_OCIOSO_S = 900.0         # 15 min nas demais
+# De quanto em quanto tempo a ociosidade é conferida (o pump roda a cada
+# 200-300 ms; esta checagem não pode entrar em todo tique).
+_CHECAGEM_OCIOSO_S = 30.0
+
+# A varredura de órfãos de execuções ANTERIORES só começa alguns segundos depois
+# de a janela aparecer: ela sobe um PowerShell que percorre a tabela de processos
+# (0,9 s aqui, 1-3 s num i3) e não pode competir com o primeiro desenho.
+_ATRASO_VARREDURA_MS = 4000
+
 
 class App(ttk.Window):
     def __init__(self) -> None:
@@ -350,6 +370,13 @@ class App(ttk.Window):
         # Serializa a criação/relogin do scraper entre o worker de pré-login e o
         # de envio (evita abrir dois navegadores concorrentes no mesmo perfil).
         self._autojur_login_lock = threading.Lock()
+        # Ociosidade da sessão retida (ver _fechar_autojur_ocioso). O relógio é
+        # monotônico: mudança de horário/horário de verão não pode encurtá-lo.
+        self._autojur_ultimo_uso = time.monotonic()
+        self._autojur_ocioso_s = (
+            _AUTOJUR_OCIOSO_LEVE_S if self._modo_leve else _AUTOJUR_OCIOSO_S
+        )
+        self._proxima_checagem_ocioso = time.monotonic() + _CHECAGEM_OCIOSO_S
         self._autojur_prelogin_worker: threading.Thread | None = None
         self._autojur_worker: threading.Thread | None = None
         self._autojur_log_queue: queue.Queue[str] = fila_de_log()
@@ -520,23 +547,67 @@ class App(ttk.Window):
     def _ao_fechar(self) -> None:
         """Encerra navegadores retidos e sinaliza cancelamento aos workers
         antes de destruir a janela. Best-effort: nada aqui pode impedir o
-        fechamento, mesmo se algum navegador já tiver sido morto por fora."""
+        fechamento, mesmo se algum navegador já tiver sido morto por fora.
+
+        POR QUE ESPERA (e por que mata no fim)
+        --------------------------------------
+        A versão anterior disparava os `fechar()` em threads DAEMON e chamava
+        `destroy()` na linha seguinte. O interpretador mata thread daemon na
+        saída do processo, e um `quit()` limpo leva ~2,1 s: o `quit()` morria no
+        meio. Reproduzido ao vivo em 25/08/2026 — sobravam um chromedriver.exe
+        com o pai morto e 8 chrome.exe pendurados nele, 491 MB INVISÍVEIS
+        (headless não tem janela nem ícone), vivos até o reboot. Era a lentidão
+        relatada "depois de usar o programa".
+
+        As threads continuam daemon (um `quit()` travado não pode prender o app
+        para sempre), mas agora são esperadas até `_PRAZO_QUIT_S`; o que passar
+        do prazo — e todo navegador preso numa thread worker, que este método não
+        tem como alcançar — morre por `taskkill` via o registro de vivos.
+        """
         if self._monitor_worker and self._monitor_worker.is_alive():
             self._monitor_cancel.set()
         if self._worker and self._worker.is_alive():
             self._cancel_event.set()
-        for scraper in (self._autojur_scraper, self._debug_scraper):
-            if scraper is None:
-                continue
-
-            def _fechar(s=scraper) -> None:
-                with contextlib.suppress(Exception):
-                    s.fechar()
-
-            threading.Thread(target=_fechar, daemon=True).start()
+        # A janela sai da tela AGORA: o resto é espera de processo morrendo e
+        # não pode parecer travamento.
+        with contextlib.suppress(Exception):
+            self.withdraw()
+            self.update_idletasks()
+        threads = [
+            t for t in (
+                self._fechar_em_thread(self._autojur_scraper),
+                self._fechar_em_thread(self._debug_scraper),
+            ) if t is not None
+        ]
         self._autojur_scraper = None
         self._debug_scraper = None
+        prazo = time.monotonic() + _PRAZO_QUIT_S
+        for t in threads:
+            t.join(max(0.0, prazo - time.monotonic()))
+        mortos = navegadores.matar_registrados()
+        if mortos:
+            with contextlib.suppress(Exception):
+                atualizacao.registrar(
+                    f"fechamento: {mortos} navegador(es) encerrado(s) à força "
+                    "(quit() não terminou no prazo ou estava preso em worker)"
+                )
         self.destroy()
+
+    @staticmethod
+    def _fechar_em_thread(scraper: object) -> "threading.Thread | None":
+        """Fecha o navegador de `scraper` fora da main thread (o `quit()` leva
+        segundos e congelaria a janela). Devolve a thread — quem precisa esperar
+        pelo fim, espera; quem não, ignora. None se não havia scraper."""
+        if scraper is None:
+            return None
+
+        def run() -> None:
+            with contextlib.suppress(Exception):
+                scraper.fechar()
+
+        t = threading.Thread(target=run, daemon=True)
+        t.start()
+        return t
 
     def _build_widgets(self) -> None:
         nb = ttk.Notebook(self, bootstyle="primary")
@@ -1385,12 +1456,7 @@ class App(ttk.Window):
         if scraper is None:
             return
         self._autojur_log_queue.put("Fechando navegador do Autojur...\n")
-
-        def run() -> None:
-            with contextlib.suppress(Exception):
-                scraper.fechar()
-
-        threading.Thread(target=run, daemon=True).start()
+        self._fechar_em_thread(scraper)
 
     def _drain_autojur_log_queue(self) -> None:
         mensagens: list[str] = []
@@ -1412,6 +1478,7 @@ class App(ttk.Window):
                     # Aba Autojur abre sempre visível (headless=False): registra
                     # p/ o envio saber se precisa recriar por visibilidade.
                     self._autojur_scraper_headless = False
+                    self._marcar_uso_autojur()
                     self._btn_autojur_fechar.configure(state="normal")
                     self._btn_autojur_tarefa.configure(state="normal")
                     self._autojur_log_queue.put(
@@ -1469,6 +1536,7 @@ class App(ttk.Window):
         self._btn_autojur_tarefa.configure(state="disabled")
         self.progress_autojur.start(_PROGRESS_MS)
         self.var_status.set("Autojur: criando tarefa de Protocolo...")
+        self._marcar_uso_autojur()
         scraper = self._autojur_scraper
 
         def run() -> None:
@@ -2059,6 +2127,13 @@ class App(ttk.Window):
             # A barra indeterminada é estado, não fila: precisa ser reavaliada
             # sempre, mas só faz trabalho enquanto há worker vivo.
             self._atualizar_progresso_pesquisa()
+            # Ociosidade do Autojur: estado também, mas conferida de longe em
+            # longe — a comparação de floats é o único custo por tique.
+            agora = time.monotonic()
+            if agora >= self._proxima_checagem_ocioso:
+                self._proxima_checagem_ocioso = agora + _CHECAGEM_OCIOSO_S
+                with contextlib.suppress(Exception):
+                    self._fechar_autojur_ocioso()
         finally:
             self.after(self._pump_ms, self._pump)
 
@@ -2454,14 +2529,7 @@ class App(ttk.Window):
         if scraper is None:
             return
         self._pesquisa_log_queue.put("Fechando navegador de debug...\n")
-
-        def run() -> None:
-            try:
-                scraper.fechar()
-            except Exception:
-                pass
-
-        threading.Thread(target=run, daemon=True).start()
+        self._fechar_em_thread(scraper)
 
     def _drain_busca_result(self) -> None:
         """Drena resultados da busca online na main thread (Tkinter não é
@@ -2703,6 +2771,9 @@ class App(ttk.Window):
         _salvar_ui_state(modo_leve=ativo)
         # Vale já para o que é consultado sob demanda (ex.: limite do PoolScrapers).
         self._modo_leve = ativo
+        self._autojur_ocioso_s = (
+            _AUTOJUR_OCIOSO_LEVE_S if ativo else _AUTOJUR_OCIOSO_S
+        )
         self.var_status.set(
             "Modo leve LIGADO — vale integralmente na próxima abertura." if ativo
             else "Modo leve desligado — vale integralmente na próxima abertura."
@@ -3890,6 +3961,63 @@ class App(ttk.Window):
         except Exception:
             return False
 
+    def _marcar_uso_autojur(self) -> None:
+        """Zera o relógio de ociosidade da sessão do Autojur.
+
+        Chamado de workers também: é só a escrita de um float (atômica sob o
+        GIL), não precisa de lock."""
+        self._autojur_ultimo_uso = time.monotonic()
+
+    def _fechar_autojur_ocioso(self) -> None:
+        """Encerra a sessão OCULTA do Autojur parada há muito tempo.
+
+        POR QUE SÓ A OCULTA
+        -------------------
+        A sessão é retida de propósito, para reaproveitar o login. O problema é
+        quando ela é headless: não tem janela nem ícone na barra, então o usuário
+        termina o envio, acha que fechou tudo, e ficam 300-500 MB ocupados até o
+        app fechar. Reabrir custa segundos (o perfil persistente dispensa novo
+        2FA), então segurar a sessão indefinidamente é o pior dos dois lados.
+
+        Uma sessão VISÍVEL nunca é fechada aqui: ela está na tela do usuário — é
+        o modo de conferência do envio sem salvar, e a tarefa em revisão ainda
+        não foi gravada. Fechá-la por baixo dele apagaria esse trabalho.
+        """
+        if self._autojur_scraper is None or self._autojur_scraper_headless is not True:
+            return
+        # Qualquer worker do Autojur vivo = sessão em uso (o envio pode passar
+        # minutos numa tela sem tocar no scraper).
+        for w in (self._autojur_worker, self._autojur_tarefa_worker,
+                  self._autojur_prelogin_worker, self._envio_autojur_worker):
+            if w is not None and w.is_alive():
+                self._marcar_uso_autojur()
+                return
+        if (time.monotonic() - self._autojur_ultimo_uso) < self._autojur_ocioso_s:
+            return
+        # Não pode correr com _garantir_autojur_logado (que roda no worker e pode
+        # estar recriando o navegador agora). Se o lock está tomado, a sessão está
+        # em uso: fica para a próxima checagem.
+        if not self._autojur_login_lock.acquire(blocking=False):
+            self._marcar_uso_autojur()
+            return
+        try:
+            scraper = self._autojur_scraper
+            self._autojur_scraper = None
+            self._autojur_scraper_headless = None
+        finally:
+            self._autojur_login_lock.release()
+        self._pesquisa_log_queue.put(
+            f"Autojur: navegador oculto encerrado após {int(self._autojur_ocioso_s // 60)} "
+            "min sem uso (a sessão volta sozinha no próximo envio — o perfil "
+            "persistente dispensa novo 2FA).\n"
+        )
+        # Os botões só existem se a aba Autojur (dev) foi construída.
+        with contextlib.suppress(Exception):
+            self._btn_autojur_fechar.configure(state="disabled")
+            self._btn_autojur_tarefa.configure(state="disabled")
+            self._btn_autojur_abrir.configure(state="normal")
+        self._fechar_em_thread(scraper)
+
     def _garantir_autojur_logado(self, headless: bool = True):
         """Retorna o scraper logado; se não houver sessão (ou ela morreu), faz
         login sob demanda. Roda no WORKER (login é bloqueante — 2FA por e-mail
@@ -3903,6 +4031,7 @@ class App(ttk.Window):
             if self._autojur_scraper is not None:
                 if (self._autojur_scraper_headless == headless
                         and self._sessao_autojur_viva(self._autojur_scraper)):
+                    self._marcar_uso_autojur()
                     return self._autojur_scraper
                 # Visibilidade mudou OU a sessão morreu (navegador fechado por
                 # fora / crash): fecha (se der) e recria — barato com o perfil
@@ -3934,6 +4063,7 @@ class App(ttk.Window):
                 raise
             self._autojur_scraper = scraper
             self._autojur_scraper_headless = headless
+            self._marcar_uso_autojur()
             # habilita os controles da aba Autojur (na main thread)
             self.after(0, lambda: (
                 self._btn_autojur_fechar.configure(state="normal"),
@@ -4400,6 +4530,29 @@ def _mei_recem_escrito(caminho: str, segundos: int = _EXTRACAO_S) -> bool:
     return (time.time() - mais_novo) < segundos
 
 
+def _iniciar_varredura_navegadores() -> None:
+    """Varre navegadores órfãos em 2º plano (ver organizador/navegadores.py).
+
+    Em thread porque sobe um PowerShell (0,9 s aqui, 1-3 s num i3) e a janela já
+    está na tela. Nunca levanta: limpeza não pode atrapalhar quem só quer usar o
+    app. O que ela achou vai para o log de atualizações, que é onde se olha
+    quando alguém reclama de lentidão."""
+    def run() -> None:
+        try:
+            mortos, perfis = navegadores.varrer_orfaos()
+        except Exception:
+            return
+        if not (mortos or perfis):
+            return
+        with contextlib.suppress(Exception):
+            atualizacao.registrar(
+                f"varredura de navegadores órfãos: processos={mortos} "
+                f"perfis_temporarios={perfis}"
+            )
+
+    threading.Thread(target=run, daemon=True).start()
+
+
 def _limpar_temp_orfaos() -> int:
     """Apaga pastas ``_MEI*`` órfãs no %TEMP%. Devolve quantas foram removidas.
 
@@ -4575,6 +4728,10 @@ def main() -> None:
     _perf("app:construido")
     # Numa thread: é I/O de disco e não pode atrasar o primeiro desenho.
     threading.Thread(target=_limpar_temp_orfaos, daemon=True).start()
+    # Órfãos de execuções ANTERIORES (navegador que ficou vivo depois de o app
+    # morrer, e os perfis temporários que ele deixou no %TEMP%). Alguns segundos
+    # depois de abrir, porque a varredura percorre a tabela de processos.
+    app.after(_ATRASO_VARREDURA_MS, _iniciar_varredura_navegadores)
     with contextlib.suppress(Exception):
         _avisar_bundle_incompleto(app)
     # Pré-login do Autojur em 2º plano, se ligado (aquece a sessão sem travar a

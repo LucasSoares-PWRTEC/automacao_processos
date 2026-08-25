@@ -23,6 +23,8 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
+from .... import navegadores
+
 # --------------------------------------------------------------------------
 # Qual navegador usar
 # --------------------------------------------------------------------------
@@ -392,6 +394,29 @@ def _iniciar_navegador(nome: str, headless: bool, user_data_dir: Optional[str]):
     return _INICIADOR_POR_NAVEGADOR[nome](options)
 
 
+def _pid_do_driver(driver) -> Optional[int]:
+    """PID do processo do DRIVER (chromedriver.exe), ou None.
+
+    É o pai da árvore do navegador: matar a árvore dele leva o navegador junto.
+    `webdriver.Remote` não tem `service` — daí o getattr em cadeia."""
+    pid = getattr(getattr(getattr(driver, "service", None), "process", None), "pid", None)
+    try:
+        return int(pid) if pid else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _registrado(driver):
+    """Anota o driver no registro de navegadores vivos e o devolve.
+
+    Sem isto, um navegador cujo `quit()` não termina (o app fecha antes) fica
+    órfão e invisível na máquina — ver organizador/navegadores.py."""
+    pid = _pid_do_driver(driver)
+    if pid:
+        navegadores.registrar(pid)
+    return driver
+
+
 def criar_chrome_driver(
     headless: bool = False, user_data_dir: Optional[str] = None
 ):
@@ -447,7 +472,7 @@ def criar_chrome_driver(
                         continue
                 else:
                     _navegador_ok = nome
-                    return driver
+                    return _registrado(driver)
             else:
                 erros.append(f"{nome}: {type(exc).__name__}: {exc}")
                 # Diz POR QUE o preferido não subiu. Sem isto o fallback era
@@ -464,7 +489,7 @@ def criar_chrome_driver(
         if _navegador_ok != nome:
             _log_seguro(f"Navegador em uso: {nome}")
         _navegador_ok = nome
-        return driver
+        return _registrado(driver)
 
     instalados = navegadores_disponiveis()
     raise RuntimeError(
@@ -498,9 +523,17 @@ class TribunalScraper(ABC):
         """Consulta o processo e retorna o HTML da página, ou None."""
 
     def fechar(self) -> None:
+        """Encerra o navegador pelo caminho educado (`quit()`).
+
+        O PID é lido ANTES do `quit()` — depois o `service` já não tem processo —
+        e só sai do registro de vivos quando o `quit()` volta. Se ele nunca
+        voltar (ou for interrompido pela saída do processo), o PID continua lá
+        para o `taskkill` do fechamento pegar. Ver organizador/navegadores.py."""
         if self.driver is not None:
+            pid = _pid_do_driver(self.driver)
             try:
                 self.driver.quit()
             except Exception:
                 pass
+            navegadores.esquecer(pid)
             self.driver = None
