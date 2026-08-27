@@ -270,6 +270,25 @@ _CHECAGEM_OCIOSO_S = 30.0
 _ATRASO_VARREDURA_MS = 4000
 
 
+def _descrever_erro(exc: BaseException) -> str:
+    """Texto de erro que sempre diz ALGO. `str(exc)` sozinho não serve.
+
+    Exceção do Selenium formata `str()` como "Message: {msg}" — e
+    `WebDriverWait.until()` sem `message=` levanta TimeoutException com msg
+    vazia. O resultado chegava na tela como um diálogo com a palavra "Message:"
+    e nada mais, sem nem dizer que era timeout (visto ao vivo em 27/08/2026, no
+    fluxo de tarefa do Autojur). Prefixar o tipo garante um mínimo acionável
+    mesmo quando quem levantou não escreveu mensagem.
+    """
+    texto = str(exc).strip()
+    tipo = type(exc).__name__
+    if not texto or texto in ("Message:", "Message: None"):
+        return f"{tipo} (sem mensagem)"
+    if texto.startswith("Message:"):
+        texto = texto[len("Message:"):].strip()
+    return f"{tipo}: {texto}" if texto else f"{tipo} (sem mensagem)"
+
+
 class App(ttk.Window):
     def __init__(self) -> None:
         super().__init__(title=f"Organizador de Processos — eproc — v{__version__}", themename="litera")
@@ -1441,7 +1460,7 @@ class App(ttk.Window):
                         raise
                 self._autojur_result_queue.put(("ok", scraper))
             except Exception as exc:
-                self._autojur_result_queue.put(("erro", str(exc)))
+                self._autojur_result_queue.put(("erro", _descrever_erro(exc)))
 
         self._autojur_worker = threading.Thread(target=run, daemon=True)
         self._autojur_worker.start()
@@ -1562,7 +1581,7 @@ class App(ttk.Window):
                     )
                 self._autojur_tarefa_result_queue.put(("ok", salvar))
             except Exception as exc:
-                self._autojur_tarefa_result_queue.put(("erro", str(exc)))
+                self._autojur_tarefa_result_queue.put(("erro", _descrever_erro(exc)))
 
         self._autojur_tarefa_worker = threading.Thread(target=run, daemon=True)
         self._autojur_tarefa_worker.start()
@@ -2522,7 +2541,7 @@ class App(ttk.Window):
                     )
                 self._busca_result_queue.put(("ok", proc))
             except Exception as exc:
-                self._busca_result_queue.put(("erro", str(exc)))
+                self._busca_result_queue.put(("erro", _descrever_erro(exc)))
 
         self._busca_worker = threading.Thread(target=run, daemon=True)
         self._busca_worker.start()
@@ -2639,7 +2658,7 @@ class App(ttk.Window):
                     )
                 self._monitor_result_queue.put(("ok", resumo))
             except Exception as exc:
-                self._monitor_result_queue.put(("erro", str(exc)))
+                self._monitor_result_queue.put(("erro", _descrever_erro(exc)))
 
         self._monitor_worker = threading.Thread(target=run, daemon=True)
         self._monitor_worker.start()
@@ -4159,7 +4178,7 @@ class App(ttk.Window):
                     )
                 self._envio_autojur_result_queue.put(("ok", (total, dados["salvar"])))
             except Exception as exc:
-                self._envio_autojur_result_queue.put(("erro", str(exc)))
+                self._envio_autojur_result_queue.put(("erro", _descrever_erro(exc)))
 
         self._envio_autojur_worker = threading.Thread(target=run, daemon=True)
         self._envio_autojur_worker.start()

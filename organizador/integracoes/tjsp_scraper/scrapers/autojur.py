@@ -33,6 +33,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import (
     ElementClickInterceptedException,
     StaleElementReferenceException,
+    TimeoutException,
 )
 
 from .base import TribunalScraper, criar_chrome_driver
@@ -290,7 +291,8 @@ class AutojurScraper(TribunalScraper):
         mais adiante, longe da causa."""
         self._esperar_sem_overlay()
         el = WebDriverWait(self.driver, timeout).until(
-            EC.element_to_be_clickable((by, seletor))
+            EC.element_to_be_clickable((by, seletor)),
+            message=f"elemento clicável não apareceu: {by}={seletor!r}",
         )
         self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", el)
         for tentativa in range(3):
@@ -694,7 +696,8 @@ class AutojurScraper(TribunalScraper):
         Todo o form da tarefa vive dentro de mdAdicionarTarefa.jsf."""
         self.driver.switch_to.default_content()
         frame = WebDriverWait(self.driver, 30).until(
-            EC.presence_of_element_located((By.TAG_NAME, "iframe"))
+            EC.presence_of_element_located((By.TAG_NAME, "iframe")),
+            message="o iframe do diálogo de tarefa não apareceu",
         )
         self.driver.switch_to.frame(frame)
 
@@ -900,7 +903,8 @@ class AutojurScraper(TribunalScraper):
         WebDriverWait(self.driver, 15).until(
             lambda d: d.find_element(By.ID, SEL_EVENTO_PANEL).is_displayed()
             and d.find_element(By.ID, SEL_EVENTO_PANEL).find_elements(
-                By.CSS_SELECTOR, "tr.ui-autocomplete-item")
+                By.CSS_SELECTOR, "tr.ui-autocomplete-item"),
+            message="o painel de sugestões do campo Evento não listou nada em 15 s",
         )
 
         def achar_linhas():
@@ -944,7 +948,8 @@ class AutojurScraper(TribunalScraper):
         self.driver.switch_to.default_content()
         self.driver.get(URL_PROCESSOS)
         WebDriverWait(self.driver, 30).until(
-            lambda d: d.execute_script("return document.readyState") == "complete"
+            lambda d: d.execute_script("return document.readyState") == "complete",
+            message="a página não terminou de carregar em 30 s",
         )
 
         # 1.1: desliga o toggle "Nova versão" se estiver ativo (fa-check-square).
@@ -960,7 +965,8 @@ class AutojurScraper(TribunalScraper):
 
         # 2: número + Tipo de Pasta "Todos" + Status "Todos" + pesquisar.
         campo = WebDriverWait(self.driver, 20).until(
-            EC.visibility_of_element_located((By.ID, SEL_BUSCA_INPUT))
+            EC.visibility_of_element_located((By.ID, SEL_BUSCA_INPUT)),
+            message="campo de busca de pasta não ficou visível",
         )
         campo.clear()
         campo.send_keys(numero_processo)
@@ -978,7 +984,10 @@ class AutojurScraper(TribunalScraper):
             t = linhas[0].text.strip().lower()
             return bool(t) and "utilize os filtros" not in t
 
-        WebDriverWait(self.driver, 40).until(_tem_resultado)
+        WebDriverWait(self.driver, 40).until(
+            _tem_resultado,
+            message="a busca de pasta não trouxe linha de resultado em 40 s",
+        )
         # `_tem_resultado` satisfaz-se com a PRIMEIRA linha; o datatable do
         # PrimeFaces continua montando as demais e troca o corpo da tabela. Ler
         # `.text` de cada linha nesse meio dava StaleElementReferenceException.
@@ -1034,7 +1043,8 @@ class AutojurScraper(TribunalScraper):
 
         log(f"📂 Autojur: abrindo pasta — {self._sem_stale(abrir)}")
         WebDriverWait(self.driver, 30).until(
-            lambda d: d.execute_script("return document.readyState") == "complete"
+            lambda d: d.execute_script("return document.readyState") == "complete",
+            message="a página não terminou de carregar em 30 s",
         )
 
         # ESPERA CRÍTICA (medida ao vivo): sem uma pasta selecionada o botão
@@ -1082,7 +1092,8 @@ class AutojurScraper(TribunalScraper):
                 "  return !!f && !!f.contentDocument"
                 "    && f.contentDocument.readyState === 'complete';"
                 "} catch (e) { return true; }"  # cross-origin: não dá p/ inspecionar
-            )
+            ),
+            message="o conteúdo do iframe do diálogo não terminou de carregar",
         )
 
     def criar_tarefa_protocolo(
@@ -1208,10 +1219,39 @@ class AutojurScraper(TribunalScraper):
                     nome_base = Path(pp).stem.lower()[:12]
 
                     def _subiu(d, nb=nome_base):
-                        txt = d.find_element(By.TAG_NAME, "body").text.lower()
-                        return nb in txt and "nenhum arquivo encontrado" not in txt
+                        """O arquivo está na lista do GED?
 
-                    WebDriverWait(self.driver, 60).until(_subiu)
+                        Usa `textContent` do painel, não `.text` do Selenium.
+                        `.text` devolve só o texto VISÍVEL, e o GED é um
+                        acordeão: com a seção recolhida o arquivo já está no DOM
+                        e a espera não via nada — 60 s até estourar, com o upload
+                        tendo dado certo. O cabeçalho da seção reforça que ler o
+                        que está na tela não serve aqui: ele continua marcando
+                        "0 registro(s)" mesmo com o arquivo na lista.
+
+                        Escopo no painel do GED, não no body inteiro, para não
+                        casar com o nome do arquivo escrito em outro campo do
+                        formulário (o Conteúdo, por exemplo).
+                        """
+                        return bool(d.execute_script(
+                            "const p = document.getElementById(arguments[0]);"
+                            "if (!p) return false;"
+                            "const t = (p.textContent || '').toLowerCase();"
+                            "return t.includes(arguments[1])"
+                            " && !t.includes('nenhum arquivo encontrado');",
+                            SEL_PAINEL_GED, nb,
+                        ))
+
+                    try:
+                        WebDriverWait(self.driver, 60).until(
+                            _subiu,
+                            message=(f"o PDF '{Path(pp).name}' não apareceu na "
+                                     f"lista do GED em 60 s (o upload pode ter "
+                                     f"ido; confira o diálogo no navegador)"),
+                        )
+                    except TimeoutException:
+                        self._screenshot("pdf_nao_apareceu_no_ged")
+                        raise
                     time.sleep(1.5)
                     log("   • PDF anexado")
 
