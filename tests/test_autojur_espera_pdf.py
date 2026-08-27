@@ -107,17 +107,50 @@ def test_toda_espera_desprotegida_do_autojur_tem_mensagem():
     )
 
 
-def test_espera_do_pdf_le_o_dom_e_nao_o_texto_visivel():
-    """`.text` do Selenium devolve só o visível; com o acordeão do GED recolhido
-    a espera nunca via o arquivo que JÁ ESTAVA no DOM. A verificação passou a
-    usar `textContent` do painel do GED, que não depende de renderização."""
+def test_espera_do_pdf_conta_linhas_e_nao_compara_nomes():
+    """A causa real, confirmada no navegador do usuário: **o Autojur guarda o
+    nome do arquivo SEM ACENTOS**. Um "1. Petição - Penhora de cotas.pdf" entra
+    na lista como "1. Peticao - Penhora de cotas.pdf", então a comparação por
+    nome falhava justamente nos nomes que o app gera — e gastava os 60 s da
+    espera depois de um upload que tinha funcionado.
+
+    Contar linhas do GED não depende de como o servidor reescreve o nome, e usa
+    `querySelectorAll` em vez de `.text` (que devolve só o visível, e o painel é
+    um acordeão)."""
     import inspect
 
     import organizador.integracoes.tjsp_scraper.scrapers.autojur as A
 
     src = inspect.getsource(A.AutojurScraper.criar_tarefa_protocolo)
-    assert "textContent" in src, "a espera do PDF tem de ler o DOM"
+    assert "_docs_no_ged()" in src, "a espera tem de contar documentos do GED"
+    assert "docs_antes" in src, "tem de comparar com a contagem ANTES do upload"
+    assert "nome_base" not in src, "voltou a comparar por nome do arquivo"
     assert 'find_element(By.TAG_NAME, "body").text' not in src, (
         "voltou a depender de texto visível"
     )
-    assert "SEL_PAINEL_GED" in src, "a busca tem de ser escopada no painel do GED"
+
+    contador = inspect.getsource(A.AutojurScraper._docs_no_ged)
+    assert "SEL_PAINEL_GED" in contador, "a contagem tem de ser escopada no painel"
+    assert "querySelectorAll" in contador
+    # Só o CÓDIGO: a docstring cita `.text` de propósito, para explicar por que
+    # não o usa — assertar sobre o texto todo reprovava a própria explicação.
+    # (`__doc__` não serve para recortar: vem sem a indentação do fonte.)
+    corpo = contador.split('"""')
+    codigo = corpo[0] + "".join(corpo[2:]) if len(corpo) >= 3 else contador
+    assert ".text" not in codigo, "voltou a depender de texto visível"
+
+
+def test_nome_de_arquivo_com_acento_nao_participa_da_espera():
+    """Guarda de regressão do caso exato relatado: o nome com cedilha não pode
+    ser o que decide se o upload terminou."""
+    import inspect
+
+    import organizador.integracoes.tjsp_scraper.scrapers.autojur as A
+
+    src = inspect.getsource(A.AutojurScraper.criar_tarefa_protocolo)
+    espera = src[src.index("docs_antes = self._docs_no_ged()"):src.index("PDF anexado")]
+    assert "Path(pp).stem" not in espera, (
+        "o stem do arquivo voltou para dentro da condição da espera"
+    )
+    # o nome pode (e deve) aparecer na MENSAGEM de erro, só não na condição.
+    assert "Path(pp).name" in espera, "a mensagem de erro tem de citar o arquivo"

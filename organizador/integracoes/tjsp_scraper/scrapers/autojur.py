@@ -245,6 +245,29 @@ class AutojurScraper(TribunalScraper):
         except Exception:
             return False
 
+    def _docs_no_ged(self) -> int:
+        """Quantos documentos estão na lista do GED. Exige estar no iframe.
+
+        Conta os botões "Requer Protocolo" — um por linha, e o mesmo sinal que o
+        passo seguinte do fluxo já usa para marcá-los.
+
+        Por que NÃO comparar o nome do arquivo, que era como isto funcionava: o
+        Autojur guarda o nome SEM ACENTOS. Um "1. Petição - Penhora de
+        cotas.pdf" entra na lista como "1. Peticao - Penhora de cotas.pdf", e a
+        comparação por texto falhava justamente nos nomes que o app gera —
+        gastando os 60 s da espera depois de um upload que tinha dado certo.
+        Contar linhas não depende de como o servidor reescreve o nome.
+
+        Por que NÃO `.text` do Selenium: ele devolve só o texto VISÍVEL, e o
+        painel do GED é um acordeão — recolhido, o arquivo está no DOM e não no
+        texto. `querySelectorAll` enxerga os dois casos.
+        """
+        return int(self.driver.execute_script(
+            "const p = document.getElementById(arguments[0]);"
+            "return p ? p.querySelectorAll(arguments[1]).length : 0;",
+            SEL_PAINEL_GED, SEL_BTN_PROTOCOLO_GED,
+        ) or 0)
+
     def _esperar_input_upload(self, timeout: float = 30.0):
         """`input[type=file]` do painel GED, esperando o AJAX que o monta.
 
@@ -1214,40 +1237,18 @@ class AutojurScraper(TribunalScraper):
                         "arguments[0].style.opacity=1;"
                         "arguments[0].removeAttribute('hidden');", inp
                     )
+                    docs_antes = self._docs_no_ged()
                     inp.send_keys(str(Path(pp).resolve()))
-
-                    nome_base = Path(pp).stem.lower()[:12]
-
-                    def _subiu(d, nb=nome_base):
-                        """O arquivo está na lista do GED?
-
-                        Usa `textContent` do painel, não `.text` do Selenium.
-                        `.text` devolve só o texto VISÍVEL, e o GED é um
-                        acordeão: com a seção recolhida o arquivo já está no DOM
-                        e a espera não via nada — 60 s até estourar, com o upload
-                        tendo dado certo. O cabeçalho da seção reforça que ler o
-                        que está na tela não serve aqui: ele continua marcando
-                        "0 registro(s)" mesmo com o arquivo na lista.
-
-                        Escopo no painel do GED, não no body inteiro, para não
-                        casar com o nome do arquivo escrito em outro campo do
-                        formulário (o Conteúdo, por exemplo).
-                        """
-                        return bool(d.execute_script(
-                            "const p = document.getElementById(arguments[0]);"
-                            "if (!p) return false;"
-                            "const t = (p.textContent || '').toLowerCase();"
-                            "return t.includes(arguments[1])"
-                            " && !t.includes('nenhum arquivo encontrado');",
-                            SEL_PAINEL_GED, nb,
-                        ))
 
                     try:
                         WebDriverWait(self.driver, 60).until(
-                            _subiu,
-                            message=(f"o PDF '{Path(pp).name}' não apareceu na "
-                                     f"lista do GED em 60 s (o upload pode ter "
-                                     f"ido; confira o diálogo no navegador)"),
+                            lambda d: self._docs_no_ged() > docs_antes,
+                            message=(
+                                f"o PDF '{Path(pp).name}' não entrou na lista do "
+                                f"GED em 60 s (a lista seguiu com {docs_antes} "
+                                f"documento(s); o upload pode ter ido — confira o "
+                                f"diálogo no navegador)"
+                            ),
                         )
                     except TimeoutException:
                         self._screenshot("pdf_nao_apareceu_no_ged")
