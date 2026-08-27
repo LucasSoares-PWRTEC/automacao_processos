@@ -75,17 +75,27 @@ STATUS_DONE = {"enriquecido", "ainda_sem_reu", "popup_atribuicao", "sem_rota"}
 # "reu_faltando" mora AQUI, não em STATUS_DONE: é raspagem incompleta (ver
 # `_status_do_resultado`), e antes se disfarçava de "ainda_sem_reu" — terminado,
 # nunca reprocessado.
-STATUS_RETRY = {"nao_encontrado", "falha", "reu_faltando"}
+STATUS_RETRY = {"nao_encontrado", "falha", "reu_faltando", "credor_faltando"}
 
 
-def _status_do_resultado(merged, tem_reu: bool) -> str:
+def _status_do_resultado(merged, tem_reu: bool, tem_autor: bool = True) -> str:
     """Classifica o resultado de uma raspagem bem-sucedida.
 
     Sem réu numa classe adversarial não é "processo de um polo só": é dado
     perdido. No PJe o #poloPassivo é populado por AJAX depois da timeline e,
     quando a espera estoura, o processo é gravado só com o autor. Separar os dois
     casos é o que permite reprocessar um sem tocar no outro.
+
+    O polo ATIVO é checado primeiro e SEM ressalva de classe: não existe processo
+    cível sem quem o propôs, então ausência de autor é sempre raspagem
+    incompleta — não há o equivalente a `classe_exige_polo_passivo` para decidir.
+    Antes esta função só testava o réu, e um processo que voltava com o polo
+    passivo mas sem o ativo saía marcado "enriquecido", caía em ``STATUS_DONE`` e
+    nunca voltava à fila. Medido em 27/08/2026: 2 processos do TJSP raspados com
+    sucesso no e-SAJ ficaram assim, sem credor e declarados prontos.
     """
+    if not tem_autor:
+        return "credor_faltando"
     if tem_reu:
         return "enriquecido"
     if classe_exige_polo_passivo(getattr(merged, "classe", "")):
@@ -410,6 +420,7 @@ def _merge_e_salvar(numero: str, online_proc, existing: dict | None,
 _ORDEM_STATUS = [
     ("enriquecido", "✅ Mapeados e enriquecidos (autor+réu)"),
     ("reu_faltando", "❌ Réu PERDIDO na raspagem (classe exige polo passivo) — refazer"),
+    ("credor_faltando", "❌ Credor PERDIDO na raspagem (sem polo ativo) — refazer"),
     ("ainda_sem_reu", "⚠️ Mapeados mas ainda sem réu"),
     ("popup_atribuicao", "🚫 Parados no pop-up de atribuição ao advogado"),
     ("nao_encontrado", "🔎 Não encontrados em nenhum sistema"),
@@ -436,6 +447,7 @@ def _gerar_relatorios(estado: dict, md_path: Path = RELATORIO_MONITOR_MD,
         f"- **Total no estado:** {len(estado)}",
         f"- ✅ Mapeados+enriquecidos: **{len(grupos.get('enriquecido', []))}**",
         f"- ❌ Réu perdido na raspagem (refazer): **{len(grupos.get('reu_faltando', []))}**",
+        f"- ❌ Credor perdido na raspagem (refazer): **{len(grupos.get('credor_faltando', []))}**",
         f"- ⚠️ Mapeados sem réu: **{len(grupos.get('ainda_sem_reu', []))}**",
         f"- 🔎 Não encontrados: **{len(grupos.get('nao_encontrado', []))}**",
         f"- 🗺️ Sem rota: **{len(grupos.get('sem_rota', []))}**",
@@ -482,16 +494,17 @@ def processos_ja_mapeados(estado: dict) -> set[str]:
     """CNJs que NÃO precisam ser raspados: presentes no cache OU com status
     terminado (``STATUS_DONE``) no estado do monitor.
 
-    Exceto os marcados ``reu_faltando``: esses ESTÃO no cache (foram salvos com o
-    autor) e por isso a checagem de cache os declarava mapeados antes mesmo do
-    gate de retry. Como o que temos deles é dado incompleto, voltam a ser
-    elegíveis — ainda atrás do ``retry_falhas`` em `selecionar_pendentes`.
+    Exceto os marcados ``reu_faltando``/``credor_faltando``: esses ESTÃO no cache
+    (foram salvos com um dos polos) e por isso a checagem de cache os declarava
+    mapeados antes mesmo do gate de retry. Como o que temos deles é dado
+    incompleto, voltam a ser elegíveis — ainda atrás do ``retry_falhas`` em
+    `selecionar_pendentes`.
     """
     mapeados = set(_numeros_no_cache())
     incompletos = {
         _cnj_normalizado(numero)
         for numero, r in estado.items()
-        if r.get("status") == "reu_faltando"
+        if r.get("status") in ("reu_faltando", "credor_faltando")
     }
     for numero, r in estado.items():
         if r.get("status") in STATUS_DONE:
@@ -695,15 +708,15 @@ def rodar_passada(
                 merged = _merge_e_salvar(numero, proc, None, tags_extra)
                 autor, reu = _autor(merged), _reus_joined(merged)
                 tem_reu = bool(reu.strip())
-                status = _status_do_resultado(merged, tem_reu)
+                status = _status_do_resultado(merged, tem_reu, bool(autor.strip()))
                 estado[numero] = {
                     "status": status,
                     "uf": uf, "sistema": tj_label, "campanha": campanha,
                     "tem_reu": tem_reu, "autor": autor, "reu": reu, "quando": _quando(),
                 }
-                if status == "reu_faltando":
+                if status in ("reu_faltando", "credor_faltando"):
                     estado[numero]["classe"] = getattr(merged, "classe", "")
-                log(f"   {({'enriquecido': '✅', 'reu_faltando': '❌'}).get(status, '⚠️')} "
+                log(f"   {({'enriquecido': '✅', 'reu_faltando': '❌', 'credor_faltando': '❌'}).get(status, '⚠️')} "
                     f"{tj_label}: autor='{autor or '—'}' réu='{reu or '—'}'")
                 resumo["mapeados_agora"] += 1
                 resolvido = True

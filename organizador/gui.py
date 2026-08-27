@@ -1,5 +1,23 @@
 # -*- coding: utf-8 -*-
-"""Interface gráfica Tkinter (Organizador + Pesquisa de Processo)."""
+"""Interface gráfica Tkinter (Organizador + Pesquisa de Processo).
+
+ÍCONES DOS RÓTULOS: use só glifos do BMP (U+FFFF ou menos) que a fonte da
+interface REALMENTE tenha — ↻ ▢ ◧ ▶ ▤ etc.
+NÃO use emoji do plano astral (U+10000 e acima). O Windows não os tem na
+fonte da interface, então o Tk faz fallback de fonte na PRIMEIRA vez que cada
+glifo aparece, e isso custa DEZENAS de ms POR GLIFO — pago na construção do
+widget, antes do primeiro desenho. Medido nesta janela: os 13 glifos astrais
+custavam 622 ms dos 954 ms de ``App.__init__`` (65%); com os equivalentes BMP a
+construção caiu para 332 ms. O custo é por glifo distinto e fica em cache
+depois, então o preço é todo na abertura — exatamente onde as máquinas fracas
+do escritório doem. ``tests/test_glifos_rotulos.py`` falha se um astral voltar.
+
+CUIDADO ao escolher o substituto: "ser do BMP" não basta, a fonte tem de ter o
+glifo. ``✏`` (U+270F) é BMP e custa 113 ms; ``◧`` custa 2,3 ms. Meça com
+``python scripts/bench_glifos.py "◧↻▢"`` — UM processo por glifo, porque medir
+vários no mesmo processo mente (o primeiro aquece o fallback e os seguintes
+parecem baratos; foi assim que ``✏`` passou por "0,6 ms" numa primeira medição).
+"""
 
 from __future__ import annotations
 
@@ -12,7 +30,6 @@ import sys
 import threading
 import time
 import tkinter as tk
-import webbrowser
 from collections import OrderedDict
 from pathlib import Path
 from tkinter import filedialog, font as tkfont, messagebox
@@ -26,7 +43,7 @@ from ttkbootstrap.constants import *
 
 from organizador import __version__
 
-from . import atualizacao, navegadores
+from . import navegadores
 from .config import (
     APP_DATA_DIR, CAMINHO_GUIA_CREDENCIAIS, CAMINHO_ICONE, CONFIG_SEMENTE_DIR,
     OAB_ESCRITORIO_POR_UF, PASTA_PADRAO,
@@ -35,6 +52,29 @@ from .config import (
     rota_incompativel_com_numero, rotulos_tj_selecionaveis, semear_config,
     sugerir_tj_para_uf, uf_efetiva_tj,
 )
+
+
+def _abrir_no_navegador(url: str) -> None:
+    """Abre `url` no navegador do sistema.
+
+    Import tardio: `webbrowser` custa ~30 ms no import da GUI e só é usado em
+    três botões (guia do 2FA e dois links do Google). Ninguém clica neles antes
+    de a janela existir."""
+    import webbrowser
+
+    webbrowser.open(url)
+
+
+def _atualizacao():
+    """Módulo `atualizacao`, importado na primeira necessidade.
+
+    Ele arrasta `urllib.request`/`ssl`/`http.client` — ~80 ms no import da GUI —
+    e NADA disso é preciso para desenhar a janela: a verificação silenciosa roda
+    em `after(1500)` e os outros usos (registrar no log, botão "Verificar
+    atualização") são posteriores ou em ação do usuário."""
+    from . import atualizacao
+
+    return atualizacao
 
 
 def _carregar_ui_state() -> dict:
@@ -607,7 +647,7 @@ class App(ttk.Window):
         mortos = navegadores.matar_registrados()
         if mortos:
             with contextlib.suppress(Exception):
-                atualizacao.registrar(
+                _atualizacao().registrar(
                     f"fechamento: {mortos} navegador(es) encerrado(s) à força "
                     "(quit() não terminou no prazo ou estava preso em worker)"
                 )
@@ -888,7 +928,7 @@ class App(ttk.Window):
         )
         chk_forcar.grid(row=1, column=0, columnspan=2, sticky="w", padx=(0, 6), pady=(4, 0))
         self._btn_buscar = ttk.Button(
-            f_busca, text="🔍  Buscar online", command=self._buscar_online,
+            f_busca, text="◉  Buscar online", command=self._buscar_online,
             bootstyle="info", width=16,
         )
         self._btn_buscar.grid(row=1, column=3, sticky="e", pady=(4, 0))
@@ -942,7 +982,7 @@ class App(ttk.Window):
         )
         self._btn_monitor_parar.pack(side="right")
         self._btn_monitor = ttk.Button(
-            f_mon, text="🔄  Sincronizar planilhas & mapear",
+            f_mon, text="↻  Sincronizar planilhas & mapear",
             command=self._iniciar_monitoramento, bootstyle="success", width=32,
         )
         self._btn_monitor.pack(side="right", padx=(0, 8))
@@ -1124,7 +1164,7 @@ class App(ttk.Window):
             self._det_widgets[atr] = (lbl, entry)
         # Botão para copiar todos os dados do processo de uma vez.
         ttk.Button(
-            self._detalhes_frame, text="📋  Copiar dados", command=self._copiar_todos_dados,
+            self._detalhes_frame, text="▤  Copiar dados", command=self._copiar_todos_dados,
             bootstyle="outline-info", width=16,
         ).grid(row=len(campos), column=1, sticky="e", padx=(0, 4), pady=(6, 2))
 
@@ -1217,9 +1257,9 @@ class App(ttk.Window):
         # Indicadores de formato de saída
         f_fmt = ttk.Frame(f_gerar)
         f_fmt.grid(row=1, column=0, columnspan=3, sticky="w", pady=(4, 0))
-        ttk.Label(f_fmt, text="📝", font=("Segoe UI", 14)).pack(side="left", padx=(0, 4))
+        ttk.Label(f_fmt, text="◧", font=("Segoe UI", 14)).pack(side="left", padx=(0, 4))
         ttk.Label(f_fmt, text="Word (.docx)", font=_FONT_BASE, bootstyle="secondary").pack(side="left", padx=(0, 20))
-        ttk.Label(f_fmt, text="📄", font=("Segoe UI", 14)).pack(side="left", padx=(0, 4))
+        ttk.Label(f_fmt, text="▢", font=("Segoe UI", 14)).pack(side="left", padx=(0, 4))
         _cb_pdf = ttk.Checkbutton(
             f_fmt, text="PDF", variable=self.var_gerar_pdf, bootstyle="info",
             state="disabled",
@@ -1235,7 +1275,7 @@ class App(ttk.Window):
         self._lbl_pdf_status.pack(side="left", padx=(6, 0))
         self.after(800, self._detectar_word_pdf)
         ttk.Button(
-            f_gerar, text="📄  Gerar petições selecionadas",
+            f_gerar, text="▢  Gerar petições selecionadas",
             command=self._gerar_peticoes,
             bootstyle="success", width=28,
         ).grid(row=2, column=0, columnspan=3, pady=(8, 0))
@@ -1311,7 +1351,7 @@ class App(ttk.Window):
         f_btn = ttk.Frame(sec)
         f_btn.pack(fill="x")
         self._btn_autojur_abrir = ttk.Button(
-            f_btn, text="🔐  Abrir Autojur (login)", command=self._autojur_abrir,
+            f_btn, text="◈  Abrir Autojur (login)", command=self._autojur_abrir,
             bootstyle="success", width=24,
         )
         self._btn_autojur_abrir.pack(side="left")
@@ -1375,7 +1415,7 @@ class App(ttk.Window):
         f_acao = ttk.Frame(sec_t)
         f_acao.pack(fill="x", pady=(6, 0))
         self._btn_autojur_tarefa = ttk.Button(
-            f_acao, text="📝  Criar tarefa de Protocolo",
+            f_acao, text="◧  Criar tarefa de Protocolo",
             command=self._autojur_criar_tarefa, bootstyle="primary", width=28,
             state="disabled",  # habilita após login
         )
@@ -1703,7 +1743,7 @@ class App(ttk.Window):
         f_guia = ttk.Frame(inner)
         f_guia.pack(fill="x", pady=(0, 10))
         ttk.Button(
-            f_guia, text="📖  Guia: configurar o e-mail dos códigos de acesso",
+            f_guia, text="§  Guia: configurar o e-mail dos códigos de acesso",
             command=self._abrir_guia_credenciais, bootstyle="outline-primary",
         ).pack(side="left")
 
@@ -1768,13 +1808,15 @@ class App(ttk.Window):
                 f_links = ttk.Frame(f2)
                 f_links.grid(row=linha, column=0, columnspan=2, sticky="w", pady=(0, 6))
                 ttk.Button(
-                    f_links, text="🔗 Ativar verificação em duas etapas",
-                    command=lambda: webbrowser.open("https://myaccount.google.com/signinoptions/twosv"),
+                    f_links, text="↗ Ativar verificação em duas etapas",
+                    command=lambda: _abrir_no_navegador(
+                        "https://myaccount.google.com/signinoptions/twosv"),
                     bootstyle="link",
                 ).pack(side="left")
                 ttk.Button(
-                    f_links, text="🔗 Gerar senha de app (Google)",
-                    command=lambda: webbrowser.open("https://myaccount.google.com/apppasswords"),
+                    f_links, text="↗ Gerar senha de app (Google)",
+                    command=lambda: _abrir_no_navegador(
+                        "https://myaccount.google.com/apppasswords"),
                     bootstyle="link",
                 ).pack(side="left", padx=(8, 0))
                 linha += 1
@@ -1788,7 +1830,7 @@ class App(ttk.Window):
         f_acoes.pack(fill="x", pady=(4, 0))
         self._f_acoes_config = f_acoes  # âncora p/ re-empacotar a seção 2FA na ordem
         ttk.Button(
-            f_acoes, text="💾  Salvar configurações", command=self._salvar_config,
+            f_acoes, text="▣  Salvar configurações", command=self._salvar_config,
             bootstyle="success", width=24,
         ).pack(side="left")
         ttk.Button(
@@ -1853,7 +1895,7 @@ class App(ttk.Window):
         )
         section_manut.pack(fill="x", pady=(8, 0))
         self._btn_reset_dados = ttk.Button(
-            section_manut, text="🧹  Restaurar dados do programa",
+            section_manut, text="×  Restaurar dados do programa",
             command=self._restaurar_dados_locais,
             bootstyle="outline-danger", width=32,
         )
@@ -1872,7 +1914,7 @@ class App(ttk.Window):
         # e esperar um release novo para cada senha trocada era o gargalo. Este
         # botão vai na PLANILHA de senhas do escritório: trocou lá, chega aqui.
         self._btn_atualizar_senhas = ttk.Button(
-            section_manut, text="🔑  Atualizar senhas dos tribunais",
+            section_manut, text="⇄  Atualizar senhas dos tribunais",
             command=self._atualizar_senhas_dos_tribunais,
             bootstyle="outline-primary", width=32,
         )
@@ -1900,7 +1942,7 @@ class App(ttk.Window):
             f_sobre, text=f"Versão instalada: v{__version__}", font=_FONT_BASE,
         ).pack(side="left")
         ttk.Button(
-            f_sobre, text="🔄  Verificar atualização", command=self._verificar_atualizacao_manual,
+            f_sobre, text="↻  Verificar atualização", command=self._verificar_atualizacao_manual,
             bootstyle="outline-info", width=24,
         ).pack(side="right")
 
@@ -2780,7 +2822,7 @@ class App(ttk.Window):
             )
             return
         try:
-            webbrowser.open(CAMINHO_GUIA_CREDENCIAIS.as_uri())
+            _abrir_no_navegador(CAMINHO_GUIA_CREDENCIAIS.as_uri())
         except Exception as exc:
             messagebox.showerror(
                 "Não foi possível abrir o guia",
@@ -3641,7 +3683,7 @@ class App(ttk.Window):
             f_row.pack(fill="x", pady=1)
             arq_path = Path(arq)
             is_docx = arq_path.suffix.lower() == ".docx"
-            icone = "📄" if arq_path.suffix.lower() == ".pdf" else "📝"
+            icone = "▢" if arq_path.suffix.lower() == ".pdf" else "◧"
             ttk.Label(
                 f_row, text=f"{icone}  {arq_path.name}", font=_FONT_BASE,
                 anchor="w",
@@ -3656,7 +3698,7 @@ class App(ttk.Window):
                 tem_pdf = arq_path.with_suffix(".pdf").resolve() in pdfs_presentes
                 ttk.Button(
                     f_row,
-                    text="🔄 Atualizar PDF" if tem_pdf else "📄 Gerar PDF",
+                    text="↻ Atualizar PDF" if tem_pdf else "▢ Gerar PDF",
                     width=16,
                     bootstyle="outline-info" if tem_pdf else "outline-secondary",
                     command=lambda d=arq_path: self._reconverter_pdf([d]),
@@ -3664,7 +3706,7 @@ class App(ttk.Window):
         pasta = Path(arquivos[0]).parent if arquivos else None
         if pasta:
             ttk.Button(
-                frame, text="📁  Abrir pasta de destino",
+                frame, text="▰  Abrir pasta de destino",
                 bootstyle="outline-secondary",
                 command=lambda p=pasta: os.startfile(p) if p.exists() else None,
             ).pack(fill="x", pady=(4, 0))
@@ -3674,7 +3716,7 @@ class App(ttk.Window):
         if docs_docx and word_ok:
             ttk.Button(
                 frame,
-                text="🔄  Reconverter Word(s) editado(s) para PDF",
+                text="↻  Reconverter Word(s) editado(s) para PDF",
                 bootstyle="outline-info",
                 command=lambda ds=list(docs_docx): self._reconverter_pdf(ds),
             ).pack(fill="x", pady=(4, 0))
@@ -3690,7 +3732,7 @@ class App(ttk.Window):
             n = len(self._ultimos_pdfs_gerados)
             ttk.Button(
                 frame,
-                text=f"🚀  Enviar ao Autojur (1 tarefa · {n} anexo{'s' if n > 1 else ''})",
+                text=f"▶  Enviar ao Autojur (1 tarefa · {n} anexo{'s' if n > 1 else ''})",
                 bootstyle="primary",
                 command=self._enviar_peticoes_autojur,
             ).pack(fill="x", pady=(2, 0))
@@ -3855,7 +3897,7 @@ class App(ttk.Window):
         lbl_lista = ttk.Label(frm_header, font=_FONT_BOLD, wraplength=460)
         lbl_lista.pack(side="left", fill="x", expand=True)
         ttk.Button(
-            frm_header, text="➕  Adicionar arquivo", command=lambda: _adicionar_arquivo(),
+            frm_header, text="⊕  Adicionar arquivo", command=lambda: _adicionar_arquivo(),
             bootstyle="outline-primary", width=20,
         ).pack(side="right")
 
@@ -3882,7 +3924,7 @@ class App(ttk.Window):
             frm_pdfs.columnconfigure(1, weight=1)
             for i, (v, pdf, nome_var) in enumerate(vars_pdf):
                 ttk.Checkbutton(
-                    frm_pdfs, text="📄", variable=v, bootstyle="info",
+                    frm_pdfs, text="▢", variable=v, bootstyle="info",
                 ).grid(row=i, column=0, sticky="w", pady=1)
                 ttk.Entry(
                     frm_pdfs, textvariable=nome_var, font=_FONT_BASE,
@@ -3978,7 +4020,7 @@ class App(ttk.Window):
             top.destroy()
             self._disparar_envio_autojur(dados)
 
-        ttk.Button(f_b, text="🚀  Enviar ao Autojur", command=enviar,
+        ttk.Button(f_b, text="▶  Enviar ao Autojur", command=enviar,
                    bootstyle="success", width=20).pack(side="right")
         ttk.Button(f_b, text="Cancelar", command=top.destroy,
                    bootstyle="secondary-outline", width=12).pack(side="right", padx=(0, 8))
@@ -4263,13 +4305,13 @@ class App(ttk.Window):
         Best-effort: qualquer falha é ignorada.
         """
         with contextlib.suppress(Exception):
-            atualizacao.verificar(self, auto=True)
+            _atualizacao().verificar(self, auto=True)
 
     def _verificar_atualizacao_manual(self) -> None:
         """Clique no botão "Verificar atualização": sempre mostra o resultado,
         inclusive quando já está na versão mais recente."""
         try:
-            atualizacao.verificar(self, auto=False)
+            _atualizacao().verificar(self, auto=False)
         except Exception as exc:
             # Sem este try, uma falha ao abrir a janela sobe para o
             # report_callback_exception do Tk, que imprime em stderr —
@@ -4458,7 +4500,7 @@ class App(ttk.Window):
         """Fecha o ciclo do reset, na main thread."""
         with contextlib.suppress(Exception):
             self._btn_reset_dados.configure(state="normal")
-        atualizacao.registrar(
+        _atualizacao().registrar(
             f"reset de dados locais: apagados={apagados} falhas={falhas} "
             f"_MEI_removidos={orfaos}"
         )
@@ -4579,7 +4621,7 @@ def _iniciar_varredura_navegadores() -> None:
         if not (mortos or perfis):
             return
         with contextlib.suppress(Exception):
-            atualizacao.registrar(
+            _atualizacao().registrar(
                 f"varredura de navegadores órfãos: processos={mortos} "
                 f"perfis_temporarios={perfis}"
             )
@@ -4738,7 +4780,7 @@ def _avisar_bundle_incompleto(app: "App") -> None:
     if not faltando:
         return
     lista = "\n".join(f"  • {item}" for item in faltando)
-    atualizacao.registrar(f"BUNDLE INCOMPLETO: {'; '.join(faltando)}")
+    _atualizacao().registrar(f"BUNDLE INCOMPLETO: {'; '.join(faltando)}")
     app._notificar(
         "Instalação incompleta",
         "Não encontrei estes itens que vêm dentro do programa:\n\n"

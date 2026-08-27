@@ -664,6 +664,10 @@ def _eh_run_vermelho(run) -> bool:
     return r >= 0x80 and g <= 0x60 and b <= 0x60
 
 
+# Marca-texto que sinaliza "variável a preencher à mão" nos modelos.
+_MARCA_TEXTO_ROXO = (WD_COLOR_INDEX.PINK, WD_COLOR_INDEX.VIOLET)
+
+
 def _eh_run_roxo(run) -> bool:
     """O run usa marca-texto ROXO/ROSA?
 
@@ -672,7 +676,7 @@ def _eh_run_roxo(run) -> bool:
     LITERAIS — o advogado as preenche à mão — enquanto as conjugações ao redor
     ("(do ou dos)", "(executado ou executados ...)") são resolvidas normalmente.
     """
-    return run.font.highlight_color in (WD_COLOR_INDEX.PINK, WD_COLOR_INDEX.VIOLET)
+    return run.font.highlight_color in _MARCA_TEXTO_ROXO
 
 
 def _aplicar_formato_base(destino_run, base_run) -> None:
@@ -745,7 +749,13 @@ def _opcodes_prefixo_sufixo(a: str, b: str) -> list[tuple[str, int, int, int, in
     return opcodes
 
 
-def _reescrever_preservando_formato(paragrafo, texto_original: str, texto_final: str) -> None:
+def _reescrever_preservando_formato(
+    paragrafo,
+    texto_original: str,
+    texto_final: str,
+    runs=None,
+    textos_runs: "list[str] | None" = None,
+) -> None:
     """Reescreve o parágrafo preservando a formatação de caractere do modelo.
 
     Diferente do colapso ingênuo (que jogava tudo no 1º run e fazia o parágrafo
@@ -754,9 +764,16 @@ def _reescrever_preservando_formato(paragrafo, texto_original: str, texto_final:
     valor que substitui um placeholder herda o formato do placeholder substituído
     (negrito continua negrito; corpo continua corpo).
     """
+    # `runs`/`textos_runs` vêm de quem chamou (_substituir_paragrafo já os leu):
+    # relê-los aqui custaria mais um xpath por run. Sem eles (chamada direta,
+    # como nos testes) lê na hora.
+    if runs is None:
+        runs = paragrafo.runs
+    if textos_runs is None:
+        textos_runs = [run.text for run in runs]
     fmts_orig: list[tuple] = []
-    for run in paragrafo.runs:
-        fmts_orig.extend([_fmt_basico(run)] * len(run.text))
+    for run, texto_run in zip(runs, textos_runs):
+        fmts_orig.extend([_fmt_basico(run)] * len(texto_run))
     default = fmts_orig[0] if fmts_orig else (None, None, None, None, None)
 
     # Alinhamento caractere a caractere: `SequenceMatcher` é quadrático no pior
@@ -799,7 +816,6 @@ def _reescrever_preservando_formato(paragrafo, texto_original: str, texto_final:
     if not pedacos:
         pedacos = [[[], default]]
 
-    runs = paragrafo.runs
     base = runs[0]
     base.text = "".join(pedacos[0][0])
     _aplicar_fmt(base, pedacos[0][1])
@@ -922,7 +938,15 @@ def _substituir_paragrafo(
     zona: str = "BODY",
     multiplos_imoveis: bool = False,
 ) -> None:
-    if not paragrafo.runs:
+    # `paragrafo.runs` e `run.text` do python-docx NÃO são atributos: cada
+    # leitura roda um xpath no XML do parágrafo. Este corpo lia o texto de todos
+    # os runs TRÊS vezes (texto_original, roxo_arr, laço de mascaramento) e
+    # `_reescrever_preservando_formato` uma quarta — quatro xpath por run, por
+    # parágrafo, e era o maior custo da geração em lote. Lemos uma vez e
+    # passamos as listas adiante; nada aqui altera texto antes da reescrita no
+    # fim, então a cópia não envelhece.
+    runs = paragrafo.runs
+    if not runs:
         return
     # Campo editável "(Campo editável no sistema - X)": tratado à parte porque o
     # texto não casa o regex genérico de placeholders nem é vermelho, e porque só
@@ -937,7 +961,8 @@ def _substituir_paragrafo(
     # divergir sempre e a reescrita estourar (IndexError) ou duplicar o link.
     # Com a concatenação dos runs, parágrafos assim caem no early-return e ficam
     # intactos; a substituição só age no que os runs de fato contêm.
-    texto_original = "".join(run.text for run in paragrafo.runs)
+    textos_runs = [run.text for run in runs]
+    texto_original = "".join(textos_runs)
 
     # Mascara os runs vermelhos (instruções de preenchimento manual) com
     # sentinelas, para que a substituição/flexão não os altere.
@@ -948,11 +973,28 @@ def _substituir_paragrafo(
     # (placeholders de PLACEHOLDERS_PETICAO, ex.: "(nome ou nomes)") ficam
     # LITERAIS; só as conjugações ao redor são resolvidas. Marca os caracteres
     # dessas variáveis para mascará-las como preenchimento manual.
-    roxo_arr: list[bool] = []
-    for run in paragrafo.runs:
-        roxo_arr.extend([_eh_run_roxo(run)] * len(run.text))
+    # Cor/marca-texto de cada run, lidas UMA vez. `run.font.color` e
+    # `run.font.highlight_color` também são xpath no XML, e eram lidas duas
+    # vezes por run: aqui (via _eh_run_roxo) e no laço de mascaramento abaixo.
+    attrs_runs: list[tuple[bool, object, object, bool]] = []
+    for run in runs:
+        fonte = run.font
+        hl = fonte.highlight_color
+        vermelho = _eh_run_vermelho(run)
+        attrs_runs.append((
+            vermelho,
+            fonte.color.rgb if vermelho else None,
+            hl,
+            hl in _MARCA_TEXTO_ROXO,   # mesma condição de _eh_run_roxo
+        ))
+
     preservar_roxo = [False] * len(texto_original)
-    if any(roxo_arr):
+    # `roxo_arr` só serve dentro deste `if`; nos modelos sem trecho roxo (o caso
+    # comum) nem vale montá-lo.
+    if any(attrs[3] for attrs in attrs_runs):
+        roxo_arr: list[bool] = []
+        for attrs, texto_run in zip(attrs_runs, textos_runs):
+            roxo_arr.extend([attrs[3]] * len(texto_run))
         for _ph in PLACEHOLDERS_PETICAO:
             for m in _re_placeholder(_ph).finditer(texto_original):
                 if all(roxo_arr[i] for i in range(m.start(), m.end())):
@@ -986,11 +1028,8 @@ def _substituir_paragrafo(
         seg_tipo = None
 
     pos = 0
-    for run in paragrafo.runs:
-        vermelho = _eh_run_vermelho(run)
-        rgb = run.font.color.rgb if vermelho else None
-        hl = run.font.highlight_color
-        for ch in run.text:
+    for (vermelho, rgb, hl, _roxo), texto_run in zip(attrs_runs, textos_runs):
+        for ch in texto_run:
             # Vermelho coberto por placeholder resolvível passa intacto (literal),
             # para ser substituído normalmente; o resto do vermelho é mascarado.
             if vermelho and not coberto[pos]:
@@ -1035,7 +1074,9 @@ def _substituir_paragrafo(
         # substitui um placeholder bold (ex.: "(autor)") continua bold, e o corpo
         # ao redor continua sem negrito — sem o parágrafo inteiro herdar o
         # negrito do 1º run.
-        _reescrever_preservando_formato(paragrafo, texto_original, texto_final)
+        _reescrever_preservando_formato(
+            paragrafo, texto_original, texto_final, runs=runs, textos_runs=textos_runs,
+        )
         return
     _reescrever_runs(paragrafo, texto_novo, preservados)
 
@@ -1078,9 +1119,13 @@ def _desnegritar_local_data(paragrafo) -> None:
             run.font.bold = False
 
 
-def _padronizar_espacamento(paragrafo) -> None:
+def _padronizar_espacamento(paragrafo, texto: "str | None" = None) -> None:
+    """`texto`: o texto do parágrafo, quando quem chama já o leu. Só o
+    "está vazio?" importa aqui, e `paragrafo.text` custa um xpath por run."""
     pf = paragrafo.paragraph_format
-    if not paragrafo.text.strip():
+    if texto is None:
+        texto = paragrafo.text
+    if not texto.strip():
         # Parágrafo vazio: zera espaçamento e altura para não criar "buracos".
         pf.space_before = Pt(0)
         pf.space_after = Pt(0)
@@ -1091,7 +1136,11 @@ def _padronizar_espacamento(paragrafo) -> None:
     pf.line_spacing = LINE_SPACING
 
 
-def _colapsar_paragrafos_vazios(doc: Document, vazios_entre_blocos: int = 1) -> None:
+def _colapsar_paragrafos_vazios(
+    doc: Document,
+    vazios_entre_blocos: int = 1,
+    textos: "dict[int, str] | None" = None,
+) -> None:
     """Remove parágrafos vazios consecutivos do corpo do documento.
 
     Mantém no máximo `vazios_entre_blocos` parágrafos vazios entre blocos de
@@ -1101,21 +1150,35 @@ def _colapsar_paragrafos_vazios(doc: Document, vazios_entre_blocos: int = 1) -> 
     paragrafos = list(doc.paragraphs)
     if not paragrafos:
         return
+    # "Está vazio?" é a ÚNICA pergunta feita ao texto aqui, e era feita três
+    # vezes por parágrafo (laço da frente, varredura de trás, remanescentes) —
+    # cada uma um `paragrafo.text`, que é um xpath por run. `textos` traz o que
+    # _preencher_campos_docx já leu (chave: id do elemento XML); o que faltar é
+    # lido agora, uma vez.
+    textos = textos or {}
+
+    def _vazio(par) -> bool:
+        chave = id(par._element)
+        texto = textos[chave] if chave in textos else par.text
+        return not texto.strip()
+
+    vazio = [_vazio(p) for p in paragrafos]
     a_remover: list = []
+    a_remover_ids: set[int] = set()   # o `p not in a_remover` era O(n) por item
     anterior_vazio = True  # trata início como "vazio" -> remove vazios iniciais
-    for p in paragrafos:
-        eh_vazio = not p.text.strip()
+    for p, eh_vazio in zip(paragrafos, vazio):
         if eh_vazio and anterior_vazio:
             a_remover.append(p)
+            a_remover_ids.add(id(p))
         else:
             anterior_vazio = eh_vazio
     # Remove vazios no fim (varre de trás).
-    for p in reversed(paragrafos):
-        if not p.text.strip() and p not in a_remover:
+    for p, eh_vazio in zip(reversed(paragrafos), reversed(vazio)):
+        if eh_vazio and id(p) not in a_remover_ids:
             a_remover.append(p)
+            a_remover_ids.add(id(p))
         else:
             break
-    a_remover_ids = {id(p) for p in a_remover}
     for p in a_remover:
         elem = p._element
         parent = elem.getparent()
@@ -1125,8 +1188,8 @@ def _colapsar_paragrafos_vazios(doc: Document, vazios_entre_blocos: int = 1) -> 
         # Cada separador vazio remanescente ganha cópias extras para abrir
         # mais espaço entre parágrafos de petições curtas.
         remanescentes = [
-            p for p in paragrafos
-            if id(p) not in a_remover_ids and not p.text.strip()
+            p for p, eh_vazio in zip(paragrafos, vazio)
+            if id(p) not in a_remover_ids and eh_vazio
         ]
         for p in remanescentes:
             elem = p._element
@@ -1144,7 +1207,7 @@ def _chave_oab(texto: str) -> str:
     return re.sub(r"[\s./-]", "", texto or "").lower()
 
 
-def _deduplicar_oab(doc: Document) -> None:
+def _deduplicar_oab(doc: Document, textos: "dict[int, str] | None" = None) -> None:
     """Remove linhas de OAB repetidas no fecho da petição.
 
     O modelo traz a OAB da casa como literal ('OAB/MG 104.784') e, logo abaixo,
@@ -1153,10 +1216,12 @@ def _deduplicar_oab(doc: Document) -> None:
     aparece duas vezes. Aqui mantemos só a primeira; quando os estados diferem
     (ex.: OAB/MG + OAB/SP), as duas linhas são preservadas.
     """
+    textos = textos or {}
     vistos: set[str] = set()
     a_remover: list = []
     for p in doc.paragraphs:
-        texto = p.text.strip()
+        chave_el = id(p._element)
+        texto = (textos[chave_el] if chave_el in textos else p.text).strip()
         if not texto or not _RX_LINHA_OAB.search(texto):
             continue
         chave = _chave_oab(texto)
@@ -1187,6 +1252,14 @@ def _preencher_campos_docx(
     if len(zonas_paragrafos) < len(paragrafos_top):
         zonas_paragrafos = list(zonas_paragrafos) + ["BODY"] * (len(paragrafos_top) - len(zonas_paragrafos))
 
+    # Texto FINAL de cada parágrafo, lido uma única vez por parágrafo e
+    # repassado a quem vem depois (`_padronizar_espacamento`, o `chars_corpo`,
+    # `_deduplicar_oab`, `_colapsar_paragrafos_vazios`). Antes cada um desses
+    # relia `paragrafo.text` — que no python-docx é um xpath por run — sobre um
+    # texto que já não muda mais. Chave = id do elemento XML, porque
+    # `doc.paragraphs` devolve wrappers novos a cada chamada, mas o elemento
+    # por baixo é o mesmo (e `paragrafos_top` o mantém vivo).
+    textos_finais: dict[int, str] = {}
     for paragrafo, zona in zip(paragrafos_top, zonas_paragrafos):
         _substituir_paragrafo(
             paragrafo, dados, ctx=ctx, zona=zona,
@@ -1194,11 +1267,15 @@ def _preencher_campos_docx(
         )
         _remover_highlight_amarelo(paragrafo)
         if zona == "HEADER":
+            # _forcar_maiusculas ALTERA o texto (upper), então a leitura vem
+            # depois dela. _desnegritar_local_data, abaixo, só mexe em negrito.
             _aplicar_negrito(paragrafo)
             _forcar_maiusculas(paragrafo)
-        elif zona == "CLOSING" and _RE_LINHA_LOCAL_DATA.search(paragrafo.text):
+        texto = paragrafo.text
+        textos_finais[id(paragrafo._element)] = texto
+        if zona == "CLOSING" and _RE_LINHA_LOCAL_DATA.search(texto):
             _desnegritar_local_data(paragrafo)
-        _padronizar_espacamento(paragrafo)
+        _padronizar_espacamento(paragrafo, texto)
 
     for tabela in doc.tables:
         for linha in tabela.rows:
@@ -1211,16 +1288,18 @@ def _preencher_campos_docx(
                     _remover_highlight_amarelo(paragrafo)
                     _padronizar_espacamento(paragrafo)
 
-    _deduplicar_oab(doc)
+    _deduplicar_oab(doc, textos_finais)
     chars_corpo = sum(
-        len(p.text.strip())
+        len(textos_finais[id(p._element)].strip())
         for p, zona in zip(paragrafos_top, zonas_paragrafos)
         if zona == "BODY"
     )
     vazios_entre_blocos = (
         LINHAS_VAZIAS_PETICAO_CURTA if chars_corpo < LIMITE_CHARS_PETICAO_CURTA else 1
     )
-    _colapsar_paragrafos_vazios(doc, vazios_entre_blocos=vazios_entre_blocos)
+    _colapsar_paragrafos_vazios(
+        doc, vazios_entre_blocos=vazios_entre_blocos, textos=textos_finais,
+    )
 
 
 def _converter_doc_para_docx(

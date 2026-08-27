@@ -44,15 +44,35 @@ TAGS_CONHECIDAS = ["Idoso", "Processo Migrado", "Prioridade", "Sigilo", "Segredo
 # Inclui as formas FEMININAS (EXECUTADA/REQUERIDA/RÉ…): o e-SAJ/PJe trazem o papel
 # flexionado por gênero e, sem elas, o réu (mulher) não era reconhecido em _autor/
 # _reus_joined → processo aparecia "sem réu" mesmo tendo o polo passivo preenchido.
+# Fase de RECURSO e RECONVENÇÃO entram aqui pelo mesmo critério que já valia para
+# AGRAVANTE/AGRAVADO: quem recorre ocupa o polo ativo DAQUELA fase. Ficaram de
+# fora por omissão, e a omissão era invisível porque os parsers já canonizam para
+# elas: `parser_esaj._PAPEL_ESAJ` mapeia "apte"→APELANTE e "apdo"→APELADO
+# declarando no comentário que o destino são estas listas, e
+# `parser_pje._PAPEIS_ATIVO_PJE` já as trata como polo para deduplicar partes.
+# Só `padroes` não sabia — então `_autor`/`_reus_joined` liam o processo como se
+# ele não tivesse parte nenhuma. Medido em 27/08/2026: 4 processos do TJPA/TJSP
+# tinham as duas partes salvas e apareciam como "sem réu E sem credor".
+# NÃO acrescente aqui papel de TERCEIRO (interessado, arrematante, perito,
+# testemunha, administrador, fiador, credor hipotecário, inventariado): eles não
+# são polo, e virar "réu" no endereçamento da petição é pior que ficar vazio.
 PAPEIS_ATIVO = ["AUTOR", "AUTORA", "EXEQUENTE", "REQUERENTE", "EMBARGANTE",
-                "AGRAVANTE", "IMPETRANTE", "RECLAMANTE", "SUSCITANTE"]
+                "AGRAVANTE", "IMPETRANTE", "RECLAMANTE", "SUSCITANTE",
+                "APELANTE", "RECORRENTE", "RECONVINTE", "INTERPELANTE"]
 # "REVEL" é polo passivo: o TJDFT rotula assim o executado/réu declarado revel
 # (em geral com "DP - CURADORIA ESPECIAL" como representante). Sem ele o réu não
 # era reconhecido em _reus_joined e o processo ficava só com o autor.
-PAPEIS_PASSIVO = ["RÉU", "REU", "RÉ", "RE", "EXECUTADO", "EXECUTADA",
+# Os papéis LONGOS de recurso vêm ANTES de "RE"/"RÉ": estas listas viram
+# alternação de regex (RE_PARTE_ATO, RE_EXTRATO_PARTE, RE_CABECALHO_PARTES,
+# _evento_parte_papel) e, em alternação, o primeiro alternativo que casa ganha.
+# "RE" casaria o prefixo de "RECORRIDO"/"RECONVINDO"; aqui o backtracking ainda
+# salvaria pelos âncoras, mas depender disso é frágil — ordem explícita é grátis.
+PAPEIS_PASSIVO = ["RECORRIDO", "RECORRIDA", "RECONVINDO", "RECONVINDA",
+                  "RÉU", "REU", "RÉ", "RE", "EXECUTADO", "EXECUTADA",
                   "REQUERIDO", "REQUERIDA", "EMBARGADO", "EMBARGADA",
                   "AGRAVADO", "AGRAVADA", "IMPETRADO", "IMPETRADA",
                   "RECLAMADO", "RECLAMADA", "SUSCITADO", "SUSCITADA",
+                  "APELADO", "APELADA", "INTERPELADO", "INTERPELADA",
                   "REVEL"]
 
 # Versões em maiúsculas, como conjunto, para teste de pertinência por parte.

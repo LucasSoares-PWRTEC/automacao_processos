@@ -79,7 +79,6 @@ from organizador.organizacao import (  # noqa: E402
 from organizador.parsing import (  # noqa: E402
     _derivar_agregados,
     _uf_de_numero_cnj,
-    classe_exige_polo_passivo,
 )
 from organizador.padroes import (  # noqa: E402
     PAPEIS_ATIVO,
@@ -90,8 +89,11 @@ from organizador.scraper import _consultar_e_extrair  # noqa: E402
 # Núcleo reaproveitável (pool de sessão + merge/persistência) mora agora no
 # pacote, em organizador.monitoramento — o monitoramento periódico usa o mesmo.
 from organizador.monitoramento import (  # noqa: E402
+    STATUS_DONE,
+    STATUS_RETRY,
     PoolScrapers,
     _merge_e_salvar,
+    _status_do_resultado,
     filtrar_tentados_hoje,
     marcar_tentativa,
     tentativas_de_hoje,
@@ -110,28 +112,10 @@ RELATORIO_NM_CSV = SAIDA_DIR / "_relatorio_nao_mapeados.csv"
 
 PAUSA_ENTRE_CONSULTAS = 2.5  # s — folga anti-bloqueio (comprovado no lote anterior)
 
-# Status "terminados" (pulados numa nova execução). Os de STATUS_RETRY voltam à
-# fila com --retry-falhas.
-STATUS_DONE = {"enriquecido", "ainda_sem_reu", "popup_atribuicao", "sem_rota"}
-# "reu_faltando" mora AQUI, não em STATUS_DONE: é raspagem incompleta (ver
-# `_status_do_resultado`), e antes se disfarçava de "ainda_sem_reu" — terminado,
-# nunca reprocessado. Fica atrás do --retry-falhas para não remartelar o tribunal
-# a cada passada semanal.
-STATUS_RETRY = {"nao_encontrado", "falha", "reu_faltando"}
-
-def _status_do_resultado(merged, tem_reu: bool) -> str:
-    """Classifica o resultado de uma raspagem bem-sucedida.
-
-    Sem réu numa classe adversarial não é "processo de um polo só": é dado
-    perdido. No PJe o #poloPassivo é populado por AJAX depois da timeline e,
-    quando a espera estoura, o processo é gravado só com o autor. Separar os dois
-    casos é o que permite reprocessar um sem tocar no outro.
-    """
-    if tem_reu:
-        return "enriquecido"
-    if classe_exige_polo_passivo(getattr(merged, "classe", "")):
-        return "reu_faltando"
-    return "ainda_sem_reu"
+# STATUS_DONE / STATUS_RETRY / _status_do_resultado vêm de
+# organizador.monitoramento. Eram cópias locais IDÊNTICAS byte a byte às de lá —
+# duas fontes para a mesma regra, com o risco de um conserto pegar só num dos
+# runners (foi o que aconteceu com o polo ativo, consertado em 27/08/2026).
 
 
 def _candidatos(uf: str) -> list[str]:
@@ -269,6 +253,7 @@ def _selecionar_nao_mapeados(carteira_filtro: str | None = None,
 _ORDEM_STATUS = [
     ("enriquecido", "✅ Enriquecidos (réu obtido)"),
     ("reu_faltando", "❌ Réu PERDIDO na raspagem (classe exige polo passivo) — refazer"),
+    ("credor_faltando", "❌ Credor PERDIDO na raspagem (sem polo ativo) — refazer"),
     ("ainda_sem_reu", "⚠️ Achados mas AINDA sem réu (revisar manualmente)"),
     ("popup_atribuicao", "🚫 Parados no pop-up de atribuição ao advogado"),
     ("nao_encontrado", "🔎 Não encontrados em nenhum sistema"),
@@ -295,6 +280,7 @@ def _gerar_relatorios(estado: dict, md_path: Path = RELATORIO_MD,
         f"- **Total de alvos:** {total}",
         f"- ✅ Enriquecidos (réu obtido): **{len(grupos.get('enriquecido', []))}**",
         f"- ❌ Réu perdido na raspagem (refazer): **{len(grupos.get('reu_faltando', []))}**",
+        f"- ❌ Credor perdido na raspagem (refazer): **{len(grupos.get('credor_faltando', []))}**",
         f"- ⚠️ Achados sem réu: **{len(grupos.get('ainda_sem_reu', []))}**",
         f"- 🚫 Pop-up de atribuição: **{len(grupos.get('popup_atribuicao', []))}**",
         f"- 🔎 Não encontrados: **{len(grupos.get('nao_encontrado', []))}**",
@@ -484,17 +470,18 @@ def executar(args) -> None:
                 merged = _merge_e_salvar(numero, proc, info["existing"], tags_extra)
                 autor, reu = _autor(merged), _reus_joined(merged)
                 tem_reu = bool(reu.strip())
-                status = _status_do_resultado(merged, tem_reu)
+                status = _status_do_resultado(merged, tem_reu, bool(autor.strip()))
                 estado[numero] = {
                     "status": status,
                     "uf": uf, "sistema": tj_label, "tem_reu": tem_reu,
                     "autor": autor, "reu": reu, "quando": _quando(),
                 }
-                if status == "reu_faltando":
+                if status in ("reu_faltando", "credor_faltando"):
                     estado[numero]["classe"] = getattr(merged, "classe", "")
                 if cliente:
                     estado[numero]["cliente"] = cliente
-                marca = {"enriquecido": "✅", "reu_faltando": "❌"}.get(status, "⚠️")
+                marca = {"enriquecido": "✅", "reu_faltando": "❌",
+                         "credor_faltando": "❌"}.get(status, "⚠️")
                 print(f"   {marca} {tj_label}: autor='{autor or '—'}' réu='{reu or '—'}'\n")
                 resolvido = True
                 time.sleep(PAUSA_ENTRE_CONSULTAS)

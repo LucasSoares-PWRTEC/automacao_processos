@@ -58,6 +58,45 @@ while (sib) {
 return '';
 """
 
+# Metadados de TODOS os documentos da timeline numa ÚNICA ida ao navegador.
+# Antes eram TRÊS por documento (`get_attribute("id")`, `.text` e um
+# `execute_script` do _JS_DATA_GRUPO): num processo com ~100 docs, ~300
+# viagens pelo protocolo do WebDriver só para montar a fila.
+#
+# `txt` espelha de propósito a semântica do `.text` do Selenium, que devolve ''
+# para elemento NÃO renderizado. Usar `innerText` puro mudaria QUAIS documentos
+# entram na fila: pelo padrão do DOM, `innerText` cai para `textContent` quando
+# o elemento não está sendo renderizado — e no PJe esses divs vivem escondidos
+# sob a classe `mobile-close`. O filtro TRIGGER_DOC roda em Python sobre este
+# texto, então mudar a fonte dele mudaria o que o scraper abre.
+_JS_DOCS_META = r"""
+const rx = /^\s*\d+\s*[-—]/;
+const visivel = e => !!(e.offsetParent || e.getClientRects().length);
+const dataDoGrupo = e => {
+    const media = e.closest('.media.interno');
+    if (!media) return '';
+    let sib = media.previousElementSibling;
+    while (sib) {
+        if (sib.classList && sib.classList.contains('media')
+                          && sib.classList.contains('data')) {
+            const d = sib.querySelector('.data-interna');
+            return (d ? d.textContent : sib.innerText || '').trim();
+        }
+        sib = sib.previousElementSibling;
+    }
+    return '';
+};
+const casa = sel => [...document.querySelectorAll(sel)]
+    .filter(e => rx.test(e.innerText || e.textContent || ''));
+let els = casa(arguments[0]);
+if (!els.length) els = casa(arguments[1]);
+return els.map(e => ({
+    sid: e.id || '',
+    txt: visivel(e) ? (e.innerText || '') : '',
+    data: dataDoGrupo(e),
+}));
+"""
+
 # Rótulos da timeline que disparam a abertura do documento.
 # Medição empírica (2026-05-19): abrir TODOS os 98 docs custou ~11 min e
 # não acrescentou nada além da timeline (PDFs são imagem sem texto).
@@ -565,6 +604,55 @@ class PJEScraper(TribunalScraper):
             if RX_ID_DOC_PJE.search(a.text or "")
         ]
 
+    def _docs_meta_js(self) -> "list[dict] | None":
+        """(sid, txt, data) de cada doc da timeline, numa ÚNICA ida ao navegador.
+
+        None quando o `execute_script` não serve (sem suporte, DOM diferente,
+        retorno inesperado) — o chamador cai em `_docs_meta_elementos`."""
+        try:
+            linhas = self.driver.execute_script(
+                _JS_DOCS_META, self._SEL_DOC_SPAN, self._SEL_DOC_ANCHOR
+            )
+        except Exception:
+            return None
+        if not isinstance(linhas, list):
+            return None
+        saida: list[dict] = []
+        for linha in linhas:
+            if not isinstance(linha, dict):
+                return None  # formato inesperado: melhor o caminho antigo
+            saida.append({
+                "sid": str(linha.get("sid") or ""),
+                "txt": str(linha.get("txt") or ""),
+                "data": str(linha.get("data") or "").strip(),
+            })
+        return saida
+
+    def _docs_meta_elementos(self) -> list[dict]:
+        """Mesmo resultado de `_docs_meta_js`, elemento a elemento (fallback).
+
+        Só a `data` dos que passam no TRIGGER_DOC é buscada — como no código
+        antigo, para não pagar uma ida a mais por documento descartado."""
+        bruto: list[tuple[object, str, str]] = []
+        for el in self._doc_elements():
+            try:
+                sid = el.get_attribute("id") or ""
+                txt = el.text or ""
+            except Exception:
+                continue
+            bruto.append((el, sid, txt))
+        saida: list[dict] = []
+        for el, sid, txt in bruto:
+            if sid and TRIGGER_DOC.search(unidecode(txt).upper()):
+                try:
+                    data = self.driver.execute_script(_JS_DATA_GRUPO, el) or ""
+                except Exception:
+                    data = ""
+            else:
+                data = ""   # descartado no filtro adiante; não vale uma viagem
+            saida.append({"sid": sid, "txt": txt, "data": str(data).strip()})
+        return saida
+
     def _iframe_doc_el(self):
         """Iframe do visualizador (frameHtml no TJMG; fallback p/ o 1º iframe
         em versões que usem outro id)."""
@@ -741,34 +829,24 @@ class PJEScraper(TribunalScraper):
         # doc_id (ex.: '10554398891') vem por regex no texto do elemento.
         # data (ex.: '06 out 2025') vem do header .media.data IMEDIATAMENTE
         # antes do .media.interno do elemento (JS _JS_DATA_GRUPO).
-        spans = self._doc_elements()
+        metas = self._docs_meta_js()
+        if metas is None:
+            metas = self._docs_meta_elementos()
         candidatos = []
-        for s in spans:
-            try:
-                sid = s.get_attribute("id")
-                txt = s.text or ""
-            except Exception:
-                continue
+        for meta in metas:
+            sid, txt = meta["sid"], meta["txt"]
             if not sid or not TRIGGER_DOC.search(unidecode(txt).upper()):
                 continue
-
             m_id = RX_ID_DOC_PJE.search(txt)
-            doc_id = m_id.group(1) if m_id else ""
-
-            try:
-                data_grupo = self.driver.execute_script(_JS_DATA_GRUPO, s) or ""
-            except Exception:
-                data_grupo = ""
-
             candidatos.append({
                 "sid": sid,
                 "txt": txt,
-                "doc_id": doc_id,
-                "data": data_grupo,
+                "doc_id": m_id.group(1) if m_id else "",
+                "data": meta["data"],
             })
 
         print(
-            f"📑 PJe: {len(spans)} doc(s) carregado(s); "
+            f"📑 PJe: {len(metas)} doc(s) carregado(s); "
             f"{len(candidatos)} candidato(s); abrindo até ter cabeçalho + partes "
             f"(máx. {_MAX_DOCS_ABRIR})."
         )

@@ -241,6 +241,65 @@ def test_com_reu_e_sempre_enriquecido():
     assert M._status_do_resultado(_ProcFalso(""), True) == "enriquecido"
 
 
+def test_sem_polo_ativo_e_credor_faltando_em_qualquer_classe():
+    """O caso dos 2 processos do TJSP raspados com sucesso no e-SAJ que voltaram
+    só com o polo passivo. Antes saíam "enriquecido" (a função só olhava o réu),
+    caíam em STATUS_DONE e nunca voltavam à fila.
+
+    Sem ressalva de classe, de propósito: não há `classe_exige_polo_passivo` do
+    lado ativo porque não existe processo cível sem quem o propôs — ausência de
+    autor é sempre raspagem incompleta.
+    """
+    for classe in ("EXECUÇÃO DE TÍTULO EXTRAJUDICIAL", "Recuperação Judicial",
+                   "Falência de Empresários", ""):
+        st = M._status_do_resultado(_ProcFalso(classe), True, False)
+        assert st == "credor_faltando", classe
+        assert st not in M.STATUS_DONE
+        assert st in M.STATUS_RETRY
+
+
+def test_credor_faltando_vence_a_falta_de_reu():
+    """Sem NENHUM polo o status precisa ser um dos de retry — qual dos dois
+    importa menos que não virar `ainda_sem_reu` (terminado)."""
+    st = M._status_do_resultado(_ProcFalso("Recuperação Judicial"), False, False)
+    assert st in M.STATUS_RETRY
+
+
+def test_tem_autor_default_preserva_as_chamadas_antigas():
+    """`tem_autor` é opcional para não quebrar chamador que só passa o réu."""
+    assert M._status_do_resultado(_ProcFalso("EXECUÇÃO"), True) == "enriquecido"
+    assert M._status_do_resultado(_ProcFalso("EXECUÇÃO"), False) == "reu_faltando"
+
+
+def test_credor_faltando_volta_a_fila_apesar_de_estar_no_cache(monkeypatch):
+    """Mesmo gate do `reu_faltando`: está no cache (salvo com o polo passivo),
+    então a checagem de cache o declarava mapeado antes do gate de retry."""
+    numero = "1101199-78.2019.8.26.0100"
+    monkeypatch.setattr(M, "_numeros_no_cache", lambda: [numero])
+    estado = {numero: {"status": "credor_faltando", "uf": "SP"}}
+
+    assert numero not in M.processos_ja_mapeados(estado)
+    assert M.selecionar_pendentes({numero: "RSF Judicial"}, estado, retry_falhas=False) == {}
+    assert numero in M.selecionar_pendentes({numero: "RSF Judicial"}, estado, retry_falhas=True)
+
+
+def test_runners_compartilham_uma_unica_regra_de_status():
+    """`scripts/reenriquecer.py` tinha cópias IDÊNTICAS de STATUS_DONE,
+    STATUS_RETRY e _status_do_resultado. Duas fontes para a mesma regra fazem um
+    conserto pegar num runner e não no outro — foi o que houve com o polo ativo."""
+    import sys
+    from pathlib import Path as _P
+    sys.path.insert(0, str(_P(__file__).resolve().parent.parent / "scripts"))
+    import reenriquecer as R
+
+    assert R._status_do_resultado is M._status_do_resultado
+    assert R.STATUS_DONE is M.STATUS_DONE
+    assert R.STATUS_RETRY is M.STATUS_RETRY
+    # E o relatório do runner precisa ter seção para todo status que a regra emite.
+    rotulados = {st for st, _ in R._ORDEM_STATUS}
+    assert M.STATUS_DONE | M.STATUS_RETRY <= rotulados
+
+
 def test_reu_faltando_volta_a_fila_apesar_de_estar_no_cache(monkeypatch):
     """`reu_faltando` está NO cache (foi salvo com o autor), então a checagem de
     cache o declarava mapeado antes do gate de retry — e ele nunca voltava."""
