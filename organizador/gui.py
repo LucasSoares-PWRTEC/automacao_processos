@@ -32,7 +32,8 @@ from .config import (
     OAB_ESCRITORIO_POR_UF, PASTA_PADRAO,
     PASTA_PETICOES, PROCESSOS_BASE_JSON, PROCESSOS_INDICE_JSON,
     PROCESSOS_ONLINE_DIR, TEMPLATES_CACHE_PATH, TJ_SISTEMAS, UI_STATE_PATH,
-    rotulos_tj_selecionaveis, semear_config, sugerir_tj_para_uf, uf_efetiva_tj,
+    rota_incompativel_com_numero, rotulos_tj_selecionaveis, semear_config,
+    sugerir_tj_para_uf, uf_efetiva_tj,
 )
 
 
@@ -2451,30 +2452,44 @@ class App(ttk.Window):
 
         tj_label = self.var_busca_tj.get()
 
-        # Sugere trocar de sistema se o número for de outra UF que não a do TJ
-        # selecionado. (Antes de desabilitar o botão: "Cancelar" só faz return.)
+        # Sugere trocar de sistema em dois casos, ambos resolvidos pela mesma
+        # pergunta. (Antes de desabilitar o botão: "Cancelar" só faz return.)
         uf_num = uf_do_cnj(numero)
         uf_sel = uf_efetiva_tj(tj_label)
+        sug = titulo = cabecalho = motivo = ""
         if uf_num and uf_sel and uf_num != uf_sel:
-            sug = sugerir_tj_para_uf(uf_num)
-            if sug:
-                resp = messagebox.askyesnocancel(
-                    "Estado do processo",
-                    f"O número parece ser de {uf_num}, mas o sistema selecionado é\n"
-                    f"'{tj_label}' ({uf_sel}).\n\n"
-                    f"Deseja trocar para '{sug}'?\n\n"
-                    f"Sim = trocar e buscar    •    Não = buscar assim mesmo    •    "
-                    f"Cancelar = não buscar",
-                )
-                if resp is None:  # Cancelar
-                    return
-                if resp:  # Sim → troca o sistema
-                    self.var_busca_tj.set(sug)
-                    tj_label = sug
-                    self._pesquisa_log_queue.put(
-                        f"Sistema trocado para {sug} (número de {uf_num}).\n"
-                    )
+            # (a) o número é de outra UF que não a do TJ selecionado.
+            sug = sugerir_tj_para_uf(uf_num, numero) or ""
+            titulo = "Estado do processo"
+            cabecalho = (f"O número parece ser de {uf_num}, mas o sistema "
+                         f"selecionado é\n'{tj_label}' ({uf_sel}).\n\n")
+            motivo = f"número de {uf_num}"
             # Sem sistema configurado p/ essa UF → segue (aviso no log do scraper).
+        else:
+            # (b) UF certa, sistema errado: no RJ os três sistemas são todos
+            # "RJ", então o caso (a) nunca dispara e a busca falhava calada num
+            # número do legado com "TJRJ — PJe" selecionado.
+            sug = rota_incompativel_com_numero(tj_label, numero) or ""
+            titulo = "Sistema do processo"
+            cabecalho = (f"O sistema selecionado é '{tj_label}', mas este "
+                         f"número\nnão fica nele.\n\n")
+            motivo = "sistema incompatível com o número"
+        if sug and sug != tj_label:
+            resp = messagebox.askyesnocancel(
+                titulo,
+                cabecalho
+                + f"Deseja trocar para '{sug}'?\n\n"
+                + "Sim = trocar e buscar    •    Não = buscar assim mesmo    •    "
+                + "Cancelar = não buscar",
+            )
+            if resp is None:  # Cancelar
+                return
+            if resp:  # Sim → troca o sistema
+                self.var_busca_tj.set(sug)
+                tj_label = sug
+                self._pesquisa_log_queue.put(
+                    f"Sistema trocado para {sug} ({motivo}).\n"
+                )
 
         if self._busca_worker and self._busca_worker.is_alive():
             return

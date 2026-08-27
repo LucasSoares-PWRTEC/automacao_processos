@@ -428,10 +428,21 @@ TJ_SISTEMAS = {
     "TJMG — PJe":    ("pje",   "MINAS GERAIS",        "https://pje.tjmg.jus.br/pje/", None),
     # ── MS ──────────────────────────────────────────────────────────────────
     "TJMS — e-SAJ":  ("esaj",  "MATO GROSSO DO SUL",  "https://esaj.tjms.jus.br/cpopg/open.do", None),
+    # ── AP ──────────────────────────────────────────────────────────────────
+    # Host no formato `/1g/` (como PE e RJ), não `/pje/`: `pje.tjap.jus.br/pje/`
+    # devolve 404. Sondado em 2026-08-27: redireciona p/ sso.cloud.pje.jus.br.
+    "TJAP — PJe":    ("pje",   "AMAPA",               "https://pje.tjap.jus.br/1g/", None),
+    # ── MT ──────────────────────────────────────────────────────────────────
+    "TJMT — PJe":    ("pje",   "MATO GROSSO",         "https://pje.tjmt.jus.br/pje/", None),
     # ── PA ──────────────────────────────────────────────────────────────────
     "TJPA — PJe":    ("pje",   "PARA",                "https://pje.tjpa.jus.br/pje/", None),
+    # ── PB ──────────────────────────────────────────────────────────────────
+    "TJPB — PJe":    ("pje",   "PARAIBA",             "https://pje.tjpb.jus.br/pje/", None),
     # ── PE ──────────────────────────────────────────────────────────────────
     "TJPE — PJe":    ("pje",   "PERNAMBUCO",          "https://pje.cloud.tjpe.jus.br/1g/", None),
+    # ── PI ──────────────────────────────────────────────────────────────────
+    # Também `/1g/` (ver AP).
+    "TJPI — PJe":    ("pje",   "PIAUI",               "https://pje.tjpi.jus.br/1g/", None),
     # ── PR ──────────────────────────────────────────────────────────────────
     # Acesso via perfil OAB-PR na plataforma eproc do TJSP (mesmo login/2FA).
     "TJPR — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "PR"),
@@ -455,6 +466,10 @@ TJ_SISTEMAS = {
     # pelas outras rotas PJe. O certificado digital é UMA das opções da tela,
     # não requisito.
     "TJRJ — PJe":    ("pje",   "RIO DE JANEIRO",     "https://tjrj.pje.jus.br/1g/", None),
+    # ── RS ──────────────────────────────────────────────────────────────────
+    # Keycloak PRÓPRIO do TJRS (não o PDPJ nacional): mesma forma do eproc do
+    # RJ, então bastou a entrada em `_CONFIG_POR_ESTADO` do eproc.py.
+    "TJRS — eproc":  ("eproc", "RIO GRANDE DO SUL",  "https://eproc1g.tjrs.jus.br/eproc/", None),
     # ── RN ──────────────────────────────────────────────────────────────────
     # Acesso via perfil OAB-RN na plataforma eproc do TJSP (mesmo login/2FA).
     "TJRN — eproc":  ("eproc", "SAO PAULO",           "https://eproc1g.tjsp.jus.br/eproc/", "RN"),
@@ -463,6 +478,11 @@ TJ_SISTEMAS = {
 }
 _ESTADO_TJ_UF = {
     "SAO PAULO": ("TJSP", "SP"),
+    "AMAPA": ("TJAP", "AP"),
+    "MATO GROSSO": ("TJMT", "MT"),
+    "PARAIBA": ("TJPB", "PB"),
+    "PIAUI": ("TJPI", "PI"),
+    "RIO GRANDE DO SUL": ("TJRS", "RS"),
     "GOIAS": ("TJGO", "GO"),
     "MINAS GERAIS": ("TJMG", "MG"),
     "RIO DE JANEIRO": ("TJRJ", "RJ"),
@@ -504,6 +524,166 @@ ROTAS_INOPERANTES = frozenset({"TJGO — eproc", "TJPR — eproc", "TJRN — epr
 # errar é uma requisição, não a atenção de alguém.
 _SUGESTAO_POR_UF = {"RJ": "TJRJ — PJe"}
 
+# ── Regra por NÚMERO ────────────────────────────────────────────────────────
+#
+# Onde uma UF tem mais de um sistema, escolher pela UF erra a maioria dos casos.
+# O sequencial do CNJ separa os sistemas, e o corte foi MEDIDO em cada UF — não
+# deduzido do formato do número (a suposição "no RJ é o prefixo 08" estava
+# errada por 4 processos `09*`).
+#
+# RJ, varredura ao vivo dos 389 da carteira em 2026-08-26 pelo campo
+# `tipoProcesso` da consulta pública: legado de 0000000 a 0331403, PJe/eproc de
+# 0800054 em diante. Evidência DIRETA (o próprio sistema diz onde está).
+#
+# SP, amostra de 159 dos 1051 da carteira em 2026-08-27 pela consulta pública do
+# e-SAJ: e-SAJ até 1194081, eproc a partir de 4000224. Evidência INDIRETA — o
+# e-SAJ confirma quem ele tem, e "não existem informações" ali é lido como
+# eproc, porque conferir o eproc exigiria login. Se algum dia um `1*` aparecer
+# no eproc, é este comentário que explica de onde veio o engano.
+#
+# `_CORTE_POR_UF`: sequencial ABAIXO do corte cai na 1ª metade.
+_RE_SEQUENCIAL_CNJ = re.compile(r"\b(\d{7})-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}\b")
+_CORTE_POR_UF = {
+    "RJ": 800_000,     # medido: legado <= 0331403 | PJe/eproc >= 0800054
+    "SP": 2_000_000,   # medido: e-SAJ  <= 1194081 | eproc     >= 4000224
+}
+# (UF, metade) -> sites que PODEM hospedar. Com DOIS sites, a metade não gera
+# incompatibilidade nem rota exclusiva: os dois são possíveis, e a escolha entre
+# eles é preferência, não fato.
+#
+# SP metade 0 tem dois porque os sistemas de SP SE SOBREPÕEM — descoberto ao
+# conferir `data/_naomapeados_estado.json` contra o e-SAJ ao vivo em 2026-08-27.
+# Dos 314 processos `0*`/`1*` do lote (que tentava eproc ANTES do e-SAJ), 29
+# foram achados no eproc; conferidos depois um a um, 8 de 8 estavam TAMBÉM no
+# e-SAJ. Ou seja: `1*` está sempre no e-SAJ e às vezes também no eproc. Dizer
+# "este número não fica no eproc" seria mentira — daí os dois sites aqui, mesmo
+# com o e-SAJ sendo a sugestão (100% de acerto e sem login).
+#
+# A metade 1 de SP é exclusiva de verdade: dos 47 `4*` da amostra, 47 deram
+# "não existem informações" no e-SAJ.
+_SITES_DA_METADE = {
+    ("RJ", 0): frozenset({"tjrj"}),           # legado: só a consulta pública
+    ("RJ", 1): frozenset({"pje", "eproc"}),
+    ("SP", 0): frozenset({"esaj", "eproc"}),  # e-SAJ sempre, eproc às vezes
+    ("SP", 1): frozenset({"eproc"}),
+}
+# (UF, metade) -> rótulo a sugerir. Pode apontar para UM dos sites da metade
+# quando há mais de um — sugerir é escolher, não afirmar.
+#
+# RJ metade 1 chuta PJe: dos 37 não-legado da carteira, 19 estão no PJe e 18 no
+# eproc, e nem ano nem foro separam os dois — é empate mesmo, não descuido.
+#
+# SP metade 0 sugere e-SAJ mesmo com o eproc também sendo possível: o e-SAJ tem
+# 100% desses processos e é PÚBLICO (sem navegador, senha ou TOTP), enquanto o
+# eproc tem ~9% deles e cobra um login. O preço é que o e-SAJ público não traz
+# CPF/CNPJ das partes — quem precisa do documento troca para o eproc na tela, e
+# o monitor segue com a ordem dele (`_PRIORIDADE_SITE`, que põe e-SAJ por último
+# exatamente por causa do documento).
+_ROTULO_DA_METADE = {
+    ("RJ", 0): "TJRJ — Consulta",
+    ("RJ", 1): "TJRJ — PJe",
+    ("SP", 0): "TJSP — e-SAJ",
+    ("SP", 1): "TJSP — eproc",
+}
+
+
+def _metade_do_numero(uf: str, numero: str) -> int | None:
+    """0 = abaixo do corte, 1 = acima. None = UF sem regra ou número ilegível."""
+    corte = _CORTE_POR_UF.get((uf or "").upper())
+    if corte is None:
+        return None
+    m = _RE_SEQUENCIAL_CNJ.search(numero or "")
+    if not m:
+        return None
+    return 0 if int(m.group(1)) < corte else 1
+
+
+def _sugestao_pelo_numero(uf: str, numero: str) -> str | None:
+    metade = _metade_do_numero(uf, numero)
+    if metade is None:
+        return None
+    return _ROTULO_DA_METADE.get(((uf or "").upper(), metade))
+
+
+def _numero_e_do_legado_rj(numero: str) -> bool | None:
+    """True = legado do RJ (consulta pública), False = PJe/eproc, None = ilegível.
+
+    Mantida por ser a pergunta que o resto do código faz sobre o RJ; a lógica
+    agora vive em `_metade_do_numero`."""
+    metade = _metade_do_numero("RJ", numero)
+    return None if metade is None else metade == 0
+
+
+def rota_incompativel_com_numero(tj_label: str, numero: str) -> str | None:
+    """Rótulo a sugerir quando a rota selecionada NÃO pode hospedar o número.
+
+    Existe porque o aviso da gui.py só dispara quando a UF do número difere da
+    UF do sistema selecionado — e os três sistemas do RJ são todos "RJ", como os
+    dois de SP são todos "SP". Com "TJRJ — PJe" selecionado, um número do legado
+    batia a UF, não gerava pergunta nenhuma e a busca falhava calada
+    (0024491-10.2021.8.19.0203). O mesmo valia para os 759 processos de SP que
+    estão no e-SAJ com "TJSP — eproc" selecionado.
+
+    Só devolve algo quando a incompatibilidade é FATO: o corte medido separa os
+    sistemas, e escolher do lado errado nunca acha o processo. Dentro de uma
+    metade com dois sistemas (o `08*`/`09*` do RJ), PJe x eproc é palpite — e
+    palpite não interrompe ninguém, então: None.
+
+    None = rota plausível (outra UF, número ilegível, ou sem regra p/ a UF).
+    """
+    if tj_label not in TJ_SISTEMAS:
+        return None
+    uf = uf_efetiva_tj(tj_label)
+    # O corte é de UMA UF: aplicá-lo a número de outra compara maçã com laranja.
+    # Sem esta guarda, um número do RJ com "TJSP — eproc" selecionado passava
+    # pelo corte de SP e sugeria "TJSP — e-SAJ" — uma rota que também não o tem.
+    # Discrepância de UF já é tratada antes, pelo aviso de UF da gui.py.
+    if _uf_do_numero(numero) != uf:
+        return None
+    metade = _metade_do_numero(uf, numero)
+    if metade is None:
+        return None
+    if TJ_SISTEMAS[tj_label][0] in _SITES_DA_METADE.get((uf, metade), frozenset()):
+        return None
+    return _sugestao_pelo_numero(uf, numero)
+
+
+def rota_exclusiva_para_numero(numero: str) -> str | None:
+    """Rótulo da ÚNICA rota que pode ter este número, quando isso é sabido.
+
+    Usada pelo fallback da busca: quando a rota certa falha por motivo TÉCNICO,
+    tentar as outras não PODE dar certo — só gasta navegador, senha e um TOTP da
+    conta compartilhada, que é o recurso mais frágil de todo o sistema.
+
+    Só vale onde a metade tem UM site e UM rótulo: o legado do RJ, e as duas
+    metades de SP. A metade `08*`/`09*` do RJ tem dois (PJe e eproc), então lá
+    não há exclusividade e o fallback vale a pena.
+
+    O `.J.TR.` do CNJ dá a UF sem duplicar o mapa aqui (config.py não importa
+    nada do pacote, para ficar fora do caminho de abertura do app).
+    """
+    uf = _uf_do_numero(numero)
+    metade = _metade_do_numero(uf, numero)
+    if metade is None:
+        return None
+    if len(_SITES_DA_METADE.get((uf, metade), ())) != 1:
+        return None
+    return _ROTULO_DA_METADE.get((uf, metade))
+
+
+def _uf_do_numero(numero: str) -> str:
+    """UF pelo segmento `.J.TR.` do CNJ. Só as UFs COM regra por número precisam
+    estar no mapa: quem não está devolve "" e `_metade_do_numero` se cala.
+
+    Duplica de propósito uma fatia de `padroes.MAPA_UF_CNJ`: config.py não
+    importa nada do pacote, para ficar fora do caminho de abertura do app."""
+    m = _RE_CNJ_TR.search(numero or "")
+    return _UF_POR_TR.get(m.group(1), "") if m else ""
+
+
+_RE_CNJ_TR = re.compile(r"\.8\.(\d{2})\.")
+_UF_POR_TR = {"19": "RJ", "26": "SP"}
+
 
 def rotulos_tj_selecionaveis() -> list[str]:
     """Rótulos que valem a pena oferecer na tela (sem as rotas comprovadamente
@@ -511,11 +691,12 @@ def rotulos_tj_selecionaveis() -> list[str]:
     return [lbl for lbl in TJ_SISTEMAS if lbl not in ROTAS_INOPERANTES]
 
 
-def sugerir_tj_para_uf(uf: str) -> str | None:
+def sugerir_tj_para_uf(uf: str, numero: str = "") -> str | None:
     """Rótulo de TJ_SISTEMAS cuja UF efetiva == uf, para pré-selecionar na tela.
 
-    Ordem: override explícito da UF (`_SUGESTAO_POR_UF`), depois eproc (o sistema
-    com extrator estruturado), depois o 1º candidato.
+    Ordem: regra pelo NÚMERO (`_sugestao_pelo_numero`, quando a UF tem corte
+    medido e o número é legível), override explícito da UF (`_SUGESTAO_POR_UF`),
+    depois eproc (o sistema com extrator estruturado), depois o 1º candidato.
 
     NÃO confundir com a ordem do fallback do monitor (`candidatos_tj_para_uf`):
     lá MG tenta PJe antes do eproc e RJ tenta a consulta pública primeiro, mas
@@ -527,7 +708,11 @@ def sugerir_tj_para_uf(uf: str) -> str | None:
     candidatos = candidatos_tj_para_uf(uf)
     if not candidatos:
         return None
-    preferida = _SUGESTAO_POR_UF.get((uf or "").upper())
+    uf_up = (uf or "").upper()
+    pelo_numero = _sugestao_pelo_numero(uf_up, numero) if numero else None
+    if pelo_numero in candidatos:
+        return pelo_numero
+    preferida = _SUGESTAO_POR_UF.get(uf_up)
     if preferida in candidatos:  # ignora override que apontou p/ rota removida
         return preferida
     eproc = [lbl for lbl in candidatos if TJ_SISTEMAS[lbl][0] == "eproc"]

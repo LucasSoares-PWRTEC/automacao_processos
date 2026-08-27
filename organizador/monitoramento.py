@@ -55,7 +55,9 @@ from .organizacao import (
 )
 from .padroes import RE_NUMERO_CNJ
 from .parsing import _derivar_agregados, _uf_de_numero_cnj, classe_exige_polo_passivo
-from .scraper import _consultar_e_extrair, _preparar_env_local
+from .scraper import (
+    _TAG_SISTEMA, _consultar_e_extrair, _preparar_env_local, marcar_sistema,
+)
 
 # --- caminhos -------------------------------------------------------------
 # Estado/relatórios ficam em APP_DATA_DIR (local ESTÁVEL do usuário, onde já mora
@@ -384,6 +386,12 @@ def _merge_e_salvar(numero: str, online_proc, existing: dict | None,
     for tag in tags_extra:
         if tag and tag not in merged.tags:
             merged.tags.append(tag)
+    # `_merge_processos` faz UNIÃO de tags. Sem esta linha, um processo que mudou
+    # de sistema ficaria com duas `Sistema:` — e a do cache, mais antiga, é
+    # justamente a errada.
+    sistema = next((t for t in online_proc.tags if t.startswith(_TAG_SISTEMA)), "")
+    if sistema:
+        marcar_sistema(merged, sistema[len(_TAG_SISTEMA):])
     _derivar_agregados(merged)
 
     # 1) cache (mesmo caminho do metadados.json existente → sobrescreve/atualiza)
@@ -663,6 +671,7 @@ def rodar_passada(
                         scraper, site, numero, tribunal, uf,
                         modo_docs="nenhum",
                         log=lambda s: log("   " + s.rstrip()),
+                        tj_label=tj_label,
                     )
                 except AtribuicaoDetectadaError as exc:
                     estado[numero] = {

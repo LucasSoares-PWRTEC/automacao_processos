@@ -98,6 +98,23 @@ _CONFIG_POR_ESTADO = {
         "totp_input_id":  "otp",
         "totp_submit_id": "kc-login",
     },
+    "RIO GRANDE DO SUL": {
+        # Keycloak PRÓPRIO (keycloak-eks.tjrs.jus.br/realms/eproc, client
+        # eproc-tjrs-1g) — mesmo formato do TJRJ, inclusive na armadilha:
+        # a página TAMBÉM traz #txtUsuario/#pwdSenha do eproc interno, e apontar
+        # para eles faria a espera por visibilidade estourar em campo que nunca
+        # aparece. Confirmado lendo o HTML da tela em 2026-08-27; os campos
+        # reais são os do Keycloak, e há ainda um #kc-login-certificate que NÃO
+        # deve ser usado (troca o host para o mTLS).
+        "tj_chave": "TJRS - E-Proc 1º",
+        "totp_env": "TOTP_EPROC_TJRS",
+        "sigla":    "RS",
+        "login_user_id":   "username",
+        "login_pass_id":   "password",
+        "login_submit_id": "kc-login",
+        "totp_input_id":  "otp",
+        "totp_submit_id": "kc-login",
+    },
     "SANTA CATARINA": {
         # eproc clássico do TJSC (origem do eproc, login interno como o MG).
         "tj_chave": "TJSC - Eproc 1º Grau",

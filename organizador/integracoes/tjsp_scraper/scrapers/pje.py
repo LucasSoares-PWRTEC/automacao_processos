@@ -105,6 +105,10 @@ _CRED_POR_ESTADO = {
     "PERNAMBUCO":       "TJPE - PJE – 1º Grau",
     "DISTRITO FEDERAL": "TJDF - 1º Grau",
     "RIO DE JANEIRO":   "TJRJ - 1ª instância",
+    "AMAPA":            "TJAP - PJE",
+    "MATO GROSSO":      "TJMT - PJE - 1º Grau",
+    "PARAIBA":          "TJPB - PJE – 1º Grau",
+    "PIAUI":            "TJPI – PJE – 1º Grau",
 }
 
 # Defaults TJMG (fallback quando a url não é informada).

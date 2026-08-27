@@ -19,6 +19,7 @@ from organizador.config import (
     TJ_SISTEMAS,
     _ESTADO_TJ_UF,
     candidatos_tj_para_uf,
+    rota_incompativel_com_numero,
     rotulos_tj_selecionaveis,
     sugerir_tj_para_uf,
     uf_efetiva_tj,
@@ -45,10 +46,48 @@ def test_fallback_do_rj_tenta_a_consulta_publica_antes_das_rotas_com_login():
     ]
 
 
-def test_sugestao_da_tela_no_rj_e_o_pje():
+# Sequencial 0024491 = legado (`tipoProcesso: 1`, número antigo 2021.203.024535-2),
+# validado ao vivo na consulta pública em 2026-08-26.
+NUM_LEGADO_RJ = "0024491-10.2021.8.19.0203"
+NUM_08_RJ = "0800123-45.2025.8.19.0001"
+# `09*` também é PJe/eproc: quatro destes apareceram na varredura e derrubam a
+# suposição de que só "08" sai do legado. Ver test_corte_do_sequencial_do_rj.
+NUM_09_RJ = "0944609-35.2023.8.19.0001"
+
+
+def test_sugestao_da_tela_no_rj_e_o_pje_quando_nao_ha_numero():
     """Pergunta diferente do fallback: aqui é o "trocar para X?" que a pessoa
-    responde. Dos três sistemas do RJ o PJe é o que mais aparece na carteira."""
+    responde. Sem número legível para desempatar, dos três sistemas do RJ o PJe
+    é o que mais aparece na carteira."""
     assert sugerir_tj_para_uf("RJ") == "TJRJ — PJe"
+
+
+def test_sugestao_do_rj_segue_o_sequencial_do_numero():
+    """O override "RJ → PJe" sozinho mandava TODO processo legado para uma rota
+    que gasta navegador + senha + TOTP e volta "não encontrado". O sequencial do
+    CNJ decide: `08*` é PJe/eproc, o resto é legado (só a consulta pública)."""
+    assert sugerir_tj_para_uf("RJ", NUM_LEGADO_RJ) == "TJRJ — Consulta"
+    assert sugerir_tj_para_uf("RJ", NUM_08_RJ) == "TJRJ — PJe"
+    # Número de outra UF não muda a sugestão daquela UF (a regra é só do RJ).
+    assert sugerir_tj_para_uf("SP", "4004459-04.2026.8.26.0248") == "TJSP — eproc"
+
+
+def test_rota_incompativel_avisa_quando_a_uf_bate_mas_o_sistema_nao():
+    """No RJ os três sistemas são todos "RJ", então o aviso por UF nunca dispara
+    — era assim que um número do legado com "TJRJ — PJe" selecionado falhava
+    calado. Só a linha legado × 08* é FATO; PJe × eproc dentro do 08* é palpite
+    e não deve interromper ninguém."""
+    assert rota_incompativel_com_numero("TJRJ — PJe", NUM_LEGADO_RJ) == "TJRJ — Consulta"
+    assert rota_incompativel_com_numero("TJRJ — eproc", NUM_LEGADO_RJ) == "TJRJ — Consulta"
+    assert rota_incompativel_com_numero("TJRJ — Consulta", NUM_08_RJ) == "TJRJ — PJe"
+    # Rota plausível → nenhuma pergunta.
+    assert rota_incompativel_com_numero("TJRJ — Consulta", NUM_LEGADO_RJ) is None
+    assert rota_incompativel_com_numero("TJRJ — PJe", NUM_08_RJ) is None
+    assert rota_incompativel_com_numero("TJRJ — eproc", NUM_08_RJ) is None
+    # Fora do RJ e número ilegível: a regra não opina.
+    assert rota_incompativel_com_numero("TJSP — eproc", NUM_LEGADO_RJ) is None
+    assert rota_incompativel_com_numero("TJRJ — PJe", "sem numero") is None
+    assert rota_incompativel_com_numero("rótulo inexistente", NUM_LEGADO_RJ) is None
 
 
 def test_sugestao_dos_outros_estados_nao_muda_com_o_override_do_rj():
@@ -265,3 +304,161 @@ def test_processo_do_pje_rj_vira_processo_com_autor_e_reu():
     )
     assert _autor(proc) == "AGUA NOVA EMPREENDIMENTOS IMOBILIARIOS LTDA"
     assert _reus_joined(proc) == "ANA BARBARA DOS SANTOS TEIXEIRA"
+
+
+# ---------------------------------------------------------------------------
+# Rede: o www3 do TJRJ recusa parte das conexões (medido em 2026-08-26: 7 de 20
+# connects TCP nunca completam). Sem retry isso derrubava ~1/3 das buscas; e o
+# `return None` de então virava "Scraper não retornou dados para esse número",
+# mandando a pessoa conferir um número que estava certo.
+# ---------------------------------------------------------------------------
+
+class _SessaoFalsa:
+    """Session de mentira: `falhas_ssl` SSLError, depois `falhas` timeouts de
+    conexão, depois responde. A ordem imita a real: o certificado do www3 falha
+    logo no 1º POST de cada sessão, e só então entram (ou não) os timeouts."""
+
+    def __init__(self, falhas: int = 0, resposta=None, falhas_ssl: int = 0):
+        self.falhas = falhas
+        self.falhas_ssl = falhas_ssl
+        self.resposta = resposta
+        self.chamadas = 0
+
+    def post(self, *_a, **_kw):
+        import requests
+        self.chamadas += 1
+        if self.chamadas <= self.falhas_ssl:
+            raise requests.exceptions.SSLError("cadeia de certificado de mentira")
+        if self.chamadas <= self.falhas_ssl + self.falhas:
+            raise requests.exceptions.ConnectTimeout("connect timeout de mentira")
+        return self.resposta
+
+    def close(self):
+        pass
+
+
+class _RespostaFalsa:
+    def __init__(self, status: int, payload):
+        self.status_code = status
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+@pytest.fixture()
+def _sem_pausa(monkeypatch):
+    from organizador.integracoes.tjsp_scraper.scrapers import tjrj as mod
+
+    monkeypatch.setattr(mod, "_PAUSA_ENTRE_TENTATIVAS", 0)
+    return mod
+
+
+def test_post_repete_quando_a_conexao_nao_abre(_sem_pausa):
+    sc = TJRJScraper("RIO DE JANEIRO")
+    ok = _RespostaFalsa(200, [])
+    sessao = _SessaoFalsa(falhas=_sem_pausa._TENTATIVAS - 1, resposta=ok)
+    sc._sess = sessao
+
+    assert sc._post("qualquer", {}) is ok
+    assert sessao.chamadas == _sem_pausa._TENTATIVAS
+
+
+def test_falha_de_rede_nao_vira_processo_nao_encontrado(_sem_pausa):
+    """A distinção que faltava: rede fora do ar tem de gritar "rede", não somir
+    num None que o scraper.py traduz como número inexistente."""
+    sc = TJRJScraper("RIO DE JANEIRO")
+    sessao = _SessaoFalsa(falhas=99)
+    sc._sess = sessao
+
+    with pytest.raises(RuntimeError) as exc:
+        sc.consultar_processo(NUM_LEGADO_RJ)
+
+    assert "REDE" in str(exc.value)
+    assert sessao.chamadas == _sem_pausa._TENTATIVAS
+
+
+def test_processo_inexistente_continua_devolvendo_none(_sem_pausa):
+    """O outro lado da moeda: lista vazia é "não achei", e isso NÃO é erro."""
+    sc = TJRJScraper("RIO DE JANEIRO")
+    sc._sess = _SessaoFalsa(falhas=0, resposta=_RespostaFalsa(200, []))
+
+    assert sc.consultar_processo(NUM_LEGADO_RJ) is None
+
+
+@pytest.mark.parametrize("status", [403, 429, 500, 502, 503])
+def test_recusa_do_servidor_e_tratada_como_rede(_sem_pausa, status):
+    """403 apareceu ao vivo depois de uma rajada de consultas (WAF do TJRJ), e
+    429 é o mesmo recado com outro número. Nenhum dos dois diz nada sobre o
+    número do processo — mandar a pessoa conferi-lo seria pista falsa."""
+    sc = TJRJScraper("RIO DE JANEIRO")
+    sc._sess = _SessaoFalsa(resposta=_RespostaFalsa(status, None))
+
+    with pytest.raises(RuntimeError) as exc:
+        sc.consultar_processo(NUM_LEGADO_RJ)
+
+    assert "REDE" in str(exc.value)
+    assert str(status) in str(exc.value)
+
+
+@pytest.mark.parametrize("status", [404, 412])
+def test_http_sobre_o_numero_continua_sendo_nao_encontrado(_sem_pausa, status):
+    """O outro lado: 404/412 falam do número, não do servidor — seguem no
+    caminho silencioso de "não achei", que o fallback do monitor usa para pular
+    para o próximo sistema sem alarde."""
+    sc = TJRJScraper("RIO DE JANEIRO")
+    sc._sess = _SessaoFalsa(resposta=_RespostaFalsa(status, None))
+
+    assert sc.consultar_processo(NUM_LEGADO_RJ) is None
+
+
+def test_degradacao_de_ssl_nao_consome_tentativa_de_rede(_sem_pausa):
+    """A cadeia de certificado do www3 não valida nesta máquina: a 1ª requisição
+    de toda sessão nova cai em SSLError e o scraper degrada para verify=False.
+    Isso é troca de modo, não conexão perdida — se contasse como tentativa,
+    sobrariam 2 de 3 justo no caso que acontece SEMPRE. E o POST refeito tem de
+    voltar pelo laço: fora dele, um timeout logo após a degradação escapava sem
+    repetir nenhuma vez (visto ao vivo antes desta correção)."""
+    sc = TJRJScraper("RIO DE JANEIRO")
+    ok = _RespostaFalsa(200, [])
+    sessao = _SessaoFalsa(falhas=_sem_pausa._TENTATIVAS - 1, resposta=ok, falhas_ssl=1)
+    sc._sess = sessao
+
+    assert sc._post("qualquer", {}) is ok
+    assert sc._verify is False, "a degradação para verify=False não aconteceu"
+    # 1 SSL (de graça) + as _TENTATIVAS de rede.
+    assert sessao.chamadas == _sem_pausa._TENTATIVAS + 1
+
+
+def test_ssl_que_persiste_sem_verificacao_vira_erro_de_rede(_sem_pausa):
+    """Se o SSL falha MESMO com verify=False, o certificado não é a causa — aí é
+    falha real e tem de gastar tentativa, em vez de degradar em laço eterno."""
+    sc = TJRJScraper("RIO DE JANEIRO")
+    sessao = _SessaoFalsa(falhas_ssl=99)
+    sc._sess = sessao
+
+    with pytest.raises(RuntimeError) as exc:
+        sc.consultar_processo(NUM_LEGADO_RJ)
+
+    assert "REDE" in str(exc.value)
+    # 1 SSL de graça (a degradação) + _TENTATIVAS cobradas.
+    assert sessao.chamadas == _sem_pausa._TENTATIVAS + 1
+
+
+def test_corte_do_sequencial_do_rj_e_medido_nao_e_o_prefixo_08():
+    """Varredura ao vivo dos 389 processos do RJ da carteira (2026-08-26, campo
+    `tipoProcesso` da consulta pública): legado de 0000000 a 0331403, PJe/eproc
+    a partir de 0800054 — separação limpa, sem nada no vão. Testar "começa com
+    08" deixaria de fora os quatro `09*` reais que a varredura achou."""
+    from organizador.config import _numero_e_do_legado_rj
+
+    # Extremos medidos do legado.
+    assert _numero_e_do_legado_rj("0000001-00.2020.8.19.0001") is True
+    assert _numero_e_do_legado_rj("0331403-00.2020.8.19.0001") is True
+    # Extremo medido do outro lado, e os `09*` que o prefixo "08" perdia.
+    assert _numero_e_do_legado_rj("0800054-00.2025.8.19.0001") is False
+    assert _numero_e_do_legado_rj(NUM_09_RJ) is False
+    assert sugerir_tj_para_uf("RJ", NUM_09_RJ) == "TJRJ — PJe"
+    assert rota_incompativel_com_numero("TJRJ — Consulta", NUM_09_RJ) == "TJRJ — PJe"
+    # Ilegível continua sem opinião.
+    assert _numero_e_do_legado_rj("") is None

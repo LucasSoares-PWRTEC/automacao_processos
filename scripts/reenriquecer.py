@@ -458,6 +458,7 @@ def executar(args) -> None:
                         scraper, site, numero, tribunal, uf,
                         modo_docs="nenhum",
                         log=lambda s: print("   " + s.rstrip()),
+                        tj_label=tj_label,
                     )
                 except AtribuicaoDetectadaError as exc:
                     estado[numero] = {

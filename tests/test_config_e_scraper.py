@@ -189,7 +189,13 @@ def test_busca_online_esaj_usa_parser_estruturado(monkeypatch):
 
 def test_busca_online_sinaliza_processo_nao_encontrado(monkeypatch):
     """Página de 'Processo não encontrado' deve virar erro claro, não um
-    registro vazio (eproc devolve a página, não None)."""
+    registro vazio (eproc devolve a página, não None).
+
+    `fallback=False` porque o alvo aqui é a DETECÇÃO do "não encontrado" numa
+    rota. Com o fallback ligado a busca seguiria para o e-SAJ de SP, e o dublê —
+    que devolve a página do eproc em qualquer rota — passaria pelo detector do
+    e-SAJ e "acharia" o processo. O fallback tem cobertura própria em
+    tests/test_busca_fallback.py."""
     mod = importlib.import_module("organizador.scraper")
 
     class FakeScraper:
@@ -210,6 +216,7 @@ def test_busca_online_sinaliza_processo_nao_encontrado(monkeypatch):
     with pytest.raises(RuntimeError, match="não encontrado"):
         mod.buscar_processo_online(
             "0000223-52.2025.8.26.0127", "TJSP — eproc", True, logs.append,
+            fallback=False,
         )
 
 

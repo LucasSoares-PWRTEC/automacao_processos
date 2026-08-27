@@ -42,6 +42,8 @@ from .config import (
     LEGACY_ENV_PATH,
     TJ_SISTEMAS,
     _ESTADO_TJ_UF,
+    candidatos_tj_para_uf,
+    rota_exclusiva_para_numero,
 )
 from .models import Processo
 from .organizacao import _dict_para_processo
@@ -55,6 +57,12 @@ _TARDIOS = {
     ),
     "_extrair_blocos_com_origem": (
         ".integracoes.tjsp_scraper.parser", "_extrair_blocos_com_origem",
+    ),
+    # Tardio como os outros: `popup` mora no pacote `scrapers`, cujo __init__
+    # importa TODOS os scrapers (e o selenium junto) — importá-lo no topo
+    # colocaria o selenium no caminho de abertura do app.
+    "AtribuicaoDetectadaError": (
+        ".integracoes.tjsp_scraper.scrapers.popup", "AtribuicaoDetectadaError",
     ),
 }
 
@@ -249,6 +257,35 @@ def salvar_config_autojur(valores: dict[str, str]) -> None:
     _salvar_valores_env(valores, set(CHAVES_AUTOJUR.values()))
 
 
+# Prefixo da tag que registra ONDE o processo foi achado.
+#
+# Essa informação existia só por acidente: o lote de junho gravou o sistema em
+# `data/_naomapeados_estado.json`, e foi esse arquivo — não raspagem nova — que
+# em 2026-08-27 respondeu "MG tem corte por sequencial?" (não tem) e revelou que
+# os dois sistemas de SP se sobrepõem, derrubando uma regra já escrita. Guardar
+# no próprio processo torna a pergunta respondível sempre, de graça, sem
+# depender de um arquivo de estado de um lote específico.
+_TAG_SISTEMA = "Sistema: "
+
+# Sistemas que expõem CPF/CNPJ das partes. As consultas PÚBLICAS (e-SAJ do TJSP,
+# consulta do TJRJ) não trazem documento — o que só aparece na hora de montar a
+# petição, quando já é tarde. Ver `_PRIORIDADE_SITE` em config.py, que por isso
+# deixa o e-SAJ por último no fallback do monitor.
+_SITES_COM_DOCUMENTO = frozenset({"eproc", "pje", "projudi"})
+
+
+def marcar_sistema(proc: Processo, tj_label: str) -> None:
+    """Anota (ou reanota) em que rota o processo foi achado.
+
+    Substitui em vez de acrescentar: um processo migra de sistema (o RJ inteiro
+    está migrando), e duas tags `Sistema:` no mesmo processo fariam a antiga
+    mentir sem ninguém notar."""
+    if not tj_label:
+        return
+    proc.tags[:] = [t for t in proc.tags if not t.startswith(_TAG_SISTEMA)]
+    proc.tags.append(f"{_TAG_SISTEMA}{tj_label}")
+
+
 def _consultar_e_extrair(
     scraper,
     site: str,
@@ -257,6 +294,7 @@ def _consultar_e_extrair(
     uf: str,
     modo_docs: str = "nenhum",
     log: Callable[[str], None] = lambda s: None,
+    tj_label: str = "",
 ) -> Processo:
     """Consulta um processo num scraper JÁ LOGADO e devolve o ``Processo`` extraído.
 
@@ -337,7 +375,36 @@ def _consultar_e_extrair(
                 if kw not in proc.tags:
                     proc.tags.append(kw)
 
+    marcar_sistema(proc, tj_label)
+
+    # Aviso de graça, não busca extra: em SP a rota sugerida para `1*` é o e-SAJ
+    # justamente por ser pública, e o preço dela é este. Dizer qual rota tem o
+    # documento é barato; ir buscá-lo sozinho custaria um login em toda consulta.
+    if proc.partes and not any(p.documento for p in proc.partes):
+        outras = [
+            lbl for lbl in candidatos_tj_para_uf(uf)
+            if TJ_SISTEMAS[lbl][0] in _SITES_COM_DOCUMENTO and lbl != tj_label
+        ]
+        if outras:
+            log(f"Nenhuma parte veio com CPF/CNPJ — consulta pública não traz. "
+                f"Se precisar do documento, refaça em {outras[0]}.\n")
     return proc
+
+
+def _rotas_da_busca(tj_label: str, uf_num: str) -> list[str]:
+    """Rotas a tentar, em ordem: a escolhida primeiro, depois as outras da UF.
+
+    A escolhida vai na frente mesmo quando não é a mais provável — quem digitou
+    escolheu, e a tela já ofereceu a troca antes (gui `_buscar_online`). As
+    demais seguem a ordem de `candidatos_tj_para_uf`, que põe na frente a rota
+    mais barata (no RJ, a consulta pública: sem navegador, sem senha, sem TOTP)
+    e já exclui as rotas comprovadamente inoperantes.
+    """
+    rotas = [tj_label]
+    for lbl in candidatos_tj_para_uf(uf_num):
+        if lbl not in rotas:
+            rotas.append(lbl)
+    return rotas
 
 
 def buscar_processo_online(
@@ -345,6 +412,7 @@ def buscar_processo_online(
     modo_docs: str = "nenhum",
     modo_debug: str = "off",
     reter_scraper: Callable[[object], None] | None = None,
+    fallback: bool = True,
 ) -> Processo:
     """Loga no TJ/sistema escolhido via integração internalizada, consulta o processo e
     devolve um Processo.
@@ -370,8 +438,16 @@ def buscar_processo_online(
     `reter_scraper` para que o chamador segure a referência do scraper (evita
     que o navegador feche por coleta de lixo) e possa fechá-lo depois.
 
+    `fallback` (padrão True): se o processo não estiver no sistema escolhido,
+    tenta os OUTROS sistemas da mesma UF antes de desistir, na ordem de
+    `_rotas_da_busca`. Desligado automaticamente nos modos de debug (lá se
+    inspeciona uma rota específica). Cada rota extra custa um navegador e um
+    login com 2FA, então o fallback PARA cedo em dois casos: quando o processo
+    foi achado (óbvio) e quando o número só pode estar na rota que falhou
+    (`rota_exclusiva_para_numero`) — aí tentar outra não teria como dar certo.
+
     Levanta ValueError (número/TJ inválidos), ImportError (libs do scraper
-    ausentes) ou RuntimeError (login/consulta sem resultado).
+    ausentes) ou RuntimeError (login/consulta sem resultado em nenhuma rota).
     """
     m = RE_NUMERO_CNJ.search(numero or "")
     if not m:
@@ -379,7 +455,7 @@ def buscar_processo_online(
     numero = m.group(0)
     if tj_label not in TJ_SISTEMAS:
         raise ValueError(f"TJ/sistema inválido: {tj_label!r}")
-    site, estado, url, perfil = TJ_SISTEMAS[tj_label]
+    _site, estado, _url, _perfil = TJ_SISTEMAS[tj_label]
     tribunal, uf = _ESTADO_TJ_UF[estado]
 
     # Aviso (não bloqueia): número parece ser de outra UF que não a do TJ escolhido.
@@ -396,44 +472,80 @@ def buscar_processo_online(
     if debug and headless:
         log("Aviso: modo debug com 'Navegador invisível' ligado — nada a inspecionar.\n")
 
-    log(f"Abrindo {tj_label} e logando...\n")
-    scraper = _tardio("criar_scraper")(
-        site=site, estado=estado, url=url, headless=headless, perfil=perfil
+    rotas = _rotas_da_busca(tj_label, uf_num) if (fallback and not debug) else [tj_label]
+    exclusiva = rota_exclusiva_para_numero(numero)
+    if len(rotas) > 1:
+        log("Se não estiver no primeiro, tento os outros: "
+            + " → ".join(rotas) + ".\n")
+
+    problemas: list[str] = []
+    for i, rota in enumerate(rotas, 1):
+        site, estado, url, perfil = TJ_SISTEMAS[rota]
+        tribunal, uf = _ESTADO_TJ_UF[estado]
+        passo = f"[{i}/{len(rotas)}] " if len(rotas) > 1 else ""
+        log(f"{passo}Abrindo {rota} e logando...\n")
+        scraper = None
+        try:
+            scraper = _tardio("criar_scraper")(
+                site=site, estado=estado, url=url, headless=headless, perfil=perfil
+            )
+            # Em debug o navegador fica aberto após a função retornar; o chamador
+            # precisa segurar a referência do scraper para o Chrome não ser fechado
+            # pela coleta de lixo (e para conseguir fechá-lo depois).
+            if debug and reter_scraper is not None:
+                reter_scraper(scraper)
+            scraper.login()
+            if modo_debug == "pos_login":
+                log("🐞 DEBUG: parado após o login (sem pesquisar o processo). "
+                    "Navegador deixado aberto para inspeção.\n")
+                return Processo(numero=numero, tribunal=tribunal, uf=uf)
+            proc = _consultar_e_extrair(
+                scraper, site, numero, tribunal, uf, modo_docs=modo_docs, log=log,
+                tj_label=rota,
+            )
+
+            if modo_debug == "pos_consulta":
+                log("🐞 DEBUG: consulta concluída — valide os dados extraídos abaixo "
+                    "contra a página aberta no navegador.\n")
+                log(f"   Nº: {proc.numero}\n")
+                log(f"   Classe: {proc.classe or '—'}\n")
+                log(f"   Tribunal/UF: {proc.tribunal or '—'}/{proc.uf or '—'}\n")
+                log(f"   Órgão julgador: {proc.orgao_julgador or '—'}\n")
+                log(f"   Juiz(a): {proc.juiz or '—'}\n")
+                log(f"   Valor da causa: {proc.valor_causa or '—'}\n")
+                log(f"   Comarca/Vara: {proc.comarca or '—'} / {proc.vara or '—'}\n")
+                log(f"   Última mov.: {proc.ultima_movimentacao or '—'}\n")
+                log(f"   Tags: {', '.join(proc.tags) if proc.tags else '—'}\n")
+                log("   Navegador deixado aberto para conferência.\n")
+
+            if i > 1:
+                log(f"Achado em {rota} (o {i}º sistema tentado).\n")
+            return proc
+        except _tardio("AtribuicaoDetectadaError"):
+            # Pop-up de "atribuir o processo ao advogado": o processo FOI achado.
+            # Regra do projeto — não seguir para outro sistema depois dele.
+            raise
+        except ImportError:
+            raise  # biblioteca do scraper faltando: trocar de rota não conserta
+        except Exception as exc:
+            problemas.append(f"{rota}: {exc}")
+            if rota == exclusiva:
+                log(f"   ↪ {exc}\n   {rota} é o único sistema que pode ter este "
+                    f"número — não adianta tentar os outros.\n")
+                break
+            if i < len(rotas):
+                log(f"   ↪ {exc}\n   Tentando o próximo sistema...\n")
+        finally:
+            # Em debug o navegador é mantido aberto (o chamador o fecha depois).
+            if not debug and scraper is not None:
+                try:
+                    scraper.fechar()
+                except Exception:
+                    pass
+
+    if len(problemas) == 1:
+        raise RuntimeError(problemas[0].split(": ", 1)[-1])
+    raise RuntimeError(
+        f"Processo {numero} não foi obtido em nenhum dos {len(problemas)} "
+        f"sistemas tentados:\n  - " + "\n  - ".join(problemas)
     )
-    # Em debug o navegador fica aberto após a função retornar; o chamador
-    # precisa segurar a referência do scraper para o Chrome não ser fechado
-    # pela coleta de lixo (e para conseguir fechá-lo depois).
-    if debug and reter_scraper is not None:
-        reter_scraper(scraper)
-    try:
-        scraper.login()
-        if modo_debug == "pos_login":
-            log("🐞 DEBUG: parado após o login (sem pesquisar o processo). "
-                "Navegador deixado aberto para inspeção.\n")
-            return Processo(numero=numero, tribunal=tribunal, uf=uf)
-        proc = _consultar_e_extrair(
-            scraper, site, numero, tribunal, uf, modo_docs=modo_docs, log=log
-        )
-
-        if modo_debug == "pos_consulta":
-            log("🐞 DEBUG: consulta concluída — valide os dados extraídos abaixo "
-                "contra a página aberta no navegador.\n")
-            log(f"   Nº: {proc.numero}\n")
-            log(f"   Classe: {proc.classe or '—'}\n")
-            log(f"   Tribunal/UF: {proc.tribunal or '—'}/{proc.uf or '—'}\n")
-            log(f"   Órgão julgador: {proc.orgao_julgador or '—'}\n")
-            log(f"   Juiz(a): {proc.juiz or '—'}\n")
-            log(f"   Valor da causa: {proc.valor_causa or '—'}\n")
-            log(f"   Comarca/Vara: {proc.comarca or '—'} / {proc.vara or '—'}\n")
-            log(f"   Última mov.: {proc.ultima_movimentacao or '—'}\n")
-            log(f"   Tags: {', '.join(proc.tags) if proc.tags else '—'}\n")
-            log("   Navegador deixado aberto para conferência.\n")
-
-        return proc
-    finally:
-        # Em debug o navegador é mantido aberto (o chamador o fecha depois).
-        if not debug:
-            try:
-                scraper.fechar()
-            except Exception:
-                pass
