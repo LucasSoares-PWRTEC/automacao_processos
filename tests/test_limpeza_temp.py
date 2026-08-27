@@ -26,6 +26,7 @@ from pathlib import Path
 
 import pytest
 
+import organizador.gui as gui
 from organizador.gui import (
     _EXTRACAO_S, _dados_do_bundle_faltando, _limpar_temp_orfaos, _mei_em_uso,
     _mei_recem_escrito,
@@ -254,3 +255,70 @@ def test_modo_fonte_nunca_reclama(monkeypatch):
     """Rodando do código-fonte não existe bundle: a checagem não se aplica."""
     monkeypatch.setattr(sys, "frozen", False, raising=False)
     assert _dados_do_bundle_faltando() == []
+
+
+# ---------------------------------------------------------------------------
+# Extração incompleta do onefile: o erro que sai TARDE
+# ---------------------------------------------------------------------------
+# Relatado numa máquina em 27/08/2026, com duas janelas de erro:
+#   "ModuleNotFoundError: No module named 'select'"  (no meio de uma busca)
+#   "Failed to remove temporary directory: ..._MEI54442"  (do bootloader)
+# `select.pyd` ESTÁ no exe publicado — conferido byte a byte no artefato. O que
+# faltava era na PASTA EXTRAÍDA. E como o `select` só entra tarde (pelo urllib3,
+# na primeira conexão da busca online), a checagem de abertura passava limpa e o
+# estouro aparecia longe da causa.
+
+def test_modulos_binarios_tardios_sao_conferidos_na_abertura():
+    """Sem isto, uma extração incompleta só aparece no meio de um fluxo."""
+    assert "select" in gui._MODULOS_TARDIOS, (
+        "o módulo que estourou na máquina do usuário tem de estar na lista"
+    )
+    # Rodando os testes, o Python está inteiro: a checagem não pode acusar nada.
+    assert gui._modulos_binarios_faltando() == []
+
+
+def test_modulo_ausente_entra_no_relatorio_de_bundle_incompleto(monkeypatch):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(gui, "_modulos_binarios_faltando", lambda: ["select"])
+    # o resto do bundle presente, para isolar o que este teste mede
+    monkeypatch.setattr(gui, "PASTA_PETICOES", Path(__file__).parent)
+    monkeypatch.setattr(gui, "caminho_sqlite", lambda _p: Path(__file__))
+    monkeypatch.setattr(gui, "CONFIG_SEMENTE_DIR", Path(__file__).parent)
+
+    faltando = gui._dados_do_bundle_faltando()
+
+    assert any("select" in item for item in faltando), faltando
+
+
+def test_temp_apertado_aponta_disco_cheio_e_orfaos(monkeypatch, tmp_path):
+    """As duas causas de extração parcial, e as duas que o usuário pode resolver:
+    disco sem espaço e pastas _MEI* de sobra (cada uma pesa o bundle inteiro)."""
+    import shutil
+    import tempfile
+
+    for nome in ("_MEI111", "_MEI222"):
+        (tmp_path / nome).mkdir()
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "_MEIatual"), raising=False)
+    monkeypatch.setattr(
+        shutil, "disk_usage",
+        lambda _p: type("U", (), {"free": 1 * 1024 ** 3, "total": 0, "used": 0})(),
+    )
+
+    texto = gui._temp_apertado()
+
+    assert "1.0 GB livres" in texto
+    assert "2 pasta(s) _MEI*" in texto
+
+
+def test_temp_folgado_nao_inventa_causa(monkeypatch, tmp_path):
+    import shutil
+    import tempfile
+
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        shutil, "disk_usage",
+        lambda _p: type("U", (), {"free": 90 * 1024 ** 3, "total": 0, "used": 0})(),
+    )
+
+    assert gui._temp_apertado() == ""

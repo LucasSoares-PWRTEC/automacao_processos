@@ -4753,6 +4753,62 @@ def _resetar_dados_locais() -> tuple[list[str], list[str]]:
     return apagados, falhas
 
 
+# Extensões C da stdlib que o app só importa TARDE, no meio de um fluxo (o
+# `select` entra pelo urllib3 quando a busca online abre a primeira conexão).
+# Se a extração do onefile ficou incompleta, elas faltam sem ninguém notar e o
+# estouro sai como `ModuleNotFoundError: No module named 'select'` numa janela
+# de erro, no meio de uma busca — relatado numa máquina em 27/08/2026, onde o
+# bootloader também falhava em remover o `_MEI` ao sair (pastas órfãs de ~99 MB
+# acumulando até faltar disco para a próxima extração).
+#
+# `find_spec` em vez de importar: é a mesma resposta sem executar o módulo, e a
+# checagem roda no caminho de abertura.
+_MODULOS_TARDIOS = ("select", "_socket", "_ssl", "_sqlite3", "zlib")
+
+
+def _modulos_binarios_faltando() -> list[str]:
+    """Extensões da stdlib ausentes do bundle extraído. Vazio = tudo certo."""
+    from importlib.util import find_spec
+
+    faltando = []
+    for nome in _MODULOS_TARDIOS:
+        try:
+            if find_spec(nome) is None:
+                faltando.append(nome)
+        except (ImportError, ValueError):
+            faltando.append(nome)
+    return faltando
+
+
+def _temp_apertado() -> str:
+    """Descrição do %TEMP% quando ele explica uma extração incompleta, ou "".
+
+    Espaço livre e pastas `_MEI*` órfãs: as duas coisas que fazem o bootloader
+    extrair só parte do bundle. Cada órfã pesa o bundle inteiro (~99 MB), e elas
+    só acumulam onde a remoção na saída falha (antivírus segurando arquivo,
+    processo morto à força)."""
+    import shutil
+    import tempfile
+
+    try:
+        raiz = tempfile.gettempdir()
+        orfaos = sum(
+            1 for n in os.listdir(raiz)
+            if n.startswith("_MEI") and os.path.isdir(os.path.join(raiz, n))
+            and os.path.normcase(os.path.join(raiz, n))
+            != os.path.normcase(str(getattr(sys, "_MEIPASS", "")))
+        )
+        livre_gb = shutil.disk_usage(raiz).free / (1024 ** 3)
+    except OSError:
+        return ""
+    partes = []
+    if livre_gb < 3:
+        partes.append(f"só {livre_gb:.1f} GB livres no disco")
+    if orfaos:
+        partes.append(f"{orfaos} pasta(s) _MEI* de sobra em {raiz}")
+    return "; ".join(partes)
+
+
 def _dados_do_bundle_faltando() -> list[str]:
     """Itens embutidos na release que sumiram do ``_MEIPASS``. Vazio = tudo certo.
 
@@ -4771,6 +4827,9 @@ def _dados_do_bundle_faltando() -> list[str]:
         faltando.append("a base de processos pré-carregados")
     if not CONFIG_SEMENTE_DIR.is_dir():
         faltando.append("a configuração do escritório (config/)")
+    binarios = _modulos_binarios_faltando()
+    if binarios:
+        faltando.append("partes do próprio Python (" + ", ".join(binarios) + ")")
     return faltando
 
 
@@ -4780,13 +4839,20 @@ def _avisar_bundle_incompleto(app: "App") -> None:
     if not faltando:
         return
     lista = "\n".join(f"  • {item}" for item in faltando)
-    _atualizacao().registrar(f"BUNDLE INCOMPLETO: {'; '.join(faltando)}")
+    aperto = _temp_apertado()
+    _atualizacao().registrar(
+        f"BUNDLE INCOMPLETO: {'; '.join(faltando)}"
+        + (f" | temp: {aperto}" if aperto else "")
+    )
     app._notificar(
         "Instalação incompleta",
         "Não encontrei estes itens que vêm dentro do programa:\n\n"
         f"{lista}\n\n"
-        "Feche TODAS as janelas do Organizador de Processos e abra apenas uma. "
-        "Se continuar, baixe o programa novamente.",
+        + (f"Causa provável: {aperto}. Feche o programa e apague as pastas "
+           f"_MEI* da pasta temporária.\n\n" if aperto else
+           "Feche TODAS as janelas do Organizador de Processos e abra apenas "
+           "uma.\n\n")
+        + "Se continuar, baixe o programa novamente.",
         nivel="error",
     )
 
