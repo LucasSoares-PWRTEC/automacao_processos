@@ -167,3 +167,43 @@ def test_toda_rota_eproc_tem_config_de_estado():
     for rotulo, (site, estado, _url, _perfil) in TJ_SISTEMAS.items():
         if site == "eproc":
             assert estado in _CONFIG_POR_ESTADO, f"{rotulo}: estado {estado} sem config"
+
+
+@pytest.mark.parametrize("estado, keycloak", [
+    ("RIO DE JANEIRO", True), ("RIO GRANDE DO SUL", True),
+    ("SANTA CATARINA", True), ("SAO PAULO", True),
+    ("MINAS GERAIS", False),
+])
+def test_config_de_login_do_eproc_bate_com_o_tipo_de_tela(estado, keycloak):
+    """Cada eproc usa Keycloak OU o login interno clássico, e os ids são
+    excludentes. Misturar não dá erro claro: o scraper espera a VISIBILIDADE de
+    um campo que existe no HTML mas está oculto, trava ~300 s e morre num read
+    timeout do chromedriver — foi o que aconteceu com SC depois que o TJSC
+    migrou para `sso.tjsc.jus.br/realms/eproc` e a config ficou para trás.
+
+    MG segue no login interno (`txtUsuario`), e é o contraste que dá sentido ao
+    teste: ele checa coerência, não impõe Keycloak para todo mundo.
+    """
+    from organizador.integracoes.tjsp_scraper.scrapers.eproc import _CONFIG_POR_ESTADO
+
+    cfg = _CONFIG_POR_ESTADO[estado]
+    ids = (cfg["login_user_id"], cfg["login_pass_id"], cfg["login_submit_id"],
+           cfg["totp_input_id"], cfg["totp_submit_id"])
+    if keycloak:
+        assert ids == ("username", "password", "kc-login", "otp", "kc-login")
+    else:
+        assert ids == ("txtUsuario", "pwdSenha", "sbmEntrar",
+                       "txtAcessoCodigo", "btnValidar")
+
+
+def test_lotacao_do_rs_nao_e_a_uf_do_tribunal():
+    """`sigla` é o prefixo da LOTAÇÃO a clicar, não a UF do tribunal. No TJRS a
+    conta do escritório só tem MG104784 e BA049510 — nenhuma OAB do RS. Com
+    "RS" o login passava (2FA inclusive) e morria em "não achei lotação
+    compatível". A UF atendida continua RS porque TJ_SISTEMAS tem perfil=None."""
+    from organizador.config import uf_efetiva_tj
+    from organizador.integracoes.tjsp_scraper.scrapers.eproc import _CONFIG_POR_ESTADO
+
+    assert _CONFIG_POR_ESTADO["RIO GRANDE DO SUL"]["sigla"] == "MG"
+    assert TJ_SISTEMAS["TJRS — eproc"][3] is None
+    assert uf_efetiva_tj("TJRS — eproc") == "RS"

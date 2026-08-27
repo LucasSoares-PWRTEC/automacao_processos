@@ -108,7 +108,13 @@ _CONFIG_POR_ESTADO = {
         # deve ser usado (troca o host para o mTLS).
         "tj_chave": "TJRS - E-Proc 1º",
         "totp_env": "TOTP_EPROC_TJRS",
-        "sigla":    "RS",
+        # `sigla` é o prefixo da LOTAÇÃO a clicar, não a UF do tribunal — e aqui
+        # os dois divergem. Screenshot da tela de seleção de perfil do TJRS em
+        # 2026-08-27: a conta do escritório só tem MG104784 e BA049510, nenhuma
+        # OAB do RS. Com "RS" o login passava (2FA inclusive) e morria em "não
+        # achei lotação compatível". A UF que a rota atende segue RS, porque
+        # `TJ_SISTEMAS` mantém perfil=None e `uf_efetiva_tj` usa o estado.
+        "sigla":    "MG",
         "login_user_id":   "username",
         "login_pass_id":   "password",
         "login_submit_id": "kc-login",
@@ -116,15 +122,21 @@ _CONFIG_POR_ESTADO = {
         "totp_submit_id": "kc-login",
     },
     "SANTA CATARINA": {
-        # eproc clássico do TJSC (origem do eproc, login interno como o MG).
+        # O TJSC MIGROU para Keycloak (sso.tjsc.jus.br/realms/eproc) — não é
+        # mais o login interno clássico. Confirmado por GET na tela em
+        # 2026-08-27: `sbmEntrar` nem existe mais, e `txtUsuario`/`pwdSenha`
+        # continuam no HTML só como campos ocultos do form auxiliar. Apontar
+        # para eles fazia o `visibility_of_element_located` esperar por campo
+        # que nunca aparece: a busca travava ~300 s e morria num read timeout do
+        # chromedriver, sem nada que indicasse "config de login desatualizada".
         "tj_chave": "TJSC - Eproc 1º Grau",
         "totp_env": "TOTP_EPROC_TJSC",
         "sigla":    "SC",
-        "login_user_id":   "txtUsuario",
-        "login_pass_id":   "pwdSenha",
-        "login_submit_id": "sbmEntrar",
-        "totp_input_id":  "txtAcessoCodigo",
-        "totp_submit_id": "btnValidar",
+        "login_user_id":   "username",
+        "login_pass_id":   "password",
+        "login_submit_id": "kc-login",
+        "totp_input_id":  "otp",
+        "totp_submit_id": "kc-login",
     },
 }
 
