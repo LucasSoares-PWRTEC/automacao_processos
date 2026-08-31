@@ -322,3 +322,197 @@ def test_temp_folgado_nao_inventa_causa(monkeypatch, tmp_path):
     )
 
     assert gui._temp_apertado() == ""
+
+
+# ---------------------------------------------------------------------------
+# A pasta de extração saiu do %TEMP%
+# ---------------------------------------------------------------------------
+# O `select.pyd` sumia da pasta extraída COM O APP ABERTO, e a busca online
+# estourava em `ModuleNotFoundError: No module named 'select'` — 27/08/2026 e
+# 31/08/2026. Quem apagava era faxina de temporários alheia ao app (o Sensor de
+# Armazenamento do Windows apaga o que "os apps não estão usando", ou seja o
+# arquivo NÃO TRAVADO). Duas defesas, testadas aqui e abaixo:
+#   1. `runtime_tmpdir` fora do %TEMP% (OrganizadorProcessos.spec);
+#   2. importar as extensões tardias na abertura, o que TRAVA a imagem delas.
+
+
+def test_spec_extrai_fora_do_temp():
+    """Trava do conserto nº 1: voltar o `runtime_tmpdir` para None (=%TEMP%)
+    reabre a falha inteira, e é uma linha fácil de perder num merge."""
+    spec = (Path(__file__).resolve().parents[1] / "OrganizadorProcessos.spec").read_text(
+        encoding="utf-8"
+    )
+    assert "runtime_tmpdir=_RUNTIME_TMPDIR" in spec, (
+        "o EXE voltou a extrair no %TEMP%, onde limpadores de temporários apagam "
+        ".pyd ainda não importado"
+    )
+    assert "%LOCALAPPDATA%" in spec
+
+
+def test_raizes_mei_cobre_bundle_e_temp_legado(monkeypatch, tmp_path):
+    """As órfãs das versões até a 1.15.0 ficaram no %TEMP%: continuar varrendo
+    lá é o que faz alguém recolher esses ~99 MB por pasta."""
+    bundle = tmp_path / "bundle"
+    temp = tmp_path / "temp"
+    (bundle / "_MEIatual").mkdir(parents=True)
+    temp.mkdir()
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(temp))
+    monkeypatch.setattr(sys, "_MEIPASS", str(bundle / "_MEIatual"), raising=False)
+
+    raizes = [os.path.normcase(r) for r in gui._raizes_mei()]
+
+    assert raizes[0] == os.path.normcase(str(bundle)), "a raiz do bundle vem 1º"
+    assert os.path.normcase(str(temp)) in raizes, "parou de varrer o %TEMP% legado"
+
+
+def test_raizes_mei_nao_repete_quando_coincidem(monkeypatch, tmp_path):
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path / "_MEIatual"), raising=False)
+    assert len(gui._raizes_mei()) == 1
+
+
+def test_limpa_orfa_na_raiz_do_bundle_e_no_temp(monkeypatch, tmp_path):
+    """Sem isto, as órfãs passariam a acumular em %LOCALAPPDATA% sem ninguém
+    olhando — o problema que a limpeza existe para evitar, de mudança."""
+    bundle = tmp_path / "bundle"
+    temp = tmp_path / "temp"
+    bundle.mkdir()
+    temp.mkdir()
+    atual = _criar_mei(bundle, "_MEI_ATUAL", orfa=False)
+    orfa_bundle = _criar_mei(bundle, "_MEI_ORFA_NOVA")
+    orfa_temp = _criar_mei(temp, "_MEI_ORFA_LEGADA")
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(temp))
+    monkeypatch.setattr(sys, "_MEIPASS", str(atual), raising=False)
+
+    assert _limpar_temp_orfaos() == 2
+    assert atual.exists(), "apagou a pasta do próprio processo"
+    assert not orfa_bundle.exists()
+    assert not orfa_temp.exists()
+
+
+def test_raiz_do_bundle_inexistente_nao_levanta(monkeypatch, tmp_path):
+    """1ª abertura da versão nova: a raiz pode não existir ainda."""
+    monkeypatch.setattr("tempfile.gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(
+        sys, "_MEIPASS", str(tmp_path / "nao" / "existe" / "_MEIatual"), raising=False
+    )
+    assert _limpar_temp_orfaos() == 0
+
+
+# ---------------------------------------------------------------------------
+# Conserto nº 2: importar as extensões tardias TRAVA o arquivo
+# ---------------------------------------------------------------------------
+# `select` entra pelo urllib3 (`urllib3/util/wait.py`: `import select`), e o
+# urllib3 só é carregado quando o selenium é — no PRIMEIRO clique em "Buscar
+# online". Até ali `select.pyd` nunca foi carregado, e o que não está carregado
+# o Windows não protege. Importar na abertura fecha essa janela.
+
+
+@pytest.fixture(autouse=True)
+def _esquecer_memoria_dos_tardios():
+    """A resposta é memorizada em produção (é do momento da abertura); nos
+    testes cada caso precisa medir de novo."""
+    gui._tardios_faltando = None
+    yield
+    gui._tardios_faltando = None
+
+
+def test_modulos_tardios_ficam_carregados_depois_da_checagem():
+    """O ponto do conserto: não é só CONFERIR, é deixar CARREGADO — imagem
+    carregada é imagem que o Windows trava e ninguém apaga.
+
+    Descarrega o `select` antes (extensão C: reimportar é barato e seguro, o
+    CPython guarda a inicializada) para que o teste meça o import de verdade e
+    não o resíduo de quem importou urllib3 antes."""
+    sys.modules.pop("select", None)
+
+    assert gui._modulos_binarios_faltando() == []
+
+    for nome in gui._MODULOS_TARDIOS:
+        assert nome in sys.modules, f"{nome} não ficou carregado (logo, apagável)"
+
+
+def test_select_esta_na_lista():
+    """O módulo que estourou na máquina do usuário, duas vezes."""
+    assert "select" in gui._MODULOS_TARDIOS
+
+
+def test_modulo_que_nao_importa_e_denunciado(monkeypatch):
+    monkeypatch.setattr(gui, "_MODULOS_TARDIOS", ("select", "modulo_que_nao_existe_xyz"))
+    assert gui._modulos_binarios_faltando() == ["modulo_que_nao_existe_xyz"]
+
+
+def test_resposta_e_memorizada(monkeypatch):
+    """A resposta é do momento da abertura: repetir os imports não mudaria nada,
+    e o `_avisar_bundle_incompleto` precisa ver o mesmo diagnóstico da abertura."""
+    monkeypatch.setattr(gui, "_MODULOS_TARDIOS", ("modulo_que_nao_existe_xyz",))
+    primeira = gui._modulos_binarios_faltando()
+    assert primeira == ["modulo_que_nao_existe_xyz"]
+
+    # Lista trocada DEPOIS: se houvesse reimport, a resposta mudaria.
+    monkeypatch.setattr(gui, "_MODULOS_TARDIOS", ("select",))
+    assert gui._modulos_binarios_faltando() is primeira
+
+
+# ---------------------------------------------------------------------------
+# As tarefas de abertura: fora do caminho crítico, e na ordem certa
+# ---------------------------------------------------------------------------
+
+
+class _AppFalso:
+    """O mínimo de App que `_tarefas_de_abertura` toca."""
+
+    def __init__(self) -> None:
+        self.agendado: list = []
+        self.notificacoes: list[tuple] = []
+
+    def after(self, _ms, funcao=None):
+        self.agendado.append(funcao)
+        return "id"
+
+    def _notificar(self, titulo, texto, nivel="info"):
+        self.notificacoes.append((titulo, texto, nivel))
+
+
+def test_tarefas_de_abertura_trava_antes_de_limpar(monkeypatch):
+    """A defesa (travar os .pyd) tem de vir antes da faxina — e as duas antes do
+    aviso, que precisa do diagnóstico das duas na mão."""
+    ordem: list[str] = []
+    monkeypatch.setattr(gui, "_modulos_binarios_faltando",
+                        lambda: ordem.append("travar") or [])
+    monkeypatch.setattr(gui, "_limpar_temp_orfaos",
+                        lambda: ordem.append("limpar") or 0)
+    monkeypatch.setattr(gui, "_dados_do_bundle_faltando",
+                        lambda: ordem.append("conferir") or [])
+
+    gui._tarefas_de_abertura(_AppFalso())
+
+    assert ordem == ["travar", "limpar", "conferir"]
+
+
+def test_aviso_de_bundle_incompleto_vai_para_a_main_thread(monkeypatch):
+    """Tkinter só é seguro na main thread: o aviso tem de passar por `after`."""
+    monkeypatch.setattr(gui, "_modulos_binarios_faltando", lambda: ["select"])
+    monkeypatch.setattr(gui, "_limpar_temp_orfaos", lambda: 0)
+    monkeypatch.setattr(gui, "_dados_do_bundle_faltando", lambda: ["partes do Python"])
+    monkeypatch.setattr(gui, "_atualizacao", lambda: type(
+        "A", (), {"registrar": staticmethod(lambda _t: None)})())
+    app = _AppFalso()
+
+    gui._tarefas_de_abertura(app)
+
+    assert len(app.agendado) == 1, "avisou fora da main thread"
+    app.agendado[0]()          # o que o Tk faria
+    assert app.notificacoes and app.notificacoes[0][2] == "error"
+
+
+def test_tarefas_de_abertura_nunca_levanta(monkeypatch):
+    """Nada aqui pode impedir o app de abrir."""
+    def explode():
+        raise RuntimeError("disco pegando fogo")
+
+    monkeypatch.setattr(gui, "_modulos_binarios_faltando", explode)
+    monkeypatch.setattr(gui, "_limpar_temp_orfaos", explode)
+    monkeypatch.setattr(gui, "_dados_do_bundle_faltando", explode)
+
+    gui._tarefas_de_abertura(_AppFalso())    # sem exceção

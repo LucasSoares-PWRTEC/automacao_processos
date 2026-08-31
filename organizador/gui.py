@@ -4629,8 +4629,42 @@ def _iniciar_varredura_navegadores() -> None:
     threading.Thread(target=run, daemon=True).start()
 
 
+def _raizes_mei() -> list[str]:
+    """Pastas onde pode haver ``_MEI*``, na ordem em que interessam.
+
+    Duas, e as duas precisam ser varridas:
+
+    1. A que o bundle usa HOJE — o pai de ``sys._MEIPASS``. O onefile se extrai
+       em ``%LOCALAPPDATA%\\OrganizadorProcessos\\_bundle``
+       (``runtime_tmpdir`` no OrganizadorProcessos.spec), fora do alcance dos
+       limpadores de temporários que apagavam .pyd ainda não importado e
+       estouravam a busca em ``ModuleNotFoundError: No module named 'select'``.
+    2. O ``%TEMP%`` LEGADO, onde o app se extraía até a 1.15.0. As órfãs
+       de ~99 MB que ficaram lá continuam sendo lixo para recolher, e ninguém
+       mais passaria por elas se esta função só olhasse a raiz nova.
+
+    Do fonte só existe a segunda (não há ``_MEIPASS``)."""
+    raizes: list[str] = []
+    mei = getattr(sys, "_MEIPASS", None)
+    if mei:
+        with contextlib.suppress(Exception):
+            raizes.append(os.path.dirname(os.path.abspath(mei)))
+    with contextlib.suppress(Exception):
+        import tempfile
+        raizes.append(tempfile.gettempdir())
+    vistas: set[str] = set()
+    unicas: list[str] = []
+    for raiz in raizes:
+        chave = os.path.normcase(raiz)
+        if chave not in vistas:
+            vistas.add(chave)
+            unicas.append(raiz)
+    return unicas
+
+
 def _limpar_temp_orfaos() -> int:
-    """Apaga pastas ``_MEI*`` órfãs no %TEMP%. Devolve quantas foram removidas.
+    """Apaga pastas ``_MEI*`` órfãs nas raízes de ``_raizes_mei()``.
+    Devolve quantas foram removidas.
 
     O onefile do PyInstaller extrai o bundle inteiro num ``_MEIxxxxx`` novo a
     cada abertura e o apaga ao sair — mas um processo morto sem passar por essa
@@ -4647,33 +4681,36 @@ def _limpar_temp_orfaos() -> int:
 
     O bootloader sempre cria um ``_MEI`` NOVO, nunca reaproveita um existente."""
     import shutil
-    import tempfile
 
     atual = getattr(sys, "_MEIPASS", None)
     atual_norm = os.path.normcase(os.path.abspath(atual)) if atual else None
     removidas = 0
-    try:
-        raiz = tempfile.gettempdir()
-        for nome in os.listdir(raiz):
+    for raiz in _raizes_mei():
+        try:
+            nomes = os.listdir(raiz)
+        except OSError:
+            continue          # raiz nova ainda não criada, ou sem permissão
+        for nome in nomes:
             if not nome.startswith("_MEI"):
                 continue
             caminho = os.path.join(raiz, nome)
-            if not os.path.isdir(caminho):
+            try:
+                if not os.path.isdir(caminho):
+                    continue
+                if atual_norm and os.path.normcase(os.path.abspath(caminho)) == atual_norm:
+                    continue
+                # Antes da sonda: durante a extração nenhum binário está travado,
+                # e a sonda diria "órfã" para uma instância que está abrindo agora.
+                if _mei_recem_escrito(caminho):
+                    continue
+                if _mei_em_uso(caminho):
+                    continue
+                antes = os.path.isdir(caminho)
+                shutil.rmtree(caminho, ignore_errors=True)
+                if antes and not os.path.isdir(caminho):
+                    removidas += 1
+            except OSError:
                 continue
-            if atual_norm and os.path.normcase(os.path.abspath(caminho)) == atual_norm:
-                continue
-            # Antes da sonda: durante a extração nenhum binário está travado, e
-            # a sonda diria "órfã" para uma instância que está abrindo agora.
-            if _mei_recem_escrito(caminho):
-                continue
-            if _mei_em_uso(caminho):
-                continue
-            antes = os.path.isdir(caminho)
-            shutil.rmtree(caminho, ignore_errors=True)
-            if antes and not os.path.isdir(caminho):
-                removidas += 1
-    except OSError:
-        pass
     return removidas
 
 
@@ -4753,59 +4790,101 @@ def _resetar_dados_locais() -> tuple[list[str], list[str]]:
     return apagados, falhas
 
 
-# Extensões C da stdlib que o app só importa TARDE, no meio de um fluxo (o
-# `select` entra pelo urllib3 quando a busca online abre a primeira conexão).
-# Se a extração do onefile ficou incompleta, elas faltam sem ninguém notar e o
-# estouro sai como `ModuleNotFoundError: No module named 'select'` numa janela
-# de erro, no meio de uma busca — relatado numa máquina em 27/08/2026, onde o
-# bootloader também falhava em remover o `_MEI` ao sair (pastas órfãs de ~99 MB
-# acumulando até faltar disco para a próxima extração).
+# --------------------------------------------------------------------------
+# Extensões C que o app só importaria TARDE — importadas na abertura DE PROPÓSITO
+# --------------------------------------------------------------------------
+# O `select` entra pelo urllib3 (`urllib3/util/wait.py`, linha 3: `import
+# select`), e o urllib3 só é carregado quando o selenium é — ou seja, no PRIMEIRO
+# clique em "Buscar online", pelo import tardio de `organizador.scraper`. Até ali
+# `select.pyd` nunca foi carregado. Duas consequências, as duas medidas:
 #
-# `find_spec` em vez de importar: é a mesma resposta sem executar o módulo, e a
-# checagem roda no caminho de abertura.
+# 1. O ARQUIVO FICA DESPROTEGIDO. O Windows trava a imagem de DLL/.pyd
+#    CARREGADO; o que ninguém importou é apagável por qualquer faxina de
+#    temporários. Foi assim que `select.pyd` sumiu da pasta extraída com o app
+#    aberto (27/08/2026 e 31/08/2026) e `PIL/_imagingtk` antes dele (14/08/2026),
+#    numa máquina com 96 GB livres. Importar aqui faz o Windows travar a imagem
+#    destes arquivos — e SÓ destes. Medido no bundle em 31/08/2026: o clique em
+#    "Buscar online" carrega 8 outras extensões (lxml/etree e _elementpath,
+#    charset_normalizer/cd, md e __mypyc, _brotli, _uuid, _wmi) que ficam
+#    destravadas até ele acontecer. Cobri-las exigiria importar selenium+bs4 na
+#    abertura, que são os 2,5 s que scraper.py existe para evitar. A defesa que
+#    vale para o bundle INTEIRO é a outra: `runtime_tmpdir` fora do %TEMP% (ver
+#    OrganizadorProcessos.spec). Esta aqui é a segunda linha, para a stdlib que
+#    sai barato — e para o diagnóstico do item 2.
+# 2. O ERRO SAÍA LONGE DA CAUSA. Uma extração incompleta passava limpa pela
+#    checagem de abertura e estourava no meio de uma busca, numa janela de erro
+#    que não diz nada ao usuário. Aqui a falha vira "Instalação incompleta",
+#    antes de a pessoa começar a trabalhar.
+#
+# Custo: são as mesmas extensões que o app carregaria de todo jeito — `_socket` e
+# `_ssl` pelo auto-updater (`urllib.request`), `_sqlite3` pela base embutida,
+# `zlib` que no Python 3.14 é builtin (não há arquivo para travar; fica na lista
+# porque a checagem vale para qualquer versão). O que muda é a ORDEM, e por isso
+# quem chama é `_tarefas_de_abertura`, numa thread: medido em processo frio nesta
+# máquina, `select` 2,4 ms + `_socket` 4,6 ms + `_ssl` 11,0 ms = ~18 ms que NÃO
+# podem entrar no tempo até a janela aparecer. Medir com scripts/bench_abertura.py.
+#
+# IMPORTAR, não `find_spec`: find_spec responde a mesma coisa mas não carrega, e
+# era justamente o carregamento que faltava para o arquivo ficar protegido.
 _MODULOS_TARDIOS = ("select", "_socket", "_ssl", "_sqlite3", "zlib")
+
+_tardios_faltando: list[str] | None = None
 
 
 def _modulos_binarios_faltando() -> list[str]:
-    """Extensões da stdlib ausentes do bundle extraído. Vazio = tudo certo."""
-    from importlib.util import find_spec
+    """Importa as extensões de ``_MODULOS_TARDIOS``; devolve as que faltaram.
 
-    faltando = []
-    for nome in _MODULOS_TARDIOS:
-        try:
-            if find_spec(nome) is None:
+    Vazio = tudo certo (e tudo travado). O resultado é memorizado: a resposta é
+    do momento da abertura, e repetir os imports não mudaria nada."""
+    global _tardios_faltando
+    if _tardios_faltando is None:
+        from importlib import import_module
+
+        faltando = []
+        for nome in _MODULOS_TARDIOS:
+            try:
+                import_module(nome)
+            except Exception:
                 faltando.append(nome)
-        except (ImportError, ValueError):
-            faltando.append(nome)
-    return faltando
+        _tardios_faltando = faltando
+    return _tardios_faltando
 
 
 def _temp_apertado() -> str:
-    """Descrição do %TEMP% quando ele explica uma extração incompleta, ou "".
+    """Descrição da pasta de extração quando ela explica um bundle incompleto.
 
-    Espaço livre e pastas `_MEI*` órfãs: as duas coisas que fazem o bootloader
-    extrair só parte do bundle. Cada órfã pesa o bundle inteiro (~99 MB), e elas
-    só acumulam onde a remoção na saída falha (antivírus segurando arquivo,
-    processo morto à força)."""
+    Espaço livre e pastas `_MEI*` de sobra: as duas coisas que o usuário
+    consegue resolver sozinho, e que ainda podem truncar a extração. Cada órfã
+    pesa o bundle inteiro (~99 MB), e elas só acumulam onde a remoção na saída
+    falha (antivírus segurando arquivo, processo morto à força).
+
+    Olha as raízes de `_raizes_mei()` — a do bundle de hoje e o %TEMP% legado —
+    e mede o espaço livre na primeira, que é onde a extração acontece."""
     import shutil
-    import tempfile
 
-    try:
-        raiz = tempfile.gettempdir()
-        orfaos = sum(
-            1 for n in os.listdir(raiz)
-            if n.startswith("_MEI") and os.path.isdir(os.path.join(raiz, n))
-            and os.path.normcase(os.path.join(raiz, n))
-            != os.path.normcase(str(getattr(sys, "_MEIPASS", "")))
-        )
-        livre_gb = shutil.disk_usage(raiz).free / (1024 ** 3)
-    except OSError:
+    raizes = _raizes_mei()
+    if not raizes:
         return ""
+    atual = os.path.normcase(str(getattr(sys, "_MEIPASS", "")))
+    orfaos = 0
+    for raiz in raizes:
+        try:
+            for n in os.listdir(raiz):
+                caminho = os.path.join(raiz, n)
+                if (n.startswith("_MEI") and os.path.isdir(caminho)
+                        and os.path.normcase(caminho) != atual):
+                    orfaos += 1
+        except OSError:
+            continue
+    try:
+        livre_gb = shutil.disk_usage(raizes[0]).free / (1024 ** 3)
+    except OSError:
+        livre_gb = float("inf")
     partes = []
     if livre_gb < 3:
         partes.append(f"só {livre_gb:.1f} GB livres no disco")
     if orfaos:
-        partes.append(f"{orfaos} pasta(s) _MEI* de sobra em {raiz}")
+        partes.append(f"{orfaos} pasta(s) _MEI* de sobra em {raizes[0]}")
     return "; ".join(partes)
 
 
@@ -4833,9 +4912,13 @@ def _dados_do_bundle_faltando() -> list[str]:
     return faltando
 
 
-def _avisar_bundle_incompleto(app: "App") -> None:
-    """Registra e avisa o usuário quando o bundle chegou/ficou incompleto."""
-    faltando = _dados_do_bundle_faltando()
+def _avisar_bundle_incompleto(app: "App", faltando: list[str] | None = None) -> None:
+    """Registra e avisa o usuário quando o bundle chegou/ficou incompleto.
+
+    `faltando` pronto vem de `_tarefas_de_abertura`, que já pagou esse I/O na
+    thread; sem ele a lista é levantada aqui (é o que os testes fazem)."""
+    if faltando is None:
+        faltando = _dados_do_bundle_faltando()
     if not faltando:
         return
     lista = "\n".join(f"  • {item}" for item in faltando)
@@ -4848,13 +4931,43 @@ def _avisar_bundle_incompleto(app: "App") -> None:
         "Instalação incompleta",
         "Não encontrei estes itens que vêm dentro do programa:\n\n"
         f"{lista}\n\n"
-        + (f"Causa provável: {aperto}. Feche o programa e apague as pastas "
-           f"_MEI* da pasta temporária.\n\n" if aperto else
+        + (f"Causa provável: {aperto}. Feche o programa, libere espaço e apague "
+           f"as pastas _MEI* que sobraram.\n\n" if aperto else
            "Feche TODAS as janelas do Organizador de Processos e abra apenas "
            "uma.\n\n")
         + "Se continuar, baixe o programa novamente.",
         nivel="error",
     )
+
+
+def _tarefas_de_abertura(app: "App") -> None:
+    """I/O de abertura que não pode atrasar o primeiro desenho da janela.
+
+    Roda numa thread, e a ORDEM é o desenho aqui:
+
+    1. Travar as extensões tardias (ver ``_MODULOS_TARDIOS``) — é a DEFESA, vem
+       primeiro. Medido nesta máquina, em processo frio: ``select`` 2,4 ms,
+       ``_socket`` 4,6 ms, ``_ssl`` 11,0 ms, ``_sqlite3`` e ``zlib`` já
+       carregados pelo import da GUI. Fora do caminho crítico de propósito: sem a
+       thread, esses ~18 ms (e o múltiplo disso num i3) sairiam do tempo até a
+       janela aparecer, que é o que o app mais defende — e a janela de exposição
+       que interessa é a SESSÃO inteira, não o primeiro segundo.
+    2. Recolher as ``_MEI*`` órfãs — faxina, pode esperar.
+    3. Avisar se o bundle está incompleto, já com o diagnóstico dos dois
+       primeiros na mão. Também tira do caminho crítico o ``rglob("*.docx")``
+       sobre ``Petições/`` que ``_dados_do_bundle_faltando`` faz.
+
+    Nunca levanta: nada aqui pode impedir o app de abrir."""
+    with contextlib.suppress(Exception):
+        travadas = not _modulos_binarios_faltando()
+        _perf("bundle:tardios_travados" if travadas else "bundle:tardios_faltando")
+    with contextlib.suppress(Exception):
+        _limpar_temp_orfaos()
+    with contextlib.suppress(Exception):
+        faltando = _dados_do_bundle_faltando()
+        if faltando:
+            # Tkinter só é seguro na main thread.
+            app.after(0, lambda: _avisar_bundle_incompleto(app, faltando))
 
 
 def main() -> None:
@@ -4869,13 +4982,13 @@ def main() -> None:
     app = App()
     _perf("app:construido")
     # Numa thread: é I/O de disco e não pode atrasar o primeiro desenho.
-    threading.Thread(target=_limpar_temp_orfaos, daemon=True).start()
+    threading.Thread(
+        target=_tarefas_de_abertura, args=(app,), daemon=True,
+    ).start()
     # Órfãos de execuções ANTERIORES (navegador que ficou vivo depois de o app
     # morrer, e os perfis temporários que ele deixou no %TEMP%). Alguns segundos
     # depois de abrir, porque a varredura percorre a tabela de processos.
     app.after(_ATRASO_VARREDURA_MS, _iniciar_varredura_navegadores)
-    with contextlib.suppress(Exception):
-        _avisar_bundle_incompleto(app)
     # Pré-login do Autojur em 2º plano, se ligado (aquece a sessão sem travar a
     # GUI; na 1ª vez pede o 2FA por e-mail, depois o perfil persistente pula).
     if bool(app.var_autojur_prelogin.get()):

@@ -1,4 +1,4 @@
 # -*- coding: utf-8 -*-
 """Pacote do Organizador de Processos (eproc/TJSP)."""
 
-__version__ = "1.15.0"
+__version__ = "1.15.1"

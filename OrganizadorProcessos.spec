@@ -11,9 +11,10 @@ Requisitos na máquina-alvo (não dá pra embutir):
 
 PESO DO BUNDLE — POR QUE IMPORTA
 --------------------------------
-No modo onefile o bootloader extrai TODO o payload para uma pasta nova em
-%TEMP% a CADA abertura, antes de o Python começar. Num i3 de 3ª geração com HD
-mecânico isso era o maior custo de abertura do app (316 MB / 7.743 arquivos).
+No modo onefile o bootloader extrai TODO o payload para uma pasta nova
+(`runtime_tmpdir`, ver o EXE no fim deste arquivo) a CADA abertura, antes de o
+Python começar. Num i3 de 3ª geração com HD mecânico isso era o maior custo de
+abertura do app (316 MB / 7.743 arquivos).
 Portanto: cada MB aqui é pago em toda abertura, em toda máquina.
 
 Antes de acrescentar um `collect_all`, confira se a lib é realmente importada
@@ -30,6 +31,10 @@ import os
 from pathlib import Path
 
 from PyInstaller.utils.hooks import collect_all
+
+# Onde o onefile se extrai. O bloco antes do EXE(), no fim deste arquivo,
+# explica por que NÃO pode ser o %TEMP%.
+_RUNTIME_TMPDIR = r"%LOCALAPPDATA%\OrganizadorProcessos\_bundle"
 
 # Token do auto-updater (ver organizador/atualizacao.py): normalmente gerado
 # pelo release.ps1 a partir de secrets\token_github.txt ANTES deste build. Um
@@ -215,10 +220,51 @@ _total = sum(
 )
 print(
     f"[spec] payload: {len(a.binaries)} binaries + {len(a.datas)} datas "
-    f"= {_total / 1e6:.1f} MB extraídos no %TEMP% por abertura"
+    f"= {_total / 1e6:.1f} MB extraídos em {_RUNTIME_TMPDIR} por abertura"
 )
 
 pyz = PYZ(a.pure)
+
+# --------------------------------------------------------------------------
+# ONDE O ONEFILE SE EXTRAI — NÃO VOLTE PARA O %TEMP%
+# --------------------------------------------------------------------------
+# Sintoma que motivou isto (relatado em 27/08/2026 e de novo em 31/08/2026):
+#   "ModuleNotFoundError: No module named 'select'" ao clicar em Buscar online,
+#   com o app aberto e funcionando até ali.
+#
+# `select` é stdlib e `select.pyd` ESTÁ no bundle (conferido no EXE-00.toc) e É
+# extraído (conferido ao vivo: 2367 arquivos / 94,5 MB na pasta extraída). No
+# onefile o `select` é resolvido pelo PathFinder, com `ExtensionFileLoader`, ou
+# seja LOOKUP DE ARQUIVO EM DISCO — medido num onefile de teste:
+#   sys.path = [_MEIPASS/base_library.zip, _MEIPASS/python3.14/lib-dynload, _MEIPASS]
+#   meta_path = [BuiltinImporter, FrozenImporter, PathFinder]
+# Logo o ModuleNotFoundError significa uma coisa só: no instante do clique o
+# arquivo não estava mais lá. Ele SUMIU depois da extração, com o app aberto.
+#
+# Quem apaga: faxina de temporários alheia ao app. O "Sensor de Armazenamento"
+# do Windows, com "apagar arquivos temporários que meus apps não estão usando"
+# ligado (HKCU\...\StorageSense\Parameters\StoragePolicy, valores 01=1 e 04=1 —
+# ligados na máquina deste repositório), dispara quando o disco aperta e usa
+# exatamente o critério do arquivo NÃO TRAVADO. Por isso o estrago é seletivo e
+# silencioso: o Windows trava a imagem de DLL/.pyd CARREGADO (python314.dll,
+# _tkinter.pyd, libcrypto-3.dll sobrevivem), e a vítima é sempre um .pyd que
+# ninguém importou ainda — `select.pyd` aqui, `PIL/_imagingtk` em 14/08/2026.
+#
+# Tirar a pasta do %TEMP% remove a classe inteira do problema: nenhum limpador
+# de temporários (Sensor de Armazenamento, cleanmgr, script de logon) olha para
+# %LOCALAPPDATA%. O bootloader do Windows EXPANDE %VARIÁVEL% e CRIA a árvore que
+# não existe — as duas coisas medidas num onefile de teste, não deduzidas da
+# documentação (que só promete o contrário para POSIX).
+#
+# Sem acento e sem espaço de propósito: este caminho é tratado pelo bootloader
+# em C, antes de existir Python para consertar codificação.
+#
+# Consequência para o app: as pastas `_MEI*` órfãs passam a acumular AQUI, não
+# no %TEMP%. `organizador.gui._raizes_mei()` varre as duas raízes — a de hoje e
+# o %TEMP% legado, onde ficaram as órfãs das versões até a 1.15.0.
+#
+# O caminho em si é `_RUNTIME_TMPDIR`, no topo deste arquivo (o print do payload,
+# mais acima, também o cita).
 
 exe = EXE(
     pyz,
@@ -232,7 +278,7 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    runtime_tmpdir=None,
+    runtime_tmpdir=_RUNTIME_TMPDIR,   # ver o bloco acima: NÃO volte para %TEMP%
     console=False,          # GUI: sem janela de console
     disable_windowed_traceback=False,
     argv_emulation=False,

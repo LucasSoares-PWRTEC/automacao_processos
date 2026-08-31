@@ -12,8 +12,16 @@ Roda tanto no código-fonte quanto no .exe empacotado:
     python scripts/bench_abertura.py -n 5 --frio        # limpa caches entre rodadas
 
 ``total_externo`` é o tempo de parede desde o spawn até a última marca — é a
-única medida que inclui a extração do onefile no %TEMP% (que acontece ANTES de
-o Python começar, logo fora do alcance de organizador/perf.py).
+única medida que inclui a extração do onefile (que acontece ANTES de o Python
+começar, logo fora do alcance de organizador/perf.py). A pasta de extração é o
+``runtime_tmpdir`` do OrganizadorProcessos.spec, não o %TEMP%.
+
+ATENÇÃO: o kill abaixo mata o processo que este script spawnou, que no onefile é
+o BOOTLOADER — o filho com a GUI sobrevive e continua segurando a pasta extraída
+(~99 MB por rodada). Medido em 31/08/2026: 3 rodadas deixaram 6 processos vivos e
+3 pastas. Elas são recolhidas por gui._limpar_temp_orfaos quando os processos
+morrem, mas até lá ocupam disco. Se for medir várias vezes, confira depois com
+``Get-Process Peticoes``.
 """
 
 from __future__ import annotations
