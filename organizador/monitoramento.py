@@ -342,6 +342,22 @@ class PoolScrapers:
         except Exception:
             pass
 
+    @staticmethod
+    def _vivo(scraper) -> bool:
+        """O navegador deste scraper ainda responde?
+
+        Sonda barata (uma ida ao driver, ~1ms com a sessão viva): se o Chrome
+        caiu, o comando estoura na hora com MaxRetryError/WebDriverException.
+        O scraper do TJRJ é HTTP puro (não tem `driver`) — nada a checar."""
+        driver = getattr(scraper, "driver", None)
+        if driver is None:
+            return True
+        try:
+            driver.current_url
+            return True
+        except Exception:
+            return False
+
     def _respeitar_teto(self) -> None:
         while len(self._scrapers) >= self.maximo:
             antigo, _ = next(iter(self._scrapers.items()))
@@ -355,8 +371,16 @@ class PoolScrapers:
         if tj_label in self._login_falhou:
             raise RuntimeError(f"login de {tj_label} já falhou nesta corrida")
         if tj_label in self._scrapers:
-            self._scrapers.move_to_end(tj_label)  # usado agora = mais recente
-            return self._scrapers[tj_label]
+            if self._vivo(self._scrapers[tj_label]):
+                self._scrapers.move_to_end(tj_label)  # usado agora = mais recente
+                return self._scrapers[tj_label]
+            # Navegador morreu (crash do Chrome / driver derrubado). Sem esta
+            # checagem o handle morto seguia em cache e TODA consulta seguinte
+            # falhava com MaxRetryError — em silêncio, gastando a tentativa do
+            # dia de cada processo e marcando-os "não encontrado" sem nunca ter
+            # perguntado ao tribunal. Descarta e reabre abaixo.
+            print(f"   💀 {tj_label}: navegador morreu — descartando e reabrindo")
+            self._fechar(tj_label)
         self._respeitar_teto()
         site, estado, url, perfil = TJ_SISTEMAS[tj_label]
         print(f"   🔐 abrindo e logando em {tj_label} (1ª vez nesta corrida)...")
@@ -668,6 +692,10 @@ def rodar_passada(
 
             ultimo_erro = ""
             resolvido = False
+            # Algum tribunal chegou a RESPONDER (ainda que "não encontrado")?
+            # Se nenhum respondeu, a falha é nossa (navegador/login), não do
+            # número — e gravar "nao_encontrado" mentiria no relatório.
+            houve_resposta = False
             for tj_label in candidatos:
                 if _cancelado():
                     break
@@ -696,6 +724,7 @@ def rodar_passada(
                     break  # NÃO tenta outros sistemas (pedido do usuário)
                 except RuntimeError as exc:
                     ultimo_erro = str(exc)
+                    houve_resposta = True
                     log(f"   🔎 {tj_label}: {exc}")
                     time.sleep(PAUSA_ENTRE_CONSULTAS)
                     continue
@@ -724,14 +753,18 @@ def rodar_passada(
                 break
 
             if not resolvido and not _cancelado():
+                status_falho = "nao_encontrado" if houve_resposta else "falha"
                 estado[numero] = {
-                    "status": "nao_encontrado", "uf": uf, "campanha": campanha,
+                    "status": status_falho, "uf": uf, "campanha": campanha,
                     "sistema": (candidatos or ["—"])[-1],
                     "erro": ultimo_erro or "não encontrado em nenhum sistema",
                     "quando": _quando(),
                 }
                 resumo["nao_encontrados"] += 1
-                log("   🔎 não encontrado em nenhum sistema.")
+                if houve_resposta:
+                    log("   🔎 não encontrado em nenhum sistema.")
+                else:
+                    log(f"   ❌ falha técnica em todos os sistemas: {ultimo_erro}")
 
             gravador.talvez(estado)
     finally:
