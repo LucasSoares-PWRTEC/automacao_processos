@@ -141,6 +141,47 @@ def _salvar_indice(indice_path: Path, indice: dict) -> None:
         pass
 
 
+def esquecer_processo(indice_path: Path, numero: str) -> int:
+    """Apaga do índice em disco tudo que ele lembra de `numero`.
+
+    Devolve quantas entradas caíram. Nunca levanta: é ação de botão, e falhar
+    aqui só significa que a próxima carga reaproveita o resumo velho.
+
+    POR QUE PRECISA EXISTIR
+    -----------------------
+    O índice reaproveita o resumo de um ``metadados.json`` enquanto o ``mtime``
+    não muda — é isso que faz a abertura ser rápida com milhares de processos.
+    O preço é que um resumo ERRADO sobrevive a toda recarga: gravado por uma
+    versão anterior do parser, ou de um arquivo corrigido por fora sem alterar o
+    mtime (copiar por cima preserva o mtime da origem). Recarregar a lista não
+    resolve, porque a recarga confia no mtime.
+
+    Esta é a saída manual: esquecida a entrada, a próxima carga reparseia o
+    arquivo do zero. É o que o botão "Atualizar processo" chama."""
+    numero = (numero or "").strip()
+    if not numero:
+        return 0
+    try:
+        indice = _ler_indice(indice_path)
+        disco = indice.get("disco") or {}
+        alvos = [
+            caminho for caminho, entrada in disco.items()
+            if ((entrada or {}).get("resumo") or {}).get("numero", "").strip() == numero
+        ]
+        if not alvos:
+            return 0
+        for caminho in alvos:
+            disco.pop(caminho, None)
+        # Os resumos do .json.gz (fallback do fonte, sem SQLite) são um bloco só,
+        # sem chave por processo: o jeito de não servir o velho é derrubar o bloco.
+        indice["embutidos"] = []
+        indice["gz_mtime"] = None
+        _salvar_indice(indice_path, indice)
+        return len(alvos)
+    except Exception:
+        return 0
+
+
 def _atualizar_fonte_disco(
     pasta: Path, fonte: str, disco_prev: dict, disco_novo: dict,
 ) -> list[ResumoProcesso]:

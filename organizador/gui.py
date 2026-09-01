@@ -175,7 +175,7 @@ from .pesquisa import (
 )
 from .indice_processos import (
     ResumoProcesso, _resumo_de_processo, caminho_sqlite,
-    carregar_processo_completo, carregar_resumos_pesquisa,
+    carregar_processo_completo, carregar_resumos_pesquisa, esquecer_processo,
 )
 from .integracoes.tjsp_scraper.credenciais import listar_credenciais, salvar_credenciais
 from .scraper import (
@@ -499,6 +499,11 @@ class App(ttk.Window):
         # ilimitada numa máquina de 4 GB.
         self._max_full_cache = 20 if self._modo_leve else 60
         self._full_cache: OrderedDict[str, Processo] = OrderedDict()
+        # Pedido pendente do botão "Atualizar processo": qual número reselecionar
+        # quando a carga (assíncrona) terminar, e como os campos estavam antes,
+        # para dizer o que mudou. Ver _atualizar_processo_selecionado.
+        self._pos_carga_selecionar: str | None = None
+        self._pos_carga_campos_antes: dict[str, str] = {}
         self._proc_selecionado: Processo | None = None
         self._templates_vars: dict[Path, tk.BooleanVar] = {}
         self.var_documento_unico = tk.BooleanVar(value=True)
@@ -1162,11 +1167,21 @@ class App(ttk.Window):
             entry.bind("<Button-3>", self._abrir_menu_copiar)
             var.trace_add("write", lambda *_a, a=atr: self._on_detalhe_edit(a))
             self._det_widgets[atr] = (lbl, entry)
-        # Botão para copiar todos os dados do processo de uma vez.
+        # Botões de ação do processo selecionado. "Atualizar processo" é a saída
+        # para quando o dado na tela está errado/faltando: relê o processo do
+        # zero, sem confiar em cache nenhum (ver _atualizar_processo_selecionado).
+        f_btn_det = ttk.Frame(self._detalhes_frame)
+        f_btn_det.grid(row=len(campos), column=1, sticky="e", padx=(0, 4), pady=(6, 2))
+        self._btn_atualizar_processo = ttk.Button(
+            f_btn_det, text="↻  Atualizar processo",
+            command=self._atualizar_processo_selecionado,
+            bootstyle="outline-warning", width=20,
+        )
+        self._btn_atualizar_processo.pack(side="left", padx=(0, 6))
         ttk.Button(
-            self._detalhes_frame, text="▤  Copiar dados", command=self._copiar_todos_dados,
+            f_btn_det, text="▤  Copiar dados", command=self._copiar_todos_dados,
             bootstyle="outline-info", width=16,
-        ).grid(row=len(campos), column=1, sticky="e", padx=(0, 4), pady=(6, 2))
+        ).pack(side="left")
 
         # ── Campos editáveis ───────────────────────────────────────────
         f_edicao = ttk.Labelframe(
@@ -2442,6 +2457,137 @@ class App(ttk.Window):
         sem popup de erro quando a pasta base ainda não foi escolhida."""
         self._iniciar_carregamento_pesquisa(silencioso=True)
 
+    def _atualizar_processo_selecionado(self) -> None:
+        """Relê o processo selecionado do zero, sem confiar em cache nenhum.
+
+        POR QUE UM BOTÃO SÓ PARA ISSO
+        -----------------------------
+        Há dois caches entre o arquivo no disco e o que aparece na tela, e cada
+        um estraga uma superfície DIFERENTE — medido, não suposto:
+
+        1. ``processos_indice.json`` (disco) reaproveita o resumo enquanto o
+           ``mtime`` do metadados.json não muda. Isso alimenta as COLUNAS DA
+           LISTA e o filtro. Um arquivo corrigido por fora (copiar por cima
+           preserva o mtime da origem) ou um resumo gravado por versão anterior
+           do parser sobrevive a QUALQUER recarga da lista — recarregar não
+           resolve, porque a recarga é que confia no mtime. Conferido ao vivo:
+           sujando o resumo à mão, a coluna Classe mostrava "LIXO DE CACHE"
+           depois de recarregar.
+        2. ``self._full_cache`` (memória) guarda o Processo completo por número e
+           alimenta o PAINEL DE DETALHES. Só é descartado quando a lista
+           recarrega inteira, então durante a sessão ele pode servir detalhe de
+           antes de o arquivo mudar.
+
+        O painel de detalhes NÃO sofre do caso 1: ele vem de
+        ``carregar_processo_completo``, que relê o arquivo. Foi por isso que o
+        "processo parou de preencher" não era cache — era a mescla descartando a
+        fonte de menor prioridade (ver ``pesquisa.preencher_lacunas``). Este
+        botão é a saída para quando o problema É cache, que antes só tinha jeito
+        apagando arquivo no %USERPROFILE% na mão.
+
+        Não vai à web — para isso é o "Buscar online" com "Forçar busca online"
+        marcado. Aqui é releitura do que a máquina já tem, com mescla refeita
+        (e portanto lacuna preenchida de novo)."""
+        sel = self.tree.selection()
+        numero = sel[0] if sel else ""
+        if not numero:
+            self._notificar(
+                "Atualizar processo",
+                "Selecione um processo na lista primeiro.",
+                nivel="warning",
+            )
+            return
+
+        campos_antes = self._instantaneo_processo(numero)
+
+        # 1. cache em memória deste processo
+        self._full_cache.pop(numero, None)
+        # 2. índice em disco: sem isto o resumo velho volta pelo mtime
+        esquecidas = esquecer_processo(PROCESSOS_INDICE_JSON, numero)
+
+        self._pesquisa_log_queue.put(
+            f"Atualizando {numero}: cache em memória descartado, "
+            f"{esquecidas} entrada(s) do índice esquecida(s).\n"
+        )
+        # Reselecionar depois da carga (que é assíncrona) e dizer o que mudou.
+        self._pos_carga_selecionar = numero
+        self._pos_carga_campos_antes = campos_antes
+        self._iniciar_carregamento_pesquisa(silencioso=False)
+
+    def _instantaneo_processo(self, numero: str) -> dict[str, str]:
+        """Como o processo aparece agora, nas DUAS superfícies que divergem.
+
+        A linha da lista vem do resumo (cacheado por mtime no índice); os campos
+        de detalhe vêm do arquivo, relidos a cada seleção. Um índice velho só
+        aparece na lista, e comparar só o detalhe faria o botão consertar a
+        coluna e ainda avisar "nenhum campo mudou" — foi o que aconteceu no 1º
+        teste ao vivo. Os rótulos das colunas saem do próprio Treeview, para não
+        duplicar aqui a lista de colunas."""
+        fora: dict[str, str] = {}
+        with contextlib.suppress(Exception):
+            if self.tree.exists(numero):
+                valores = self.tree.item(numero, "values")
+                for coluna, valor in zip(self.tree["columns"], valores):
+                    rotulo = self.tree.heading(coluna).get("text") or coluna
+                    fora[f"lista · {rotulo}"] = str(valor)
+        proc = self._proc_selecionado
+        if proc is not None:
+            for atr in self._det_ordem:
+                if atr in ("autor", "reu"):
+                    continue     # derivados de `partes`, não atributos do Processo
+                rotulo = self._det_rotulos.get(atr, atr).rstrip(":")
+                fora[f"detalhe · {rotulo}"] = str(getattr(proc, atr, "") or "")
+        return fora
+
+    def _fim_atualizar_processo(self, numero: str, campos_antes: dict) -> None:
+        """Reseleciona o processo recarregado e diz o que mudou de fato."""
+        # `garantir`: a lista é paginada e o processo pode estar além do teto de
+        # linhas — sem isto a seleção não acharia a linha (mesmo motivo do
+        # _buscar_online).
+        self._preencher_tree(self._processos_carregados, garantir=numero)
+        if not self.tree.exists(numero):
+            self._notificar(
+                "Atualizar processo",
+                f"O processo {numero} não está mais na lista — o arquivo dele "
+                f"pode ter saído da pasta base.",
+                nivel="warning",
+            )
+            return
+        self.tree.selection_set(numero)
+        self.tree.see(numero)
+        # `update()`, não `update_idletasks()`: a seleção dispara o virtual event
+        # <<TreeviewSelect>>, e é ele que faz _on_select_processo reler o
+        # completo e reescrever os campos. `update_idletasks` só roda tarefas
+        # idle e deixaria o instantâneo "depois" lendo a tela velha.
+        with contextlib.suppress(Exception):
+            self.update()
+
+        depois = self._instantaneo_processo(numero)
+        mudou = [
+            f"{rotulo}: {campos_antes.get(rotulo, '')!r} → {valor!r}"
+            for rotulo, valor in depois.items()
+            if campos_antes.get(rotulo, "") != valor
+        ]
+        if mudou:
+            self._pesquisa_log_queue.put(
+                "Atualizado:\n" + "".join(f"  • {m}\n" for m in mudou)
+            )
+            self._notificar(
+                "Processo atualizado",
+                f"{numero}\n\n" + "\n".join(f"  • {m}" for m in mudou),
+            )
+        else:
+            self._pesquisa_log_queue.put(
+                f"{numero}: relido do disco, nenhum campo mudou.\n"
+            )
+            self._notificar(
+                "Processo atualizado",
+                f"{numero} foi relido do zero e nenhum campo mudou — o que está "
+                f"na tela é o que existe nos arquivos desta máquina.\n\n"
+                f"Se falta dado, ele não está em nenhuma fonte local: use "
+                f"\"Buscar online\" com \"Forçar busca online\" marcado.",
+            )
+
     def _recarregar_pesquisa(self) -> None:
         pasta = Path(self.var_pesquisa_base.get()).expanduser()
         if not pasta.is_dir():
@@ -2467,6 +2613,14 @@ class App(ttk.Window):
                         self._pesquisa_log_queue.put(
                             f"Lista carregada: {len(procs)} processo(s).\n"
                         )
+                    # "Atualizar processo" pediu esta carga: reseleciona o
+                    # processo e compara os campos. Consumido de uma vez só, para
+                    # uma recarga comum depois não reselecionar nada.
+                    alvo, self._pos_carga_selecionar = self._pos_carga_selecionar, None
+                    antes, self._pos_carga_campos_antes = self._pos_carga_campos_antes, {}
+                    if alvo:
+                        with contextlib.suppress(Exception):
+                            self._fim_atualizar_processo(alvo, antes)
                 elif not silencioso:
                     self.var_status.set("Erro ao carregar processos.")
                     self._notificar("Erro ao carregar processos", str(payload), nivel="error")
