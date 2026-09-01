@@ -7,6 +7,7 @@ carregamento/mescla de fontes, filtro e montagem das linhas exibidas na lista.
 
 from __future__ import annotations
 
+from dataclasses import fields as _campos_de
 from pathlib import Path
 
 from .models import Processo
@@ -17,21 +18,145 @@ from .organizacao import (
     carregar_processos_base,
 )
 
+# --------------------------------------------------------------------------
+# Preenchimento de lacuna entre fontes
+# --------------------------------------------------------------------------
+# A prioridade é `pasta base > processos_online > embutido`, e por anos o
+# primeiro vencia o REGISTRO INTEIRO. O efeito era um processo "parar de
+# preencher": o dado existe dentro do programa, mas o registro que ganhou vinha
+# sem ele e o de baixo era descartado junto.
+#
+# Medido em 31/08/2026 nesta base: 324 processos da pasta base e 19 do cache
+# online sombreavam o embutido perdendo campo — quase todos `valor_causa`,
+# alguns `classe` e `comarca`. Nenhum era MELHOR que o embutido em outro campo,
+# ou seja o descarte era perda pura.
+#
+# A prioridade NÃO muda: dado preenchido do vencedor sempre vence. Só a lacuna é
+# preenchida, de cima para baixo.
+
+# Campos que só fazem sentido JUNTOS. Os três últimos são derivados da lista de
+# eventos (conferido num metadados.json real: `total_eventos == len(eventos)`),
+# então preencher `ultima_movimentacao` de outra fonte e deixar `eventos` vazio
+# mostraria data de movimentação num processo de timeline vazia. Ou vem o grupo
+# todo, ou nenhum. O grupo só vale quando o LÍDER existe no destino: no
+# `ResumoProcesso` não há `eventos`, e lá `ultima_movimentacao` é só uma coluna.
+_GRUPOS_ACOPLADOS: tuple[tuple[str, ...], ...] = (
+    ("eventos", "total_eventos", "primeira_movimentacao", "ultima_movimentacao"),
+)
+
+# Campos que dizem QUEM É / DE ONDE VEIO o registro, não o que ele contém. Nunca
+# são preenchidos de uma reserva, por segurança e não por economia:
+#   - `origem` é o arquivo que `carregar_processo_completo` vai abrir. Herdá-lo
+#     do perdedor faria o perdedor virar o vencedor, silenciosamente.
+#   - `fonte` ("base"/"online"/"embutido") passaria a mentir de onde o registro é.
+#   - `numero` é a chave da disputa: se estivesse vazio não haveria disputa.
+#   - `origens_reserva` é a lista de perdedores, montada pela mescla.
+#   - `arquivos_origem` é procedência: são os PDFs de onde ESTE registro foi
+#     lido, e apontar os do outro atribuiria arquivo que não é dele.
+_NAO_PREENCHER = frozenset({
+    "numero", "fonte", "origem", "origens_reserva", "arquivos_origem",
+})
+
+
+def _vazio(valor: object) -> bool:
+    """"Não temos esse dado" — o que autoriza puxar de fonte de menor prioridade.
+
+    `0` NÃO conta como vazio por si: `total_eventos` zero é consistente com
+    `eventos` vazio, e quem decide esse par é o grupo acoplado. Tratar 0 como
+    lacuna faria um processo sem movimentação nenhuma herdar o total de outro."""
+    if valor is None:
+        return True
+    if isinstance(valor, str):
+        return not valor.strip()
+    if isinstance(valor, (list, tuple, dict, set)):
+        return not valor
+    return False
+
+
+def _da_reserva(reserva: object, campo: str) -> object:
+    """Valor de `campo` na reserva, que pode ser dataclass ou dict.
+
+    Dict porque o embutido chega como dict cru do SQLite
+    (``base_embutida.ler_processo``), sem custo de virar ``Processo``."""
+    if isinstance(reserva, dict):
+        return reserva.get(campo)
+    return getattr(reserva, campo, None)
+
+
+def _plano(tipo: type) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
+    """(campos livres, grupos acoplados) para um tipo, calculado uma vez.
+
+    Memoizado porque isto roda no caminho de ABERTURA: a mescla preenche lacuna
+    de ~3.800 duplicatas nesta base. Medido sobre as três fontes reais: a mescla
+    saiu de 3,0 ms (o loop antigo, que descartava a duplicata) para 33 ms; com o
+    plano em cache e sem os campos de ``_NAO_PREENCHER``, 19,4 ms. É custo real e
+    conhecido, pago numa THREAD (`_iniciar_carregamento_pesquisa`) e não no
+    desenho da janela, contra 1,54 s de abertura total.
+    Um tipo por processo, então o dict não cresce."""
+    plano = _PLANOS.get(tipo)
+    if plano is None:
+        nomes = tuple(f.name for f in _campos_de(tipo))
+        grupos = tuple(g for g in _GRUPOS_ACOPLADOS if g[0] in nomes)
+        fora = {c for g in grupos for c in g} | _NAO_PREENCHER
+        plano = (tuple(n for n in nomes if n not in fora), grupos)
+        _PLANOS[tipo] = plano
+    return plano
+
+
+_PLANOS: dict[type, tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]] = {}
+
+
+def preencher_lacunas(vencedor, *reservas):
+    """Copia para `vencedor` só os campos que ele NÃO tem, na ordem das reservas.
+
+    Muta e devolve `vencedor` — em todos os chamadores ele já é um objeto
+    recém-montado a partir do disco, não algo compartilhado.
+
+    Serve para ``Processo`` e para ``ResumoProcesso``: percorre os campos do
+    próprio destino, então cada um preenche só o que tem."""
+    reservas = tuple(r for r in reservas if r is not None)
+    if not reservas:
+        return vencedor
+    livres, grupos = _plano(type(vencedor))
+    for reserva in reservas:
+        for grupo in grupos:
+            lider = grupo[0]
+            if not _vazio(getattr(vencedor, lider, None)):
+                continue
+            if _vazio(_da_reserva(reserva, lider)):
+                continue
+            for campo in grupo:
+                valor = _da_reserva(reserva, campo)
+                if not _vazio(valor):
+                    setattr(vencedor, campo, valor)
+        for campo in livres:
+            if not _vazio(getattr(vencedor, campo, None)):
+                continue
+            valor = _da_reserva(reserva, campo)
+            if not _vazio(valor):
+                setattr(vencedor, campo, valor)
+    return vencedor
+
 
 def mesclar_processos_por_prioridade(*fontes: list[Processo]) -> list[Processo]:
     """Mescla fontes preservando a prioridade da esquerda para a direita.
 
+    Duplicata não é mais descartada inteira: o que ela tem e o vencedor não tem
+    é aproveitado (ver ``preencher_lacunas``).
+
     Processos com número vazio não são deduplicados, pois não há chave confiável.
     """
     resultados: list[Processo] = []
-    vistos: set[str] = set()
+    vencedor_de: dict[str, Processo] = {}
     for fonte in fontes:
         for proc in fonte:
             numero = (proc.numero or "").strip()
             if numero:
-                if numero in vistos:
+                anterior = vencedor_de.get(numero)
+                if anterior is not None:
+                    preencher_lacunas(anterior, proc)
                     continue
-                vistos.add(numero)
+                vencedor_de[numero] = proc
             resultados.append(proc)
     return resultados
 

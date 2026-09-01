@@ -26,6 +26,9 @@ from .organizacao import (
 )
 from .padroes import PAPEIS_ATIVO_UP as _ATIVO_UP, PAPEIS_PASSIVO_UP as _PASSIVO_UP
 from .perf import marca as _perf
+# `pesquisa` só importa models/organizacao, que já estão aqui — não há ciclo e
+# nada novo entra no caminho de abertura.
+from .pesquisa import preencher_lacunas
 
 INDICE_VERSAO = 1
 ORIGEM_EMBUTIDO = "embutido"
@@ -60,6 +63,16 @@ class ResumoProcesso:
     tags: list[str] = field(default_factory=list)
     fonte: str = ""          # "base" | "online" | "embutido"
     origem: str = ""         # caminho do metadados.json, ou ORIGEM_EMBUTIDO
+    # Origens das fontes que PERDERAM a disputa por este número, em ordem de
+    # prioridade. Existem para `carregar_processo_completo` saber de onde puxar o
+    # campo que o vencedor não tem (ver pesquisa.preencher_lacunas): sem isto o
+    # dado estaria no programa e continuaria não aparecendo na petição.
+    #
+    # Preenchida na MESCLA, não na leitura do arquivo — é propriedade da disputa,
+    # não do registro. Por isso o que vai para o índice em disco é sempre `()`:
+    # o `asdict` acontece antes da mescla. Um índice de versão anterior, sem esta
+    # chave, continua carregando (o default cobre), então INDICE_VERSAO não muda.
+    origens_reserva: tuple[str, ...] = ()
 
 
 def _nomes_por_papel(partes: list[dict], papeis: set[str]) -> str:
@@ -240,15 +253,26 @@ def carregar_resumos_pesquisa(
 
     # Mescla por prioridade, dedup por número (mesma regra de
     # mesclar_processos_por_prioridade, mas sobre resumos).
+    #
+    # A duplicata não é mais descartada inteira: o que ela tem e o vencedor não
+    # tem preenche a lacuna do vencedor (colunas da lista), e a origem dela fica
+    # guardada em `origens_reserva` para o Processo COMPLETO poder fazer o mesmo
+    # no clique — que é onde a petição é preenchida.
     resultado: list[ResumoProcesso] = []
-    vistos: set[str] = set()
+    vencedor_de: dict[str, ResumoProcesso] = {}
     for fonte in (base, online, embutidos):
         for r in fonte:
             numero = (r.numero or "").strip()
             if numero:
-                if numero in vistos:
+                anterior = vencedor_de.get(numero)
+                if anterior is not None:
+                    preencher_lacunas(anterior, r)
+                    if r.origem:
+                        anterior.origens_reserva = (
+                            *anterior.origens_reserva, r.origem,
+                        )
                     continue
-                vistos.add(numero)
+                vencedor_de[numero] = r
             resultado.append(r)
     return resultado
 
@@ -281,6 +305,27 @@ def _mapa_embutido(processos_base_json: Path) -> dict:
     return mapa
 
 
+def _dict_de_origem(
+    origem: str, numero: str, processos_base_json: Path | None,
+) -> dict | None:
+    """O registro CRU (dict) de uma origem: metadados.json ou base embutida.
+
+    Dict, não ``Processo``: o preenchimento de lacuna lê a reserva campo a campo
+    e não precisa dela montada — e o embutido já sai como dict do SQLite."""
+    if origem and origem != ORIGEM_EMBUTIDO:
+        try:
+            return json.loads(Path(origem).read_text(encoding="utf-8"))
+        except Exception:
+            return None
+    if processos_base_json is None:
+        return None
+    sqlite_path = caminho_sqlite(Path(processos_base_json))
+    if base_embutida.disponivel(sqlite_path):
+        return base_embutida.ler_processo(sqlite_path, numero)
+    proc = _mapa_embutido(processos_base_json).get(numero)
+    return asdict(proc) if proc is not None else None
+
+
 def carregar_processo_completo(
     resumo: ResumoProcesso,
     processos_base_json: Path | None = None,
@@ -289,24 +334,31 @@ def carregar_processo_completo(
 
     Fontes em disco: lê o metadados.json apontado por `resumo.origem`.
     Embutido: busca o registro POR NÚMERO na base SQLite (descomprime um só);
-    sem ela, cai no snapshot .json.gz inteiro."""
-    if resumo.origem and resumo.origem != ORIGEM_EMBUTIDO:
-        try:
-            d = json.loads(Path(resumo.origem).read_text(encoding="utf-8"))
-            return _dict_para_processo(d)
-        except Exception:
-            return None
-    if processos_base_json is None:
+    sem ela, cai no snapshot .json.gz inteiro.
+
+    E, se o vencedor vier com lacuna, puxa o campo que falta das fontes que
+    perderam a disputa (``resumo.origens_reserva``). É AQUI que isso mais
+    importa: este é o Processo que preenche a petição — era o "esse processo
+    parou de preencher" quando o registro vencedor vinha sem `valor_causa`.
+
+    CUSTO, medido nesta base: 1,31 ms por clique na média de 200 processos com
+    reserva (uma leitura extra de metadados.json, ou um registro do SQLite).
+    Não há guarda de "só leia se houver lacuna" porque ela não guardaria nada:
+    medido, 3.108 de 3.108 processos têm ALGUM campo vazio — `chave_consulta`,
+    `atos`, `prazos_abertos` e `juiz` são vazios em quase todo registro, em todas
+    as fontes. A guarda dispararia 100% das vezes e só somaria uma varredura de
+    campos a cada clique."""
+    numero = (resumo.numero or "").strip()
+    bruto = _dict_de_origem(resumo.origem, numero, processos_base_json)
+    if bruto is None:
+        return None
+    try:
+        proc = _dict_para_processo(bruto)
+    except Exception:
         return None
 
-    numero = (resumo.numero or "").strip()
-    sqlite_path = caminho_sqlite(Path(processos_base_json))
-    if base_embutida.disponivel(sqlite_path):
-        d = base_embutida.ler_processo(sqlite_path, numero)
-        if d is None:
-            return None
-        try:
-            return _dict_para_processo(d)
-        except Exception:
-            return None
-    return _mapa_embutido(processos_base_json).get(numero)
+    for origem in tuple(resumo.origens_reserva or ()):
+        d = _dict_de_origem(origem, numero, processos_base_json)
+        if d is not None:
+            preencher_lacunas(proc, d)
+    return proc
