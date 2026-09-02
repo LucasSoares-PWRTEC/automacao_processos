@@ -102,4 +102,21 @@ class Processo:
     ultima_movimentacao: str = ""       # "DD/MM/AAAA — descrição curta"
     # --- arquivos ---
     arquivos_origem: list[str] = field(default_factory=list)
+    # Quando o USUÁRIO mandou atualizar este registro pelo botão "Atualizar
+    # processo" (ISO, ex.: "2026-09-02T15:04:05"). Vazio em tudo que não passou
+    # por lá — inclusive no que a busca online comum traz.
+    #
+    # Serve para uma coisa só: a mescla das fontes normalmente segue
+    # `pasta base > processos_online > embutido`, e o resultado de uma consulta
+    # ao tribunal cai em processos_online, PERDENDO para o registro antigo da
+    # pasta base. Medido: com "CLASSE ERRADA" na pasta base e a classe correta
+    # no online, ao reabrir o app a lista e a petição voltavam a mostrar a
+    # errada. Esta marca inverte a prioridade só para o número que a pessoa
+    # mandou atualizar, e só até alguém atualizar de novo (ver
+    # pesquisa.prefere_atualizado).
+    #
+    # Campo da dataclass, e não uma chave solta no metadados.json, porque o
+    # `_dict_para_processo` filtra chaves que não são campos — a marca sumiria na
+    # primeira releitura.
+    atualizado_em: str = ""
 

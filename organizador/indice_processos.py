@@ -28,7 +28,7 @@ from .padroes import PAPEIS_ATIVO_UP as _ATIVO_UP, PAPEIS_PASSIVO_UP as _PASSIVO
 from .perf import marca as _perf
 # `pesquisa` só importa models/organizacao, que já estão aqui — não há ciclo e
 # nada novo entra no caminho de abertura.
-from .pesquisa import preencher_lacunas
+from .pesquisa import preencher_lacunas, prefere_atualizado
 
 INDICE_VERSAO = 1
 ORIGEM_EMBUTIDO = "embutido"
@@ -73,6 +73,11 @@ class ResumoProcesso:
     # o `asdict` acontece antes da mescla. Um índice de versão anterior, sem esta
     # chave, continua carregando (o default cobre), então INDICE_VERSAO não muda.
     origens_reserva: tuple[str, ...] = ()
+    # Espelha `Processo.atualizado_em`: marca de "o usuário mandou atualizar este
+    # registro", que faz a mescla preferi-lo apesar da prioridade da fonte (ver
+    # pesquisa.prefere_atualizado). Precisa estar no RESUMO porque a mescla da
+    # lista roda só sobre resumos, sem abrir os metadados.json.
+    atualizado_em: str = ""
 
 
 def _nomes_por_papel(partes: list[dict], papeis: set[str]) -> str:
@@ -108,6 +113,7 @@ def _resumo_de_dict(d: dict, fonte: str, origem: str) -> ResumoProcesso:
         tags=list(d.get("tags") or []),
         fonte=fonte,
         origem=origem,
+        atualizado_em=str(d.get("atualizado_em") or ""),
     )
 
 
@@ -299,21 +305,40 @@ def carregar_resumos_pesquisa(
     # tem preenche a lacuna do vencedor (colunas da lista), e a origem dela fica
     # guardada em `origens_reserva` para o Processo COMPLETO poder fazer o mesmo
     # no clique — que é onde a petição é preenchida.
+    #
+    # E um registro que o usuário mandou atualizar (botão "Atualizar processo")
+    # toma o lugar do vencedor mesmo vindo de fonte de menor prioridade: sem
+    # isso, o que o tribunal acabou de informar perderia para o registro antigo
+    # da pasta base assim que o app reabrisse (ver pesquisa.prefere_atualizado).
     resultado: list[ResumoProcesso] = []
     vencedor_de: dict[str, ResumoProcesso] = {}
+    posicao_de: dict[str, int] = {}
     for fonte in (base, online, embutidos):
         for r in fonte:
             numero = (r.numero or "").strip()
             if numero:
                 anterior = vencedor_de.get(numero)
                 if anterior is not None:
-                    preencher_lacunas(anterior, r)
-                    if r.origem:
-                        anterior.origens_reserva = (
-                            *anterior.origens_reserva, r.origem,
+                    if prefere_atualizado(r, anterior):
+                        # Troca de vencedor no lugar: o antigo vira a 1ª reserva,
+                        # à frente das que ele já tinha (ordem de prioridade).
+                        preencher_lacunas(r, anterior)
+                        reservas = tuple(
+                            o for o in (anterior.origem, *anterior.origens_reserva)
+                            if o and o != r.origem
                         )
+                        r.origens_reserva = (*r.origens_reserva, *reservas)
+                        resultado[posicao_de[numero]] = r
+                        vencedor_de[numero] = r
+                    else:
+                        preencher_lacunas(anterior, r)
+                        if r.origem:
+                            anterior.origens_reserva = (
+                                *anterior.origens_reserva, r.origem,
+                            )
                     continue
                 vencedor_de[numero] = r
+                posicao_de[numero] = len(resultado)
             resultado.append(r)
     return resultado
 

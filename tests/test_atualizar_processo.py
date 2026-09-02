@@ -380,6 +380,17 @@ def app_isolada(tmp_path, monkeypatch):
     """App real, com APP_DATA e pasta base em tmp_path (nada do usuário é lido
     ou escrito), e o tribunal substituído."""
     tk = pytest.importorskip("tkinter")
+    import organizador.gui as gui
+
+    # `organizador.config` resolve PROCESSOS_ONLINE_DIR no IMPORT, e a coleta do
+    # pytest já importou o pacote — mexer só em ORGANIZADOR_APP_DATA aqui não
+    # redireciona nada. Sem redirecionar os nomes que a gui usa, este teste GRAVA
+    # NO CACHE REAL do usuário: aconteceu, e o processo falso foi parar em
+    # ~/.automacao_processos/processos_online.
+    online = tmp_path / "appdata" / "processos_online"
+    online.mkdir(parents=True)
+    monkeypatch.setattr(gui, "PROCESSOS_ONLINE_DIR", online)
+    monkeypatch.setattr(gui, "PROCESSOS_INDICE_JSON", tmp_path / "appdata" / "indice.json")
     monkeypatch.setenv("ORGANIZADOR_APP_DATA", str(tmp_path / "appdata"))
     base = tmp_path / "base"
     _escrever(
@@ -388,8 +399,6 @@ def app_isolada(tmp_path, monkeypatch):
         juiz="DRA. FULANA DE TAL", orgao_julgador="1a Vara Civel",
         partes=[{"nome": "BANCO ALFA", "papel": "EXEQUENTE"}],
     )
-    import organizador.gui as gui
-
     try:
         app = gui.App()
     except tk.TclError as exc:                       # sem display/sessão gráfica
@@ -444,6 +453,14 @@ def test_botao_corrige_o_errado_sem_apagar_o_que_o_tribunal_nao_trouxe(app_isola
     )
     assert app.tree.selection() and app.tree.selection()[0] == alvo
     assert "'CLASSE ERRADA' → 'Procedimento Comum Cível'" in avisos[-1][2]
+
+    # A marca é o que faz a correção sobreviver a fechar e abrir o app: sem ela
+    # o resultado cai em processos_online e perde para a pasta base na mescla.
+    salvo = json.loads(
+        (gui.PROCESSOS_ONLINE_DIR / "0000001-11.2020.8.26.0100"
+         / "metadados.json").read_text(encoding="utf-8")
+    )
+    assert salvo.get("atualizado_em"), "não marcou o registro como atualizado"
 
     # 2º cenário na MESMA janela: tribunal fora do ar. Duas App() no mesmo
     # processo quebram o registro de estilos do ttkbootstrap ("Layout

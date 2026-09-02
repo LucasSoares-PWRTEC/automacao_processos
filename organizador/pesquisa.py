@@ -55,7 +55,30 @@ _GRUPOS_ACOPLADOS: tuple[tuple[str, ...], ...] = (
 #     lido, e apontar os do outro atribuiria arquivo que não é dele.
 _NAO_PREENCHER = frozenset({
     "numero", "fonte", "origem", "origens_reserva", "arquivos_origem",
+    # `atualizado_em` diz que ESTE registro foi atualizado pelo usuário; herdá-lo
+    # de uma reserva faria um registro que ninguém mandou atualizar passar a
+    # ganhar da pasta base para sempre.
+    "atualizado_em",
 })
+
+
+def prefere_atualizado(novo: object, atual: object) -> bool:
+    """True se `novo` deve tomar o lugar de `atual` APESAR da prioridade da fonte.
+
+    A prioridade normal é `pasta base > processos_online > embutido`. Ela é boa
+    como padrão — a pasta base é o que o escritório curou — mas atrapalha no caso
+    em que a pessoa olha a tela, vê um dado errado e manda consultar o tribunal:
+    o resultado cai em processos_online e perde para o registro antigo. Medido
+    num cenário mínimo: com "CLASSE ERRADA" na pasta base, ao reabrir o app a
+    lista e a petição voltavam a mostrar a errada.
+
+    A marca ``atualizado_em`` (ver models.Processo) inverte a prioridade só para
+    o número que a pessoa mandou atualizar. Comparação de string porque o formato
+    é ISO, que ordena por ordem alfabética; vazio perde de qualquer data, então
+    registro sem marca nunca rouba o lugar de ninguém. Empate mantém o vencedor
+    atual, ou seja a prioridade de fonte continua desempatando."""
+    return (str(getattr(novo, "atualizado_em", "") or "")
+            > str(getattr(atual, "atualizado_em", "") or ""))
 
 
 def _vazio(valor: object) -> bool:
@@ -142,21 +165,31 @@ def mesclar_processos_por_prioridade(*fontes: list[Processo]) -> list[Processo]:
     """Mescla fontes preservando a prioridade da esquerda para a direita.
 
     Duplicata não é mais descartada inteira: o que ela tem e o vencedor não tem
-    é aproveitado (ver ``preencher_lacunas``).
+    é aproveitado (ver ``preencher_lacunas``). E um registro que o usuário mandou
+    atualizar toma o lugar do vencedor mesmo vindo de fonte de menor prioridade
+    (ver ``prefere_atualizado``).
 
     Processos com número vazio não são deduplicados, pois não há chave confiável.
     """
     resultados: list[Processo] = []
     vencedor_de: dict[str, Processo] = {}
+    posicao_de: dict[str, int] = {}
     for fonte in fontes:
         for proc in fonte:
             numero = (proc.numero or "").strip()
             if numero:
                 anterior = vencedor_de.get(numero)
                 if anterior is not None:
-                    preencher_lacunas(anterior, proc)
+                    if prefere_atualizado(proc, anterior):
+                        # Troca de vencedor no lugar: o antigo vira reserva.
+                        preencher_lacunas(proc, anterior)
+                        resultados[posicao_de[numero]] = proc
+                        vencedor_de[numero] = proc
+                    else:
+                        preencher_lacunas(anterior, proc)
                     continue
                 vencedor_de[numero] = proc
+                posicao_de[numero] = len(resultados)
             resultados.append(proc)
     return resultados
 

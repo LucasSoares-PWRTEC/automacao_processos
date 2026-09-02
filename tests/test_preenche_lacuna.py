@@ -324,3 +324,108 @@ def test_arquivos_origem_nao_atribui_pdf_alheio():
     vencedor = Processo(numero="1", arquivos_origem=[])
     preencher_lacunas(vencedor, {"numero": "1", "arquivos_origem": ["outro.pdf"]})
     assert vencedor.arquivos_origem == []
+
+
+# ---------------------------------------------------------------------------
+# Marca "atualizado pelo usuário": inverte a prioridade só para quem ela marca
+# ---------------------------------------------------------------------------
+# A prioridade `pasta base > online > embutido` é boa como padrão, mas atrapalha
+# no caso do botão "Atualizar processo": o resultado da consulta ao tribunal cai
+# em processos_online e PERDE para o registro antigo da pasta base assim que o
+# app reabre. Medido: com "CLASSE ERRADA" na pasta base, a lista e a petição
+# voltavam a mostrar a errada.
+
+def test_marca_ganha_de_quem_nao_tem():
+    from organizador.pesquisa import prefere_atualizado
+
+    marcado = ResumoProcesso(numero="1", atualizado_em="2026-09-02T15:04:05")
+    sem = ResumoProcesso(numero="1")
+    assert prefere_atualizado(marcado, sem) is True
+    assert prefere_atualizado(sem, marcado) is False
+
+
+def test_entre_duas_marcas_a_mais_nova_ganha():
+    from organizador.pesquisa import prefere_atualizado
+
+    velha = ResumoProcesso(numero="1", atualizado_em="2026-09-01T10:00:00")
+    nova = ResumoProcesso(numero="1", atualizado_em="2026-09-02T15:04:05")
+    assert prefere_atualizado(nova, velha) is True
+    assert prefere_atualizado(velha, nova) is False
+
+
+def test_empate_mantem_a_prioridade_de_fonte():
+    """Empate não troca o vencedor: quem já estava ganhou pela prioridade."""
+    from organizador.pesquisa import prefere_atualizado
+
+    a = ResumoProcesso(numero="1", atualizado_em="2026-09-02T15:04:05")
+    b = ResumoProcesso(numero="1", atualizado_em="2026-09-02T15:04:05")
+    assert prefere_atualizado(b, a) is False
+
+
+def test_marca_nao_e_herdada_de_uma_reserva():
+    """Herdar a marca faria um registro que ninguém mandou atualizar passar a
+    ganhar da pasta base para sempre."""
+    vencedor = ResumoProcesso(numero="1", atualizado_em="")
+    preencher_lacunas(vencedor, ResumoProcesso(numero="1",
+                                               atualizado_em="2026-09-02T15:04:05"))
+    assert vencedor.atualizado_em == ""
+
+
+def test_online_marcado_vence_a_pasta_base(tmp_path):
+    """O caso de ponta a ponta: o que o tribunal informou continua valendo
+    depois de fechar e abrir o app."""
+    base, online = tmp_path / "base", tmp_path / "online"
+    base.mkdir()
+    online.mkdir()
+    _escrever(base, "1", classe="CLASSE ERRADA", valor_causa="R$ 1,00",
+              juiz="DRA. FULANA")
+    _escrever(online, "1", classe="Procedimento Comum Cível",
+              valor_causa="R$ 60.304,81", atualizado_em="2026-09-02T15:04:05")
+
+    resumos = carregar_resumos_pesquisa(
+        base, online, tmp_path / "x.json.gz", tmp_path / "i.json",
+    )
+
+    assert len(resumos) == 1, "a dedup por número parou de funcionar"
+    r = resumos[0]
+    assert r.classe == "Procedimento Comum Cível", "a pasta base venceu o tribunal"
+    assert r.fonte == "online"
+    assert r.origens_reserva, "a pasta base não virou reserva"
+
+    proc = carregar_processo_completo(r, tmp_path / "x.json.gz")
+    assert proc.classe == "Procedimento Comum Cível"
+    assert proc.valor_causa == "R$ 60.304,81"
+    assert proc.juiz == "DRA. FULANA", (
+        "perdeu o juiz, que só a pasta base tinha — a troca de vencedor precisa "
+        "manter o preenchimento de lacuna"
+    )
+
+
+def test_sem_marca_a_pasta_base_continua_vencendo(tmp_path):
+    """Uma busca online COMUM não pode inverter a prioridade por conta própria."""
+    base, online = tmp_path / "base", tmp_path / "online"
+    base.mkdir()
+    online.mkdir()
+    _escrever(base, "1", classe="CLASSE DA BASE")
+    _escrever(online, "1", classe="CLASSE DO ONLINE")
+
+    resumos = carregar_resumos_pesquisa(
+        base, online, tmp_path / "x.json.gz", tmp_path / "i.json",
+    )
+
+    assert resumos[0].classe == "CLASSE DA BASE"
+    assert resumos[0].fonte == "base"
+
+
+def test_troca_de_vencedor_tambem_no_merge_de_processos():
+    """`mesclar_processos_por_prioridade` (caminho do shim/testes antigos) segue
+    a mesma regra."""
+    da_base = Processo(numero="1", classe="CLASSE ERRADA", juiz="DRA. FULANA")
+    do_online = Processo(numero="1", classe="CERTA",
+                         atualizado_em="2026-09-02T15:04:05")
+
+    fora = mesclar_processos_por_prioridade([da_base], [do_online])
+
+    assert len(fora) == 1
+    assert fora[0].classe == "CERTA"
+    assert fora[0].juiz == "DRA. FULANA", "perdeu o que só o antigo tinha"

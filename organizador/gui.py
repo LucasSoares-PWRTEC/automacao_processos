@@ -2777,6 +2777,21 @@ class App(ttk.Window):
                             )
                             if completo_antes is not None:
                                 preencher_lacunas(proc, completo_antes)
+                    # Marca de "o usuário mandou atualizar ESTE processo", só
+                    # quando a busca veio do botão "Atualizar processo". É ela
+                    # que faz o resultado do tribunal continuar valendo depois de
+                    # fechar o app: sem a marca ele cai em PROCESSOS_ONLINE_DIR e
+                    # PERDE para o registro antigo da pasta base na próxima
+                    # abertura (medido: com "CLASSE ERRADA" na pasta base, a
+                    # lista e a petição voltavam a mostrar a errada). Ver
+                    # models.Processo.atualizado_em e pesquisa.prefere_atualizado.
+                    #
+                    # Só o botão marca: uma busca comum não deve inverter a
+                    # prioridade das fontes por conta própria.
+                    pedido = self._comparar_apos_busca
+                    if pedido and pedido[0] == proc.numero:
+                        from datetime import datetime
+                        proc.atualizado_em = datetime.now().isoformat(timespec="seconds")
                     aprender_comarcas([proc])
                     # Persiste o processo buscado online para reaparecer ao reabrir.
                     salvar_processo_metadados(proc, PROCESSOS_ONLINE_DIR)
