@@ -172,6 +172,7 @@ from .placeholders import (
 )
 from .pesquisa import (
     filtrar_processos_indexado, indexar_para_filtro, linhas_tree_processos,
+    preencher_lacunas,
 )
 from .indice_processos import (
     ResumoProcesso, _resumo_de_processo, caminho_sqlite,
@@ -499,11 +500,10 @@ class App(ttk.Window):
         # ilimitada numa máquina de 4 GB.
         self._max_full_cache = 20 if self._modo_leve else 60
         self._full_cache: OrderedDict[str, Processo] = OrderedDict()
-        # Pedido pendente do botão "Atualizar processo": qual número reselecionar
-        # quando a carga (assíncrona) terminar, e como os campos estavam antes,
-        # para dizer o que mudou. Ver _atualizar_processo_selecionado.
-        self._pos_carga_selecionar: str | None = None
-        self._pos_carga_campos_antes: dict[str, str] = {}
+        # Pedido pendente do botão "Atualizar processo": (número, instantâneo de
+        # como ele aparecia antes de ir ao tribunal). O fim da busca compara e
+        # diz o que mudou. Ver _atualizar_processo_selecionado.
+        self._comparar_apos_busca: "tuple[str, dict[str, str]] | None" = None
         self._proc_selecionado: Processo | None = None
         self._templates_vars: dict[Path, tk.BooleanVar] = {}
         self.var_documento_unico = tk.BooleanVar(value=True)
@@ -2458,36 +2458,29 @@ class App(ttk.Window):
         self._iniciar_carregamento_pesquisa(silencioso=True)
 
     def _atualizar_processo_selecionado(self) -> None:
-        """Relê o processo selecionado do zero, sem confiar em cache nenhum.
+        """Busca de novo NA WEB o processo selecionado e mostra o que mudou.
 
-        POR QUE UM BOTÃO SÓ PARA ISSO
-        -----------------------------
-        Há dois caches entre o arquivo no disco e o que aparece na tela, e cada
-        um estraga uma superfície DIFERENTE — medido, não suposto:
+        É o botão para quando a pessoa olha a tela e vê algo errado. O caminho
+        normal ("Buscar online") é cache-first: com o processo já na lista ele só
+        seleciona a linha e nem vai à web, a menos que "Forçar busca online"
+        esteja marcado. Aqui a força é implícita — o sentido do botão É atualizar.
 
-        1. ``processos_indice.json`` (disco) reaproveita o resumo enquanto o
-           ``mtime`` do metadados.json não muda. Isso alimenta as COLUNAS DA
-           LISTA e o filtro. Um arquivo corrigido por fora (copiar por cima
-           preserva o mtime da origem) ou um resumo gravado por versão anterior
-           do parser sobrevive a QUALQUER recarga da lista — recarregar não
-           resolve, porque a recarga é que confia no mtime. Conferido ao vivo:
-           sujando o resumo à mão, a coluna Classe mostrava "LIXO DE CACHE"
-           depois de recarregar.
-        2. ``self._full_cache`` (memória) guarda o Processo completo por número e
-           alimenta o PAINEL DE DETALHES. Só é descartado quando a lista
-           recarrega inteira, então durante a sessão ele pode servir detalhe de
-           antes de o arquivo mudar.
+        Antes de ir à web, limpa o que a máquina lembra deste processo, porque
+        há dois caches que sobrevivem a uma recarga comum e serviriam dado velho
+        se a busca falhar (ou se o problema nunca tiver sido do tribunal):
 
-        O painel de detalhes NÃO sofre do caso 1: ele vem de
-        ``carregar_processo_completo``, que relê o arquivo. Foi por isso que o
-        "processo parou de preencher" não era cache — era a mescla descartando a
-        fonte de menor prioridade (ver ``pesquisa.preencher_lacunas``). Este
-        botão é a saída para quando o problema É cache, que antes só tinha jeito
-        apagando arquivo no %USERPROFILE% na mão.
+        1. ``self._full_cache`` (memória), que alimenta o painel de detalhes;
+        2. a entrada dele no ``processos_indice.json``, que alimenta as COLUNAS
+           da lista e é reaproveitada enquanto o ``mtime`` do metadados.json não
+           muda — um arquivo corrigido por fora (copiar por cima preserva o mtime
+           da origem) sobrevive a QUALQUER recarga. Conferido ao vivo: sujando o
+           resumo à mão, a coluna Classe mostrava "LIXO DE CACHE" depois de
+           recarregar a lista inteira.
 
-        Não vai à web — para isso é o "Buscar online" com "Forçar busca online"
-        marcado. Aqui é releitura do que a máquina já tem, com mescla refeita
-        (e portanto lacuna preenchida de novo)."""
+        O resultado da busca é aplicado pelo caminho normal
+        (``_drain_busca_result``), que salva em PROCESSOS_ONLINE_DIR, atualiza a
+        linha e reseleciona. O que este botão acrescenta lá é a COMPARAÇÃO: sem
+        ela o usuário fica sem saber se a ida ao tribunal mudou alguma coisa."""
         sel = self.tree.selection()
         numero = sel[0] if sel else ""
         if not numero:
@@ -2498,21 +2491,16 @@ class App(ttk.Window):
             )
             return
 
-        campos_antes = self._instantaneo_processo(numero)
+        # Guardado para o fim da busca dizer o que mudou (ver _drain_busca_result).
+        self._comparar_apos_busca = (numero, self._instantaneo_processo(numero))
 
-        # 1. cache em memória deste processo
         self._full_cache.pop(numero, None)
-        # 2. índice em disco: sem isto o resumo velho volta pelo mtime
         esquecidas = esquecer_processo(PROCESSOS_INDICE_JSON, numero)
-
         self._pesquisa_log_queue.put(
             f"Atualizando {numero}: cache em memória descartado, "
-            f"{esquecidas} entrada(s) do índice esquecida(s).\n"
+            f"{esquecidas} entrada(s) do índice esquecida(s). Indo ao tribunal...\n"
         )
-        # Reselecionar depois da carga (que é assíncrona) e dizer o que mudou.
-        self._pos_carga_selecionar = numero
-        self._pos_carga_campos_antes = campos_antes
-        self._iniciar_carregamento_pesquisa(silencioso=False)
+        self._buscar_online(numero=numero, forcar=True)
 
     def _instantaneo_processo(self, numero: str) -> dict[str, str]:
         """Como o processo aparece agora, nas DUAS superfícies que divergem.
@@ -2539,34 +2527,23 @@ class App(ttk.Window):
                 fora[f"detalhe · {rotulo}"] = str(getattr(proc, atr, "") or "")
         return fora
 
-    def _fim_atualizar_processo(self, numero: str, campos_antes: dict) -> None:
-        """Reseleciona o processo recarregado e diz o que mudou de fato."""
-        # `garantir`: a lista é paginada e o processo pode estar além do teto de
-        # linhas — sem isto a seleção não acharia a linha (mesmo motivo do
-        # _buscar_online).
-        self._preencher_tree(self._processos_carregados, garantir=numero)
-        if not self.tree.exists(numero):
-            self._notificar(
-                "Atualizar processo",
-                f"O processo {numero} não está mais na lista — o arquivo dele "
-                f"pode ter saído da pasta base.",
-                nivel="warning",
-            )
-            return
-        self.tree.selection_set(numero)
-        self.tree.see(numero)
-        # `update()`, não `update_idletasks()`: a seleção dispara o virtual event
-        # <<TreeviewSelect>>, e é ele que faz _on_select_processo reler o
-        # completo e reescrever os campos. `update_idletasks` só roda tarefas
-        # idle e deixaria o instantâneo "depois" lendo a tela velha.
-        with contextlib.suppress(Exception):
-            self.update()
+    def _relatar_atualizacao(self, numero: str) -> None:
+        """Fecha o ciclo do botão "Atualizar processo": compara com o que estava
+        na tela antes da busca e diz o que o tribunal mudou.
 
+        Chamado no fim da busca, DEPOIS de a linha ser reescrita e reselecionada.
+        Consome o pedido: uma busca comum depois não relata nada."""
+        pedido, self._comparar_apos_busca = self._comparar_apos_busca, None
+        if not pedido or pedido[0] != numero:
+            return
+        _, antes = pedido
+        with contextlib.suppress(Exception):
+            self.update()     # deixa o <<TreeviewSelect>> reescrever os campos
         depois = self._instantaneo_processo(numero)
         mudou = [
-            f"{rotulo}: {campos_antes.get(rotulo, '')!r} → {valor!r}"
+            f"{rotulo}: {antes.get(rotulo, '')!r} → {valor!r}"
             for rotulo, valor in depois.items()
-            if campos_antes.get(rotulo, "") != valor
+            if antes.get(rotulo, "") != valor
         ]
         if mudou:
             self._pesquisa_log_queue.put(
@@ -2578,14 +2555,12 @@ class App(ttk.Window):
             )
         else:
             self._pesquisa_log_queue.put(
-                f"{numero}: relido do disco, nenhum campo mudou.\n"
+                f"{numero}: consultado no tribunal, nenhum campo mudou.\n"
             )
             self._notificar(
                 "Processo atualizado",
-                f"{numero} foi relido do zero e nenhum campo mudou — o que está "
-                f"na tela é o que existe nos arquivos desta máquina.\n\n"
-                f"Se falta dado, ele não está em nenhuma fonte local: use "
-                f"\"Buscar online\" com \"Forçar busca online\" marcado.",
+                f"{numero} foi consultado no tribunal agora e nenhum campo "
+                f"mudou — o que está na tela é o que o tribunal informa.",
             )
 
     def _recarregar_pesquisa(self) -> None:
@@ -2613,36 +2588,38 @@ class App(ttk.Window):
                         self._pesquisa_log_queue.put(
                             f"Lista carregada: {len(procs)} processo(s).\n"
                         )
-                    # "Atualizar processo" pediu esta carga: reseleciona o
-                    # processo e compara os campos. Consumido de uma vez só, para
-                    # uma recarga comum depois não reselecionar nada.
-                    alvo, self._pos_carga_selecionar = self._pos_carga_selecionar, None
-                    antes, self._pos_carga_campos_antes = self._pos_carga_campos_antes, {}
-                    if alvo:
-                        with contextlib.suppress(Exception):
-                            self._fim_atualizar_processo(alvo, antes)
                 elif not silencioso:
                     self.var_status.set("Erro ao carregar processos.")
                     self._notificar("Erro ao carregar processos", str(payload), nivel="error")
         except queue.Empty:
             pass
 
-    def _buscar_online(self) -> None:
+    def _buscar_online(
+        self, numero: str | None = None, forcar: bool | None = None,
+    ) -> None:
         """Dispara a busca do processo no TJ/sistema escolhido numa thread.
 
         Cache-first: se o número digitado já estiver carregado (pasta base ou
-        cache de buscas anteriores), apenas seleciona a linha — não vai à web."""
-        texto = self.var_filtro.get().strip()
-        if not texto:
-            messagebox.showwarning("Buscar processo", "Informe o número do processo (CNJ).")
-            return
-        # Extrai o CNJ canônico do que foi digitado (a barra também serve de filtro).
-        m = RE_NUMERO_CNJ.search(texto)
-        numero = m.group(0) if m else texto
+        cache de buscas anteriores), apenas seleciona a linha — não vai à web.
+
+        `numero`/`forcar` existem para o botão "Atualizar processo", que busca o
+        processo SELECIONADO na lista sem mexer no que o usuário digitou na barra
+        e sem exigir que ele marque "Forçar busca online". Sem argumento (o caso
+        do botão "Buscar online", que o Tk chama sem parâmetro) tudo vem das
+        variáveis da tela, como antes."""
+        if numero is None:
+            texto = self.var_filtro.get().strip()
+            if not texto:
+                messagebox.showwarning("Buscar processo", "Informe o número do processo (CNJ).")
+                return
+            # Extrai o CNJ canônico do que foi digitado (a barra também filtra).
+            m = RE_NUMERO_CNJ.search(texto)
+            numero = m.group(0) if m else texto
 
         # Se o processo já foi carregado, não precisa buscar na web: seleciona.
         # Exceção: "Forçar busca online" marcado → atualiza o dado pela web.
-        forcar = self.var_busca_forcar.get()
+        if forcar is None:
+            forcar = self.var_busca_forcar.get()
         existente = next(
             (p for p in self._processos_carregados if p.numero == numero), None
         )
@@ -2771,8 +2748,8 @@ class App(ttk.Window):
                     proc = payload
                     # Ao atualizar pela web um processo já em cache (ex.: busca
                     # forçada sobre um caso vindo das planilhas), preserva a tag
-                    # de origem "Mapeamento: ..." e o valor da causa quando o
-                    # online não o trouxe — não perde o que veio da planilha.
+                    # de origem "Mapeamento: ..." — não perde o que veio da
+                    # planilha.
                     anterior = next(
                         (r for r in self._processos_carregados if r.numero == proc.numero), None
                     )
@@ -2780,8 +2757,26 @@ class App(ttk.Window):
                         for t in anterior.tags:
                             if str(t).startswith("Mapeamento:") and t not in proc.tags:
                                 proc.tags.insert(0, t)
-                        if not proc.valor_causa and anterior.valor_causa:
-                            proc.valor_causa = anterior.valor_causa
+                        # O que o tribunal NÃO trouxe não pode APAGAR o que já se
+                        # sabia. Uma consulta traz o que aquela página mostra, e
+                        # quase nunca é o mesmo conjunto de campos da vez
+                        # anterior. Visto ao vivo ao testar o botão "Atualizar
+                        # processo": a busca voltou sem `juiz`, `orgao_julgador`
+                        # e `ultima_movimentacao`, e os três SUMIRAM da tela —
+                        # quem clicou para consertar um campo via três outros
+                        # esvaziarem.
+                        #
+                        # Aqui só a LACUNA do resultado novo é preenchida com o
+                        # registro anterior; tudo que o tribunal trouxe vence
+                        # (ver pesquisa.preencher_lacunas). Isto generaliza o
+                        # `if not proc.valor_causa` que existia antes, que era a
+                        # mesma ideia para um campo só.
+                        with contextlib.suppress(Exception):
+                            completo_antes = carregar_processo_completo(
+                                anterior, PROCESSOS_BASE_JSON,
+                            )
+                            if completo_antes is not None:
+                                preencher_lacunas(proc, completo_antes)
                     aprender_comarcas([proc])
                     # Persiste o processo buscado online para reaparecer ao reabrir.
                     salvar_processo_metadados(proc, PROCESSOS_ONLINE_DIR)
@@ -2804,9 +2799,17 @@ class App(ttk.Window):
                         self.tree.see(proc.numero)
                     self._pesquisa_log_queue.put(f"Processo {proc.numero} carregado.\n")
                     self.var_status.set(f"Processo {proc.numero} carregado.")
+                    # Se a busca veio do botão "Atualizar processo", diz o que o
+                    # tribunal mudou. Depois do _preencher_tree e da seleção, para
+                    # comparar a linha já reescrita.
+                    with contextlib.suppress(Exception):
+                        self._relatar_atualizacao(proc.numero)
                     with contextlib.suppress(Exception):
                         self.bell()  # sinal sonoro de conclusão da busca
                 else:
+                    # Descarta o pedido do "Atualizar processo": sem isto a
+                    # PRÓXIMA busca comum herdaria a comparação desta, que falhou.
+                    self._comparar_apos_busca = None
                     self._pesquisa_log_queue.put(f"! Erro na busca online: {payload}\n")
                     self._notificar("Busca online", str(payload), nivel="error")
                 self._btn_buscar.configure(state="normal")
